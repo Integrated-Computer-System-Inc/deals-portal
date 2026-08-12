@@ -1,0 +1,98 @@
+// Prisma schema for Deals Registration Portal
+// Database Naming Rule: STRICT PascalCase for all models and fields
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model DealHeader {
+  DealID       Int           @id @default(autoincrement())
+  DtRegistered DateTime
+  Expiration   DateTime
+  ExpDt        DateTime
+  Brand        String
+  CustomerID   String
+  DealRegID    String        @unique
+  ProjectName  String
+  AssignedAO   String
+  BU           String
+  DealStatus   Int
+  CreatedBy    String
+  CustName     String
+  Remarks      String?
+  DtCreated    DateTime      @default(now())
+
+  DealItems    DealItems[]
+  DealWTN      DealWTN?
+  DealResponse DealResponse?
+  DealLost     DealLost?
+}
+
+model DealItems {
+  ItemID     Int        @id @default(autoincrement())
+  DealID     Int
+  ItemDesc   String
+  Qty        Int
+  Currency   String
+  TotalAmt   Float
+
+  DealHeader DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+}
+
+model DealWTN {
+  WTNID        Int        @id @default(autoincrement())
+  DealID       Int        @unique
+  WhenToNotify DateTime
+
+  DealHeader   DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+}
+
+model DealsRegNotification {
+  NotificationID Int       @id @default(autoincrement())
+  Creator        String
+  Subject        String
+  Message        String
+  SendTo         String
+  SendCC         String?
+  SendBCC        String?
+  DateCreated    DateTime  @default(now())
+  DateSent       DateTime?
+  Status         Int       @default(0) // 0=Unsent, 1=Sent
+}
+
+model DealResponse {
+  ResponseID   Int        @id @default(autoincrement())
+  DealID       Int        @unique
+  ResponseDays Int
+
+  DealHeader   DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+}
+
+model DealLost {
+  LostID           Int        @id @default(autoincrement())
+  DealID           Int        @unique
+  CompetitorVendor String
+  CompetitorBrand  String
+  IcsOffer         Float
+  CompetitorOffer  Float
+  Reason           String
+  OtherInformation String?
+
+  DealHeader       DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+}
+
+model User {
+  UserID        Int      @id @default(autoincrement())
+  AccountName   String
+  Email         String   @unique
+  RememberToken String?
+  WhenCreated   DateTime @default(now())
+  DomainAccount String
+  AccountGroup  String
+  AccountID     String
+}
