@@ -11,7 +11,6 @@
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
     "@integrated-computer-system/ui-kit": "^1.0.7",
-    "@my-app/database": "*",
     "@my-app/types": "*",
     "antd": "^6.3.1",
     "clsx": "^2.1.1",

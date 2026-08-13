@@ -2,6 +2,7 @@ import NextAuth, { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { UserRole } from '@my-app/types';
+import { prisma } from '@my-app/database';
 
 const authOptions: NextAuthOptions = {
   providers: [
@@ -32,14 +33,73 @@ const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      if (account?.provider === 'google') {
+        try {
+          if (!user.email) return false;
+          
+          const encodedEmail = Buffer.from(user.email).toString('base64');
+          const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedEmail}`);
+          
+          if (!res.ok) {
+            console.error('Failed to fetch liveSearch API:', res.statusText);
+            return false;
+          }
+          
+          const data = await res.json();
+          const accountData = Array.isArray(data) ? data[0] : data;
+          
+          if (accountData && accountData.AccountID && accountData.AccountName) {
+            // Upsert user into UsersTable
+            try {
+              await prisma.usersTable.upsert({
+                where: { Email: user.email },
+                update: {
+                  AccountName: accountData.AccountName,
+                },
+                create: {
+                  AccountID: String(accountData.AccountID),
+                  AccountName: accountData.AccountName,
+                  Email: user.email,
+                  UserRole: 'user',
+                }
+              });
+            } catch (dbError) {
+              console.warn('Could not upsert into UsersTable. Continuing login.', dbError);
+            }
+            
+            // Attach these to the user object so they can be passed to the jwt callback
+            (user as any).AccountID = String(accountData.AccountID);
+            (user as any).AccountName = accountData.AccountName;
+            (user as any).role = 'user';
+            return true;
+          } else {
+            console.error('Validation failed: AccountID or AccountName missing in response.');
+            return '/login?error=AccessDenied';
+          }
+        } catch (error) {
+          console.error('Error during Google sign-in validation:', error);
+          return '/login?error=AccessDenied';
+        }
+      }
+      return true;
+    },
+    async jwt({ token, user, account }) {
       if (user) {
-        const u = user as any;
-        token.DomainAccount = u.DomainAccount || 'CORP\\DEMOUSER';
-        token.AccountGroup = u.AccountGroup || 'HQ';
-        token.AccountID = u.AccountID || 'ACC-0001';
-        token.AccountName = u.AccountName || u.name || 'Demo User';
-        token.role = u.role || 'admin';
+        if (account?.provider === 'google') {
+           token.AccountID = (user as any).AccountID || 'UNKNOWN';
+           token.AccountName = (user as any).AccountName || user.name || 'Google User';
+           token.role = (user as any).role || 'user';
+           token.DomainAccount = `GOOGLE\\${(user.email || '').split('@')[0].toUpperCase()}`;
+           token.AccountGroup = 'G-USER';
+        } else {
+           const u = user as any;
+           token.DomainAccount = u.DomainAccount || 'CORP\\DEMOUSER';
+           token.AccountGroup = u.AccountGroup || 'HQ';
+           token.AccountID = u.AccountID || 'ACC-0001';
+           token.AccountName = u.AccountName || u.name || 'Demo User';
+           token.role = u.role || 'admin';
+        }
       }
       return token;
     },
@@ -57,6 +117,7 @@ const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: '/login',
+    error: '/login',
   },
   session: {
     strategy: 'jwt',

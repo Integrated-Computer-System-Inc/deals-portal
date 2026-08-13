@@ -13,6 +13,7 @@ import {
 } from './ui';
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle } from 'lucide-react';
 import { MOCK_CUSTOMERS, CustomerLookupResult } from '@my-app/types';
+import { searchCustomers } from '../app/actions/deals';
 
 interface CustomerSearchModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ export default function CustomerSearchModal({
   const [manualBU, setManualBU] = useState('BU5');
   const [manualAO, setManualAO] = useState('');
 
-  // LiveSearch API & Local Fallback
+  // Live cdbAccounts search with fallback
   useEffect(() => {
     if (!isOpen) return;
 
@@ -47,29 +48,14 @@ export default function CustomerSearchModal({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const encodedKey = btoa(searchTerm);
-        const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedKey}`, {
-          headers: { 'Accept': 'application/json' },
-          cache: 'no-store',
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            setResults(
-              data.map((item: any) => ({
-                customerID: item.customerID || item.id || `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
-                custName: item.custName || item.customerName || item.name || searchTerm,
-                bu: item.bu || 'BU5',
-                assignedAO: item.assignedAO || item.ao || 'Assigned Officer',
-              }))
-            );
-            setLoading(false);
-            return;
-          }
+        const res = await searchCustomers(searchTerm.trim());
+        if (res.success && res.data && res.data.length > 0) {
+          setResults(res.data);
+          setLoading(false);
+          return;
         }
       } catch (err) {
-        // Fallback gracefully on CORS/Network errors to mock search
+        // Fallback gracefully on network error
       }
 
       // Local fuzzy filter fallback
@@ -126,7 +112,7 @@ export default function CustomerSearchModal({
                 prefix={<Search className="w-4 h-4 text-muted" />}
                 placeholder="Type customer name, Customer ID, or Assigned AO..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e: any) => setSearchTerm(e.target.value)}
                 allowClear
                 autoFocus
                 size="lg"
@@ -223,7 +209,7 @@ export default function CustomerSearchModal({
                 <AppInput
                   placeholder="e.g. Acme Philippines Corporation"
                   value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
+                  onChange={(e: any) => setManualName(e.target.value)}
                   size="md"
                 />
               </div>
@@ -250,7 +236,7 @@ export default function CustomerSearchModal({
                   <AppInput
                     placeholder="e.g. Abegail Cebujano"
                     value={manualAO}
-                    onChange={(e) => setManualAO(e.target.value)}
+                    onChange={(e: any) => setManualAO(e.target.value)}
                     size="md"
                   />
                 </div>

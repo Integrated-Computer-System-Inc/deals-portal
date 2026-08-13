@@ -91,7 +91,7 @@ export default function LostDealModal({
               <AppInput
                 required
                 value={competitorVendor}
-                onChange={(e) => setCompetitorVendor(e.target.value)}
+                onChange={(e: any) => setCompetitorVendor(e.target.value)}
                 placeholder="e.g. Trend Micro / Dell Direct"
                 size="md"
               />
@@ -104,7 +104,7 @@ export default function LostDealModal({
               <AppInput
                 required
                 value={competitorBrand}
-                onChange={(e) => setCompetitorBrand(e.target.value)}
+                onChange={(e: any) => setCompetitorBrand(e.target.value)}
                 placeholder="e.g. Cisco / Lenovo"
                 size="md"
               />
@@ -120,7 +120,7 @@ export default function LostDealModal({
                 type="number"
                 prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={icsOffer}
-                onChange={(e) => setIcsOffer(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e: any) => setIcsOffer(e.target.value ? Number(e.target.value) : '')}
                 placeholder="0.00"
                 size="md"
               />
@@ -134,7 +134,7 @@ export default function LostDealModal({
                 type="number"
                 prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={competitorOffer}
-                onChange={(e) => setCompetitorOffer(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e: any) => setCompetitorOffer(e.target.value ? Number(e.target.value) : '')}
                 placeholder="0.00"
                 size="md"
               />
@@ -147,7 +147,7 @@ export default function LostDealModal({
             </label>
             <select
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e: any) => setReason(e.target.value)}
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
             >
               <option value="Price Difference">Price Difference / Lower Competitor Bid</option>
@@ -163,10 +163,11 @@ export default function LostDealModal({
             <label className="block text-xs font-semibold text-foreground mb-1">
               Additional Intelligence & Notes
             </label>
-            <AppTextarea
+            <textarea
               value={otherInformation}
-              onChange={(e) => setOtherInformation(e.target.value)}
+              onChange={(e: any) => setOtherInformation(e.target.value)}
               rows={3}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
               placeholder="Provide context regarding partner discounts, competitor bundles, or follow-up opportunities..."
             />
           </div>

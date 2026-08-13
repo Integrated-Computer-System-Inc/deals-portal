@@ -13,12 +13,15 @@ export interface CreateDealPayload {
   dtRegistered: string | Date;
   expDt: string | Date;
   brand: string;
-  customerID: string;
+  customerID: number | string;
   dealRegID?: string;
-  projectName: string;
-  assignedAO: string;
-  bu: string;
-  dealStatus: number;
+  projectName?: string;
+  ProjectName?: string;
+  assignedAO?: string;
+  AssignedAO?: string;
+  bu?: string;
+  BU?: string;
+  dealStatus: string | number;
   custName: string;
   remarks?: string;
   toEmail?: boolean;
@@ -30,12 +33,15 @@ export interface UpdateDealPayload {
   dtRegistered: string | Date;
   expDt: string | Date;
   brand: string;
-  customerID: string;
+  customerID: number | string;
   dealRegID?: string;
-  projectName: string;
-  assignedAO: string;
-  bu: string;
-  dealStatus: number;
+  projectName?: string;
+  ProjectName?: string;
+  assignedAO?: string;
+  AssignedAO?: string;
+  bu?: string;
+  BU?: string;
+  dealStatus: string | number;
   custName: string;
   remarks?: string;
   toEmail?: boolean;
@@ -53,8 +59,10 @@ export interface SaveLostDealPayload {
 }
 
 export interface UpdateWTNPayload {
-  dealID: number;
-  whenToNotify: string | Date;
+  wtn_dealID?: number;
+  dealID?: number;
+  dtwtn?: string | Date;
+  whenToNotify?: string | Date;
 }
 
 export type UserRole = 'admin' | 'ao' | 'bu_admin';
@@ -100,19 +108,23 @@ export interface DealLostRecord {
 export interface DealHeaderRecord {
   dealID: number;
   dtRegistered: Date;
-  expiration: Date;
+  expiration: Date | string | null;
   expDt: Date;
   brand: string;
-  customerID: string;
+  customerID: number | string | null;
   dealRegID: string;
-  projectName: string;
-  assignedAO: string;
-  bu: string;
-  dealStatus: number;
+  ProjectName: string;
+  projectName?: string;
+  AssignedAO: string;
+  assignedAO?: string;
+  BU: string;
+  bu?: string;
+  dealStatus: string | number;
   createdBy: string;
   custName: string;
   remarks?: string | null;
   dtCreated: Date;
+  dtValidTo?: Date | null;
   items?: DealItemRecord[];
   wtn?: DealWTNRecord | null;
   response?: DealResponseRecord | null;
@@ -131,6 +143,7 @@ export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success'
   5: { label: 'Expired', variant: 'muted' },
   6: { label: 'Won', variant: 'accent' },
   7: { label: 'Lost', variant: 'danger' },
+  8: { label: 'Lost', variant: 'danger' },
 };
 
 export interface CustomerLookupResult {
@@ -162,9 +175,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'Dell',
     customerID: 'CUST-3184',
     custName: 'HEALTHPROOF (MANILA) INC.',
-    projectName: '2026 Dell Laptops',
-    assignedAO: 'ABEGAIL CEBUJANO',
-    bu: 'BU5',
+    ProjectName: '2026 Dell Laptops',
+    AssignedAO: 'ABEGAIL CEBUJANO',
+    BU: 'BU5',
     dealStatus: 1, // Registered
     createdBy: 'acebujano',
     remarks: 'extended. Re-DR of 30328466',
@@ -187,9 +200,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'HPi',
     customerID: 'CUST-0054',
     custName: 'Security Bank Corp',
-    projectName: 'Frame Agreement_IT Peripherals',
-    assignedAO: 'DANIELLE CARAGAY',
-    bu: 'BU5',
+    ProjectName: 'Frame Agreement_IT Peripherals',
+    AssignedAO: 'DANIELLE CARAGAY',
+    BU: 'BU5',
     dealStatus: 3, // Waiting
     createdBy: 'dcaragay',
     remarks: 'Enterprise annual hardware refresh',
@@ -210,9 +223,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'HPe',
     customerID: 'CUST-0022',
     custName: 'MaplesFS (Manila) Inc',
-    projectName: 'Acquisition of IT equipments',
-    assignedAO: 'CELINA ORNUM',
-    bu: 'BU8',
+    ProjectName: 'Acquisition of IT equipments',
+    AssignedAO: 'CELINA ORNUM',
+    BU: 'BU8',
     dealStatus: 1, // Registered
     createdBy: 'cornum',
     remarks: 'Approved with special partner discount',
@@ -233,9 +246,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'HP Poly',
     customerID: 'CUST-5488',
     custName: 'IQOR PHILIPPINES, INC.',
-    projectName: 'REQUESTING FOR QUOTATION',
-    assignedAO: 'AILEEN DENIÑA',
-    bu: 'BU2',
+    ProjectName: 'REQUESTING FOR QUOTATION',
+    AssignedAO: 'AILEEN DENIÑA',
+    BU: 'BU2',
     dealStatus: 1, // Registered
     createdBy: 'adenina',
     remarks: 'Video conferencing equipment setup',
@@ -256,9 +269,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'Hpi',
     customerID: 'CUST-5489',
     custName: '3M PHILS., INC.',
-    projectName: 'Procurement of laptops',
-    assignedAO: 'AILEEN DENIÑA',
-    bu: 'BU2',
+    ProjectName: 'Procurement of laptops',
+    AssignedAO: 'AILEEN DENIÑA',
+    BU: 'BU2',
     dealStatus: 1, // Registered
     createdBy: 'adenina',
     remarks: 'Standard corporate deployment',
@@ -279,9 +292,9 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     brand: 'HPe',
     customerID: 'CUST-2238',
     custName: 'Department of Health',
-    projectName: 'Procurement of Physical Servers for the Implementation of DOH Various Health Information System',
-    assignedAO: 'CAMILLE KILAKIGA',
-    bu: 'BU5',
+    ProjectName: 'Procurement of Physical Servers for the Implementation of DOH Various Health Information System',
+    AssignedAO: 'CAMILLE KILAKIGA',
+    BU: 'BU5',
     dealStatus: 1, // Registered
     createdBy: 'ckilakiga',
     remarks: 'Government public bidding deal registration',
@@ -293,4 +306,3 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     ],
   },
 ];
-

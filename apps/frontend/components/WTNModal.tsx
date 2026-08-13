@@ -45,7 +45,9 @@ export default function WTNModal({
 
     const res = await updateWTN({
       dealID,
+      wtn_dealID: dealID,
       whenToNotify: new Date(wtnDate),
+      dtwtn: new Date(wtnDate),
     });
 
     setLoading(false);

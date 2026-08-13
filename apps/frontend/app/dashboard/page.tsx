@@ -22,9 +22,6 @@ import {
   Building2,
   Plus,
   TrendingUp,
-  Shield,
-  Calendar,
-  AlertTriangle,
   ArrowRight,
   User,
   Sparkles,
@@ -37,7 +34,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
 
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName || 'Ms. Athena';
+  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || 'Ms. Athena';
   const accountGroup = (session?.user as any)?.AccountGroup || 'BU5';
 
   useEffect(() => {
@@ -68,10 +65,12 @@ export default function DashboardPage() {
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  const totalRegistered = deals.filter((d) => d.dealStatus === 1).length;
+  const totalRegistered = deals.filter((d) => String(d.dealStatus) === '1' || d.dealStatus === 1).length;
 
   const expiredThisMonth = deals.filter((d) => {
-    const exp = new Date(d.expDt);
+    const rawExp = d.expDt || d.expiration;
+    if (!rawExp) return false;
+    const exp = new Date(rawExp);
     return exp.getMonth() === currentMonth && exp.getFullYear() === currentYear && exp < now;
   }).length;
 
@@ -79,12 +78,13 @@ export default function DashboardPage() {
   const dealsPerBrandMap = useMemo(() => {
     const map: Record<string, { count: number; totalValue: number }> = {};
     deals.forEach((d) => {
-      if (!map[d.brand]) {
-        map[d.brand] = { count: 0, totalValue: 0 };
+      const brand = d.brand || 'Unspecified';
+      if (!map[brand]) {
+        map[brand] = { count: 0, totalValue: 0 };
       }
-      map[d.brand].count += 1;
+      map[brand].count += 1;
       const amt = d.items?.reduce((sum: number, i: any) => sum + (i.totalAmt || 0), 0) || 0;
-      map[d.brand].totalValue += amt;
+      map[brand].totalValue += amt;
     });
     return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
   }, [deals]);
@@ -96,7 +96,8 @@ export default function DashboardPage() {
       map[bu] = 0;
     });
     deals.forEach((d) => {
-      map[d.bu] = (map[d.bu] || 0) + 1;
+      const bu = d.BU || d.bu || 'BU1';
+      map[bu] = (map[bu] || 0) + 1;
     });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [deals]);
@@ -274,10 +275,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="divide-y divide-border/50">
-          {deals.slice(0, 4).map((deal) => {
-            const statusMeta = DEAL_STATUS_MAP[deal.dealStatus] || {
+          {deals.slice(0, 5).map((deal) => {
+            const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
+            const statusMeta = DEAL_STATUS_MAP[statusNum] || {
               label: `Status ${deal.dealStatus}`,
-              variant: 'neutral' as const,
+              variant: 'default' as const,
             };
 
             return (
@@ -289,17 +291,17 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-xs text-foreground">{deal.custName}</span>
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
-                      {deal.bu}
+                      {deal.BU || deal.bu}
                     </span>
                   </div>
-                  <div className="text-xs text-muted truncate max-w-md">{deal.projectName}</div>
+                  <div className="text-xs text-muted truncate max-w-md">{deal.ProjectName || deal.projectName}</div>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-bold text-foreground font-mono">
                     {deal.brand}
                   </span>
-                  <AppChip variant={statusMeta.variant}>
+                  <AppChip variant={statusMeta.variant as any}>
                     {statusMeta.label}
                   </AppChip>
                   <Link

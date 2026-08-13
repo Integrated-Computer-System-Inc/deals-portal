@@ -3,19 +3,29 @@ import cors from 'cors';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 import { processPendingEmails } from './cron/emailWorker';
+import authRouter from './routes/auth';
+import dealsRouter from './routes/deals';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// CORS — allow frontend origin
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+}));
 app.use(express.json());
 
 // Health Check Route
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Mount API Routers
+app.use('/api/auth', authRouter);
+app.use('/api/deals', dealsRouter);
 
 // Manual / Triggered Cron Worker Endpoint
 app.post('/api/cron/email-worker', async (_req: Request, res: Response) => {
@@ -46,5 +56,6 @@ cron.schedule('* * * * *', async () => {
 
 app.listen(PORT, () => {
   console.log(`[Backend Service] Running on port ${PORT}`);
+  console.log(`[Backend Service] API routes mounted: /api/auth, /api/deals`);
   console.log(`[Backend Service] Cron worker scheduled for pending email processing.`);
 });

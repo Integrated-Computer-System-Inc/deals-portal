@@ -21,7 +21,6 @@ import WTNModal from '../../components/WTNModal';
 import LostDealModal from '../../components/LostDealModal';
 import {
   Search,
-  Filter,
   Edit,
   BellRing,
   ShieldAlert,
@@ -31,13 +30,10 @@ import {
   AlertCircle,
   XCircle,
   RefreshCw,
-  TrendingUp,
-  Building2,
   Calendar,
   Layers,
-  ArrowUpRight,
   User,
-  Sparkles,
+  Download,
 } from 'lucide-react';
 
 export default function DealsPage() {
@@ -48,12 +44,61 @@ export default function DealsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [buFilter, setBuFilter] = useState<string>('ALL');
 
+  const handleExportCSV = () => {
+    if (!filteredDeals || filteredDeals.length === 0) return;
+
+    const headers = [
+      'Deal Reg ID',
+      'Date Registered',
+      'Expiration Date',
+      'Customer Name',
+      'Project Name',
+      'Brand',
+      'BU',
+      'Assigned AO',
+      'Status',
+      'Total Amount',
+    ];
+
+    const rows = filteredDeals.map((deal) => {
+      const projName = deal.ProjectName || deal.projectName || '';
+      const ao = deal.AssignedAO || deal.assignedAO || '';
+      const bu = deal.BU || deal.bu || '';
+      const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
+      const statusMeta = DEAL_STATUS_MAP[statusNum] || { label: `Status ${deal.dealStatus}` };
+      const expDate = deal.expDt || deal.expiration;
+
+      return [
+        `"${deal.dealRegID || ''}"`,
+        `"${deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : ''}"`,
+        `"${expDate ? new Date(expDate).toLocaleDateString() : ''}"`,
+        `"${(deal.custName || '').replace(/"/g, '""')}"`,
+        `"${projName.replace(/"/g, '""')}"`,
+        `"${deal.brand || ''}"`,
+        `"${bu}"`,
+        `"${ao.replace(/"/g, '""')}"`,
+        `"${statusMeta.label}"`,
+        `"${formatAmounts(deal)}"`,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Deals_Registry_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Modals
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
 
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName;
+  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
   const accountGroup = (session?.user as any)?.AccountGroup;
 
   const fetchDeals = async () => {
@@ -68,7 +113,6 @@ export default function DealsPage() {
       if (res && res.success && res.data && res.data.length > 0) {
         setDeals(res.data);
       } else {
-        // Use realistic mock deals if DB is empty / offline
         setDeals(MOCK_DEALS);
       }
     } catch {
@@ -84,18 +128,25 @@ export default function DealsPage() {
   // Filter deals
   const filteredDeals = useMemo(() => {
     return deals.filter((deal) => {
+      const projName = deal.ProjectName || deal.projectName || '';
+      const custName = deal.custName || '';
+      const regID = deal.dealRegID || '';
+      const ao = deal.AssignedAO || deal.assignedAO || '';
+      const brand = deal.brand || '';
+      const bu = deal.BU || deal.bu || '';
+
       const matchesSearch =
-        deal.projectName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.custName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.dealRegID.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.assignedAO.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deal.brand.toLowerCase().includes(searchQuery.toLowerCase());
+        projName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        custName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        regID.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ao.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        brand.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesStatus =
         statusFilter === 'ALL' || String(deal.dealStatus) === statusFilter;
 
       const matchesBU =
-        buFilter === 'ALL' || deal.bu === buFilter;
+        buFilter === 'ALL' || bu === buFilter;
 
       return matchesSearch && matchesStatus && matchesBU;
     });
@@ -104,14 +155,15 @@ export default function DealsPage() {
   // Metrics summary
   const metrics = useMemo(() => {
     const totalCount = deals.length;
-    const registeredCount = deals.filter((d) => d.dealStatus === 1).length;
-    const pendingCount = deals.filter((d) => d.dealStatus === 4 || d.dealStatus === 3).length;
-    const lostCount = deals.filter((d) => d.dealStatus === 7).length;
+    const registeredCount = deals.filter((d) => String(d.dealStatus) === '1' || d.dealStatus === 1).length;
+    const pendingCount = deals.filter((d) => String(d.dealStatus) === '4' || String(d.dealStatus) === '3' || d.dealStatus === 4).length;
+    const lostCount = deals.filter((d) => String(d.dealStatus) === '7' || String(d.dealStatus) === '8' || d.dealStatus === 7 || d.dealStatus === 8).length;
 
-    // Expiring within 30 days
     const now = new Date().getTime();
     const expiringSoon = deals.filter((d) => {
-      const exp = new Date(d.expDt).getTime();
+      const expDate = d.expDt || d.expiration;
+      if (!expDate) return false;
+      const exp = new Date(expDate).getTime();
       const diffDays = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
       return diffDays > 0 && diffDays <= 90;
     }).length;
@@ -133,7 +185,8 @@ export default function DealsPage() {
     return 'PHP 0.00';
   };
 
-  const getDaysUntilExp = (expDt: Date | string) => {
+  const getDaysUntilExp = (expDt: Date | string | null | undefined) => {
+    if (!expDt) return 0;
     const now = new Date().getTime();
     const exp = new Date(expDt).getTime();
     return Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
@@ -144,7 +197,8 @@ export default function DealsPage() {
       title: 'Registration & Validity',
       key: 'dates',
       render: (_: any, record: DealHeaderRecord) => {
-        const daysRemaining = getDaysUntilExp(record.expDt);
+        const expDate = record.expDt || record.expiration;
+        const daysRemaining = getDaysUntilExp(expDate);
         const wtnDateStr = record.wtn?.whenToNotify
           ? new Date(record.wtn.whenToNotify).toLocaleDateString()
           : null;
@@ -153,10 +207,10 @@ export default function DealsPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
               <Calendar className="w-3.5 h-3.5 text-sky-500" />
-              <span>{new Date(record.dtRegistered).toLocaleDateString()}</span>
+              <span>{record.dtRegistered ? new Date(record.dtRegistered).toLocaleDateString() : 'N/A'}</span>
             </div>
             <div className="text-[11px] text-muted flex items-center gap-1">
-              <span>Exp: {new Date(record.expDt).toLocaleDateString()}</span>
+              <span>Exp: {expDate ? new Date(expDate).toLocaleDateString() : 'N/A'}</span>
               {daysRemaining > 0 && (
                 <span className="text-amber-600 font-medium font-mono text-[10px]">
                   ({daysRemaining}d)
@@ -176,19 +230,22 @@ export default function DealsPage() {
     {
       title: 'Customer & Project',
       key: 'customer',
-      render: (_: any, record: DealHeaderRecord) => (
-        <div className="space-y-0.5 max-w-[280px]">
-          <div className="font-bold text-xs text-foreground hover:text-sky-600 transition">
-            {record.custName}
+      render: (_: any, record: DealHeaderRecord) => {
+        const projName = record.ProjectName || record.projectName || '';
+        return (
+          <div className="space-y-0.5 max-w-[280px]">
+            <div className="font-bold text-xs text-foreground hover:text-sky-600 transition">
+              {record.custName}
+            </div>
+            <div className="text-xs text-muted truncate" title={projName}>
+              {projName}
+            </div>
+            <div className="font-mono text-[10px] text-muted/80">
+              ID: <span className="text-foreground/80 font-medium">{record.dealRegID}</span>
+            </div>
           </div>
-          <div className="text-xs text-muted truncate" title={record.projectName}>
-            {record.projectName}
-          </div>
-          <div className="font-mono text-[10px] text-muted/80">
-            ID: <span className="text-foreground/80 font-medium">{record.dealRegID}</span>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'Brand & BU',
@@ -200,7 +257,7 @@ export default function DealsPage() {
           </div>
           <div>
             <span className="text-[11px] font-semibold text-sky-600 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
-              {record.bu}
+              {record.BU || record.bu}
             </span>
           </div>
         </div>
@@ -214,7 +271,7 @@ export default function DealsPage() {
           <div className="h-6 w-6 rounded-full bg-neutral flex items-center justify-center text-muted border border-border text-[10px]">
             <User className="w-3 h-3" />
           </div>
-          <span>{record.assignedAO}</span>
+          <span>{record.AssignedAO || record.assignedAO}</span>
         </div>
       ),
     },
@@ -231,14 +288,15 @@ export default function DealsPage() {
       title: 'SLA & Status',
       key: 'status',
       render: (_: any, record: DealHeaderRecord) => {
-        const statusMeta = DEAL_STATUS_MAP[record.dealStatus] || {
+        const statusNum = typeof record.dealStatus === 'number' ? record.dealStatus : parseInt(record.dealStatus) || 1;
+        const statusMeta = DEAL_STATUS_MAP[statusNum] || {
           label: `Status ${record.dealStatus}`,
-          variant: 'neutral' as const,
+          variant: 'default' as const,
         };
 
         return (
           <div className="space-y-1">
-            <AppChip variant={statusMeta.variant}>
+            <AppChip variant={statusMeta.variant as any}>
               {statusMeta.label}
             </AppChip>
             {record.response && record.response.responseDays !== undefined && (
@@ -256,7 +314,6 @@ export default function DealsPage() {
       align: 'right' as const,
       render: (_: any, record: DealHeaderRecord) => (
         <div className="flex items-center justify-end gap-1.5">
-          {/* Edit Button */}
           <Link
             href={`/deals/${record.dealID}/edit`}
             className="p-1.5 rounded-lg bg-sky-500/10 text-sky-600 hover:bg-sky-500/20 border border-sky-500/20 transition"
@@ -265,24 +322,24 @@ export default function DealsPage() {
             <Edit className="w-3.5 h-3.5" />
           </Link>
 
-          {/* WTN Quick-Edit Popover */}
-          <button
-            type="button"
-            onClick={() =>
-              setWtnTarget({
-                id: record.dealID,
-                regID: record.dealRegID,
-                date: record.wtn?.whenToNotify || record.expDt,
-              })
-            }
-            className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20 transition"
-            title="Adjust When-To-Notify Date"
-          >
-            <BellRing className="w-3.5 h-3.5" />
-          </button>
+          {role !== 'bu_admin' && (
+            <button
+              type="button"
+              onClick={() =>
+                setWtnTarget({
+                  id: record.dealID,
+                  regID: record.dealRegID,
+                  date: record.wtn?.whenToNotify || record.expDt || record.expiration,
+                })
+              }
+              className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20 transition"
+              title="Adjust When-To-Notify Date"
+            >
+              <BellRing className="w-3.5 h-3.5" />
+            </button>
+          )}
 
-          {/* Lost Deal Modal Trigger */}
-          {record.dealStatus !== 7 && (
+          {record.dealStatus !== 7 && record.dealStatus !== 8 && role !== 'bu_admin' && (
             <button
               type="button"
               onClick={() =>
@@ -323,6 +380,16 @@ export default function DealsPage() {
             title="Refresh Deals Data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-neutral bg-neutral/80 border border-border/70 rounded-xl transition shadow-xs"
+            title="Export Filtered Deals to CSV"
+          >
+            <Download className="w-4 h-4 text-sky-600" />
+            <span>Export CSV</span>
           </button>
 
           <Link
@@ -385,19 +452,17 @@ export default function DealsPage() {
       {/* Filter and Search Bar */}
       <AppCard className="p-4 bg-background border border-border/70 rounded-xl shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Search Box */}
           <div className="flex-1 max-w-md">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search Project, Customer, Deal Reg ID, AO, Brand..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e: any) => setSearchQuery(e.target.value)}
               allowClear
               size="md"
             />
           </div>
 
-          {/* BU Filter Chips */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs font-semibold text-muted mr-1">BU:</span>
             <button
@@ -471,7 +536,7 @@ export default function DealsPage() {
         <AppTable
           columns={columns}
           dataSource={filteredDeals}
-          rowKey={(record) => record.dealID}
+          rowKey={(record: any) => record.dealID}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,

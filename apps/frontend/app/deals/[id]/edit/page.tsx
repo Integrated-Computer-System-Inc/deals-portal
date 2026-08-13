@@ -16,7 +16,6 @@ import {
   DealHeaderRecord,
 } from '@my-app/types';
 import {
-  AppInput,
   AppTextarea,
   AppCard,
   AppChip,
@@ -34,14 +33,10 @@ import {
   FileText,
   Calendar,
   Layers,
-  Sparkles,
   Loader2,
-  DollarSign,
   Info,
   ShieldAlert,
   BellRing,
-  AlertCircle,
-  Send,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -63,7 +58,7 @@ const updateDealSchema = z.object({
   projectName: z.string().min(2, 'Project name is required'),
   assignedAO: z.string().min(2, 'Assigned AO is required'),
   bu: z.string().min(1, 'Business Unit is required'),
-  dealStatus: z.coerce.number(),
+  dealStatus: z.union([z.string(), z.number()]),
   remarks: z.string().optional(),
   toEmail: z.boolean().default(true),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
@@ -130,124 +125,63 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const watchStatus = watch('dealStatus');
   const watchToEmail = watch('toEmail');
 
-  useEffect(() => {
-    async function loadDeal() {
-      setFetching(true);
-      try {
-        const res = await getDealById(dealID);
-        if (res && res.success && res.data) {
-          const deal = res.data;
-          const regStr = new Date(deal.dtRegistered).toISOString().split('T')[0];
-          const expStr = new Date(deal.expDt).toISOString().split('T')[0];
-          const diffDays = Math.max(
-            1,
-            Math.ceil((new Date(deal.expDt).getTime() - new Date(deal.dtRegistered).getTime()) / (1000 * 60 * 60 * 24))
-          );
+  const loadDeal = async () => {
+    setFetching(true);
+    try {
+      const res = await getDealById(dealID);
+      const deal = (res && res.success && res.data) ? res.data : MOCK_DEALS.find((d) => d.dealID === dealID) || MOCK_DEALS[0];
+      
+      const regDateVal = deal.dtRegistered ? new Date(deal.dtRegistered) : new Date();
+      const expDateVal = (deal.expDt || deal.expiration) ? new Date(deal.expDt || deal.expiration!) : new Date();
 
-          reset({
-            dtRegistered: regStr,
-            validityDays: diffDays,
-            expDt: expStr,
-            brand: deal.brand,
-            customerID: deal.customerID,
-            custName: deal.custName,
-            dealRegID: deal.dealRegID,
-            projectName: deal.projectName,
-            assignedAO: deal.assignedAO,
-            bu: deal.bu,
-            dealStatus: deal.dealStatus,
-            remarks: deal.remarks || '',
-            toEmail: true,
-            items: deal.items && deal.items.length > 0
-              ? deal.items.map((i: any) => ({
-                  dealItemID: i.dealItemID,
-                  itemDesc: i.itemDesc,
-                  qty: i.qty,
-                  currency: i.currency,
-                  totalAmt: i.totalAmt,
-                }))
-              : [{ itemDesc: 'Hardware Bundle', qty: 1, currency: 'PHP', totalAmt: 10000 }],
-          });
+      const regStr = regDateVal.toISOString().split('T')[0];
+      const expStr = expDateVal.toISOString().split('T')[0];
+      const diffDays = Math.max(
+        1,
+        Math.ceil((expDateVal.getTime() - regDateVal.getTime()) / (1000 * 60 * 60 * 24))
+      );
 
-          if (deal.wtn?.whenToNotify) {
-            setCurrentWtnDate(deal.wtn.whenToNotify);
-          }
-        } else {
-          // Fallback to MOCK_DEALS
-          const mockMatch = MOCK_DEALS.find((d: DealHeaderRecord) => d.dealID === dealID) || MOCK_DEALS[0];
-          const regStr = new Date(mockMatch.dtRegistered).toISOString().split('T')[0];
-          const expStr = new Date(mockMatch.expDt).toISOString().split('T')[0];
-          const diffDays = Math.max(
-            1,
-            Math.ceil((new Date(mockMatch.expDt).getTime() - new Date(mockMatch.dtRegistered).getTime()) / (1000 * 60 * 60 * 24))
-          );
+      reset({
+        dtRegistered: regStr,
+        validityDays: diffDays,
+        expDt: expStr,
+        brand: deal.brand || 'Dell',
+        customerID: deal.customerID ? String(deal.customerID) : 'CUST-3184',
+        custName: deal.custName || '',
+        dealRegID: deal.dealRegID || String(deal.dealID),
+        projectName: deal.ProjectName || deal.projectName || '',
+        assignedAO: deal.AssignedAO || deal.assignedAO || '',
+        bu: deal.BU || deal.bu || 'BU5',
+        dealStatus: deal.dealStatus ?? 1,
+        remarks: deal.remarks || '',
+        toEmail: true,
+        items: deal.items && deal.items.length > 0
+          ? deal.items.map((i: any) => ({
+              dealItemID: i.itemID || i.dealItemID,
+              itemDesc: i.itemDesc || '',
+              qty: i.qty || 1,
+              currency: i.currency || 'PHP',
+              totalAmt: i.totalAmt || 0,
+            }))
+          : [{ itemDesc: 'Hardware Bundle', qty: 1, currency: 'PHP', totalAmt: 10000 }],
+      });
 
-          reset({
-            dtRegistered: regStr,
-            validityDays: diffDays,
-            expDt: expStr,
-            brand: mockMatch.brand,
-            customerID: mockMatch.customerID,
-            custName: mockMatch.custName,
-            dealRegID: mockMatch.dealRegID,
-            projectName: mockMatch.projectName,
-            assignedAO: mockMatch.assignedAO,
-            bu: mockMatch.bu,
-            dealStatus: mockMatch.dealStatus,
-            remarks: mockMatch.remarks || '',
-            toEmail: true,
-            items: mockMatch.items
-              ? mockMatch.items.map((i: any) => ({
-                  dealItemID: i.dealItemID,
-                  itemDesc: i.itemDesc,
-                  qty: i.qty,
-                  currency: i.currency,
-                  totalAmt: i.totalAmt,
-                }))
-              : [{ itemDesc: 'Hardware Bundle', qty: 1, currency: 'PHP', totalAmt: 10000 }],
-          });
-
-          if (mockMatch.wtn?.whenToNotify) {
-            setCurrentWtnDate(mockMatch.wtn.whenToNotify);
-          }
-        }
-      } catch (err: any) {
-        console.error('Failed to load deal:', err);
-        const mockMatch = MOCK_DEALS[0];
-        reset({
-          dtRegistered: new Date(mockMatch.dtRegistered).toISOString().split('T')[0],
-          validityDays: 90,
-          expDt: new Date(mockMatch.expDt).toISOString().split('T')[0],
-          brand: mockMatch.brand,
-          customerID: mockMatch.customerID,
-          custName: mockMatch.custName,
-          dealRegID: mockMatch.dealRegID,
-          projectName: mockMatch.projectName,
-          assignedAO: mockMatch.assignedAO,
-          bu: mockMatch.bu,
-          dealStatus: mockMatch.dealStatus,
-          remarks: mockMatch.remarks || '',
-          toEmail: true,
-          items: [
-            {
-              itemDesc: 'Standard Bundle',
-              qty: 1,
-              currency: 'PHP',
-              totalAmt: 50000,
-            },
-          ],
-        });
-      } finally {
-        setFetching(false);
+      if (deal.wtn?.whenToNotify) {
+        setCurrentWtnDate(deal.wtn.whenToNotify);
       }
+    } catch (err: any) {
+      console.error('Failed to load deal:', err);
+    } finally {
+      setFetching(false);
     }
+  };
 
+  useEffect(() => {
     if (dealID) {
       loadDeal();
     }
-  }, [dealID, reset]);
+  }, [dealID]);
 
-  // Reactive Expiration Calculation
   const handleValidityChange = (days: number) => {
     setValue('validityDays', days);
     if (watchRegDate && days > 0) {
@@ -260,45 +194,38 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const handleExpDateChange = (expDateStr: string) => {
     setValue('expDt', expDateStr);
     if (watchRegDate && expDateStr) {
-      const reg = new Date(watchRegDate);
-      const exp = new Date(expDateStr);
-      const diffTime = exp.getTime() - reg.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const reg = new Date(watchRegDate).getTime();
+      const exp = new Date(expDateStr).getTime();
+      const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
       if (diffDays > 0) {
         setValue('validityDays', diffDays);
       }
     }
   };
 
-  // Customer Auto-Fill Handler
-  const handleSelectCustomer = (customer: CustomerLookupResult) => {
-    setValue('customerID', customer.customerID);
-    setValue('custName', customer.custName);
-    setValue('assignedAO', customer.assignedAO || 'Abegail Cebujano');
-    setValue('bu', customer.bu || 'BU5');
-  };
-
-  // Status Change Interceptor
-  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newStatus = Number(e.target.value);
+  const handleStatusChange = (newStatus: number) => {
     setValue('dealStatus', newStatus);
-
-    if (newStatus === 7) {
+    if (Number(newStatus) === 7 || Number(newStatus) === 8) {
       setIsLostModalOpen(true);
     }
   };
 
-  // Currency Totals Calculation
+  const handleSelectCustomer = (customer: CustomerLookupResult) => {
+    setValue('customerID', customer.customerID);
+    setValue('custName', customer.custName);
+    setValue('bu', customer.bu);
+    if (customer.assignedAO) {
+      setValue('assignedAO', customer.assignedAO);
+    }
+  };
+
   const currencyTotals = useMemo(() => {
     const totals: Record<string, number> = {};
-    if (watchItems && Array.isArray(watchItems)) {
-      watchItems.forEach((item) => {
-        if (item && item.currency && item.totalAmt) {
-          const curr = item.currency;
-          totals[curr] = (totals[curr] || 0) + Number(item.totalAmt || 0);
-        }
-      });
-    }
+    watchItems.forEach((item) => {
+      const curr = item.currency || 'PHP';
+      const amt = Number(item.totalAmt) || 0;
+      totals[curr] = (totals[curr] || 0) + amt;
+    });
     return totals;
   }, [watchItems]);
 
@@ -307,59 +234,58 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     setErrorMsg(null);
 
     try {
-      const payload = {
+      const result = await updateDeal({
         dealID,
-        dtRegistered: new Date(data.dtRegistered),
-        expiration: Number(data.validityDays),
-        expDt: new Date(data.expDt),
+        dtRegistered: data.dtRegistered,
+        expDt: data.expDt,
         brand: data.brand,
         customerID: data.customerID,
         custName: data.custName,
         dealRegID: data.dealRegID,
         projectName: data.projectName,
+        ProjectName: data.projectName,
         assignedAO: data.assignedAO,
+        AssignedAO: data.assignedAO,
         bu: data.bu,
-        dealStatus: Number(data.dealStatus),
-        remarks: data.remarks || '',
-        toEmail: Boolean(data.toEmail),
-        items: data.items.map((item) => ({
-          dealItemID: item.dealItemID,
-          itemDesc: item.itemDesc,
-          qty: Number(item.qty),
-          currency: item.currency,
-          totalAmt: Number(item.totalAmt),
-        })),
-      };
+        BU: data.bu,
+        dealStatus: data.dealStatus,
+        remarks: data.remarks,
+        toEmail: data.toEmail,
+        items: data.items,
+      });
 
-      const result = await updateDeal(payload);
+      setLoading(false);
 
       if (result.success) {
         router.push('/deals');
-        router.refresh();
       } else {
-        setErrorMsg(result.error || 'Failed to update deal registration');
+        setErrorMsg(result.error || 'Failed to update deal record.');
       }
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || 'An unexpected error occurred');
-    } finally {
+    } catch {
       setLoading(false);
+      router.push('/deals');
     }
   };
 
   if (fetching) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <span className="text-sm font-semibold text-muted">Loading deal details...</span>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3">
+        <Loader2 className="w-8 h-8 animate-spin text-sky-600" />
+        <p className="text-xs font-semibold text-muted">Loading deal details #{dealID}...</p>
       </div>
     );
   }
 
+  const statusNum = typeof watchStatus === 'number' ? watchStatus : parseInt(watchStatus) || 1;
+  const statusMeta = DEAL_STATUS_MAP[statusNum] || {
+    label: `Status ${watchStatus}`,
+    variant: 'default' as const,
+  };
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Top Header Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
             href="/deals"
@@ -368,161 +294,167 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
-              Edit Deal Registration
-              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-semibold border border-amber-500/20">
-                #{dealID}
-              </span>
-            </h1>
-            <p className="text-xs text-muted mt-0.5">
-              Update deal attributes, adjust When-To-Notify alert dates, and modify line items.
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
+                Edit Deal #{watch('dealRegID') || dealID}
+              </h1>
+              <AppChip variant={statusMeta.variant as any}>{statusMeta.label}</AppChip>
+            </div>
+            <p className="text-xs text-muted">
+              Update deal parameters, status changes, When-To-Notify dates, or line item details.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Quick WTN Trigger */}
           <button
             type="button"
             onClick={() => setIsWtnModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 rounded-xl text-xs font-semibold hover:bg-amber-500/20 transition border border-amber-500/20"
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition"
           >
-            <BellRing className="w-4 h-4" />
-            <span>Adjust WTN Date</span>
+            <BellRing className="w-3.5 h-3.5" />
+            <span>WTN Settings</span>
           </button>
 
-          {/* Quick Lost Deal Trigger */}
-          {watchStatus !== 7 && (
+          {statusNum !== 7 && statusNum !== 8 && (
             <button
               type="button"
               onClick={() => setIsLostModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 text-rose-600 rounded-xl text-xs font-semibold hover:bg-rose-500/20 transition border border-rose-500/20"
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-xs font-semibold rounded-xl border border-rose-500/30 transition"
             >
-              <ShieldAlert className="w-4 h-4" />
-              <span>Mark as Lost</span>
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>Mark Lost</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={handleSubmit(onSubmit)}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-5 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <span>Save Changes</span>
+          </button>
         </div>
       </div>
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs font-semibold flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+        <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2">
+          <Info className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-6">
-        {/* Section 1: Customer Identification */}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Section 1: Customer Account */}
         <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
             <div className="flex items-center gap-2">
               <Building2 className="w-4 h-4 text-sky-600" />
-              <h2 className="font-bold text-sm text-foreground">1. Customer Identification</h2>
+              <h2 className="font-bold text-sm text-foreground">1. Customer Information</h2>
             </div>
             <button
               type="button"
               onClick={() => setIsCustomerModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/10 text-sky-600 rounded-lg text-xs font-semibold hover:bg-sky-500/20 transition border border-sky-500/20"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/10 text-sky-600 hover:bg-sky-500/20 text-xs font-semibold rounded-lg border border-sky-500/30 transition"
             >
               <Search className="w-3.5 h-3.5" />
-              <span>LiveSearch Customer</span>
+              <span>Lookup in liveSearch</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Customer Name *</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
               <input
                 {...register('custName')}
-                placeholder="Search or enter customer company..."
-                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 ${
-                  errors.custName ? 'border-rose-500 ring-1 ring-rose-500' : 'border-border'
-                }`}
+                placeholder="e.g. HEALTHPROOF (MANILA) INC."
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              {errors.custName && <p className="text-[10px] text-rose-500 mt-1">{errors.custName.message}</p>}
+              {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Customer ID *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Customer ID Reference *</label>
               <input
                 {...register('customerID')}
-                placeholder="e.g. CUST-3184"
-                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 ${
-                  errors.customerID ? 'border-rose-500' : 'border-border'
-                }`}
+                placeholder="CUST-3184"
+                className="w-full px-3.5 py-2.5 bg-neutral/50 border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none"
               />
+              {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
             </div>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
-              <input
-                {...register('assignedAO')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
               <select
                 {...register('bu')}
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                {ACTIVE_BUSINESS_UNITS.map((bu) => (
+                {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
                   <option key={bu} value={bu}>
                     {bu}
                   </option>
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
+              <input
+                {...register('assignedAO')}
+                placeholder="e.g. Abegail Cebujano"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
+            </div>
           </div>
         </AppCard>
 
-        {/* Section 2: Deal Specification & Timing */}
+        {/* Section 2: Deal Core Information */}
         <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-border/50 pb-3">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-600" />
-              <h2 className="font-bold text-sm text-foreground">2. Deal Registration Details</h2>
-            </div>
-            {currentWtnDate && (
-              <span className="text-[11px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                WTN: {new Date(currentWtnDate).toLocaleDateString()}
-              </span>
-            )}
+          <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+            <FileText className="w-4 h-4 text-emerald-600" />
+            <h2 className="font-bold text-sm text-foreground">2. Deal Header & Validity Period</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Product Brand *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Deal Registration ID *</label>
+              <input
+                {...register('dealRegID')}
+                placeholder="e.g. 31842219 or REGI-0005491402"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Brand Name *</label>
               <select
                 {...register('brand')}
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="Dell">Dell</option>
-                <option value="HP">HP</option>
-                <option value="Lenovo">Lenovo</option>
+                <option value="HPi">HPi</option>
+                <option value="HPe">HPe</option>
+                <option value="HP Poly">HP Poly</option>
                 <option value="Cisco">Cisco</option>
                 <option value="Microsoft">Microsoft</option>
+                <option value="Lenovo">Lenovo</option>
                 <option value="Fortinet">Fortinet</option>
-                <option value="APC">APC</option>
-                <option value="Epson">Epson</option>
+                <option value="VMware">VMware</option>
+                <option value="Palo Alto">Palo Alto</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Deal Registration ID *</label>
-              <input
-                {...register('dealRegID')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Current Deal Status</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Deal Status *</label>
               <select
                 value={watchStatus}
-                onChange={handleStatusChange}
+                onChange={(e) => handleStatusChange(Number(e.target.value))}
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
@@ -538,8 +470,10 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             <label className="block text-xs font-semibold text-foreground mb-1">Project Name & Description *</label>
             <input
               {...register('projectName')}
+              placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
               className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
 
           {/* Reactive Date Synchronizer */}
@@ -582,6 +516,18 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               rows={2}
             />
           </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <input
+              type="checkbox"
+              id="toEmail"
+              {...register('toEmail')}
+              className="h-4 w-4 text-primary rounded border-border focus:ring-primary/20"
+            />
+            <label htmlFor="toEmail" className="text-xs font-medium text-foreground cursor-pointer">
+              Send update email notification to sales operations team
+            </label>
+          </div>
         </AppCard>
 
         {/* Section 3: Dynamic Deal Items */}
@@ -620,6 +566,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                   </label>
                   <input
                     {...register(`items.${index}.itemDesc` as const)}
+                    placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -675,7 +622,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
           {/* Currency Summary Footer */}
           <div className="flex items-center justify-between p-4 rounded-xl bg-neutral/80 border border-border/80">
-            <span className="text-xs font-bold text-foreground">Total Deal Amount:</span>
+            <span className="text-xs font-bold text-foreground">Estimated Total Amount:</span>
             <div className="flex items-center gap-3 font-mono font-bold text-sm text-primary">
               {Object.entries(currencyTotals).map(([curr, amt]) => (
                 <span key={curr} className="bg-background px-3 py-1 rounded-lg border border-border shadow-xs">
@@ -686,31 +633,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
           </div>
         </AppCard>
 
-        {/* Section 4: Email Notification & Actions */}
-        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600 border border-sky-500/20">
-              <Send className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-foreground">Send Email Notification on Update</div>
-              <div className="text-[11px] text-muted">
-                Queues update email in deals_reg_notification for Assigned AO & BU Head (skips BU6).
-              </div>
-            </div>
-          </div>
-
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              {...register('toEmail')}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-neutral peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary border border-border"></div>
-          </label>
-        </AppCard>
-
-        {/* Action Footer */}
+        {/* Section 4: Action Footer */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <Link
             href="/deals"
@@ -724,7 +647,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>Save & Apply Updates</span>
+            <span>Update Deal Record</span>
           </button>
         </div>
       </form>
@@ -743,7 +666,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         currentWTN={currentWtnDate}
         isOpen={isWtnModalOpen}
         onClose={() => setIsWtnModalOpen(false)}
-        onSuccess={() => {}}
+        onSuccess={loadDeal}
       />
 
       {/* Lost Deal Modal */}
@@ -752,7 +675,10 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         dealRegID={watch('dealRegID') || String(dealID)}
         isOpen={isLostModalOpen}
         onClose={() => setIsLostModalOpen(false)}
-        onSuccess={() => {}}
+        onSuccess={() => {
+          loadDeal();
+          router.push('/deals');
+        }}
       />
     </div>
   );

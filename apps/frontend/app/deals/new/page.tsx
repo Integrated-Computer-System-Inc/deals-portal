@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -14,11 +14,8 @@ import {
   CustomerLookupResult,
 } from '@my-app/types';
 import {
-  AppInput,
   AppTextarea,
   AppCard,
-  AppModal,
-  AppChip,
 } from '../../../components/ui';
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
 import LostDealModal from '../../../components/LostDealModal';
@@ -30,13 +27,9 @@ import {
   Save,
   Building2,
   FileText,
-  Calendar,
   Layers,
-  Sparkles,
   Loader2,
-  DollarSign,
   Info,
-  ShieldAlert,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -47,17 +40,17 @@ const dealItemSchema = z.object({
 });
 
 const createDealSchema = z.object({
+  dealRegID: z.string().min(1, 'Deal Registration ID is required'),
   dtRegistered: z.string().min(1, 'Registration date is required'),
   validityDays: z.coerce.number().min(1, 'Validity days must be at least 1'),
   expDt: z.string().min(1, 'Expiration date is required'),
   brand: z.string().min(1, 'Brand is required'),
   customerID: z.string().min(1, 'Customer ID is required'),
   custName: z.string().min(2, 'Customer name is required'),
-  dealRegID: z.string().min(2, 'Deal Registration ID is required'),
   projectName: z.string().min(2, 'Project name is required'),
   assignedAO: z.string().min(2, 'Assigned AO is required'),
   bu: z.string().min(1, 'Business Unit is required'),
-  dealStatus: z.coerce.number().default(4),
+  dealStatus: z.union([z.string(), z.number()]).default(4),
   remarks: z.string().optional(),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
 });
@@ -85,15 +78,15 @@ export default function NewDealPage() {
   } = useForm<CreateDealFormData>({
     resolver: zodResolver(createDealSchema as any),
     defaultValues: {
+      dealRegID: `DR-${Math.floor(1000000 + Math.random() * 9000000)}`,
       dtRegistered: defaultRegDate,
       validityDays: 90,
       expDt: defaultExpDate,
       brand: 'Dell',
       customerID: 'CUST-3184',
       custName: 'HEALTHPROOF (MANILA) INC.',
-      dealRegID: `DR-${Math.floor(1000000 + Math.random() * 9000000)}`,
       projectName: '2026 Dell Laptops Hardware Refresh',
-      assignedAO: (session?.user as any)?.AccountName || 'Abegail Cebujano',
+      assignedAO: (session?.user as any)?.AccountName || session?.user?.name || 'Abegail Cebujano',
       bu: (session?.user as any)?.AccountGroup || 'BU5',
       dealStatus: 4, // Pending
       remarks: '',
@@ -118,7 +111,6 @@ export default function NewDealPage() {
   const watchItems = watch('items');
   const watchStatus = watch('dealStatus');
 
-  // Reactive date calculation
   const handleValidityChange = (days: number) => {
     setValue('validityDays', days);
     if (watchRegDate && days > 0) {
@@ -140,10 +132,9 @@ export default function NewDealPage() {
     }
   };
 
-  // Check if status changed to Lost (7)
   const handleStatusChange = (newStatus: number) => {
     setValue('dealStatus', newStatus);
-    if (Number(newStatus) === 7) {
+    if (Number(newStatus) === 7 || Number(newStatus) === 8) {
       setIsLostModalOpen(true);
     }
   };
@@ -157,7 +148,6 @@ export default function NewDealPage() {
     }
   };
 
-  // Currency breakdown calculation
   const currencyTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     watchItems.forEach((item) => {
@@ -177,14 +167,18 @@ export default function NewDealPage() {
     try {
       const result = await createDeal(
         {
+          dealRegID: data.dealRegID,
           dtRegistered: data.dtRegistered,
           expDt: data.expDt,
           brand: data.brand,
           customerID: data.customerID,
           custName: data.custName,
           projectName: data.projectName,
+          ProjectName: data.projectName,
           assignedAO: data.assignedAO,
+          AssignedAO: data.assignedAO,
           bu: data.bu,
+          BU: data.bu,
           dealStatus: data.dealStatus,
           remarks: data.remarks,
           items: data.items,
@@ -201,7 +195,6 @@ export default function NewDealPage() {
       }
     } catch {
       setLoading(false);
-      // Seamless redirect on mock mode
       router.push('/deals');
     }
   };

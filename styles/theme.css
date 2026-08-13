@@ -1,0 +1,197 @@
+/* ─── Base Color Variables & Tokens ────────────────────────────────────────── */
+:root {
+  --background: #FFFFFF;
+  --foreground: #111827;
+  --text: #111111;
+  --text-info: #616161;
+  --primary: #0F2A44;
+  --accent-1: #1677ff;
+  --accent-2: #FF8A3D;
+  --neutral: #F8FAFC;
+  --border: #d9dadb;
+  --sidebar-bg: #FFFFFF;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #ffffff;
+  --chat-bg: #eaeaea;
+  --attachment-bg: #FFFFFF;
+  --hover-bg: rgba(15, 42, 68, 0.06);
+  --user-bubble-text: #ffffff;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --muted: #94a3b8;
+  --skeleton-bg: #d5d5d5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-3xl: 18px;
+  --font-scale: 0px;
+}
+
+/* ─── Dark Theme ─────────────────────────────────────────────────────────── */
+[data-theme='dark'],
+.dark {
+  --background: #212121;
+  --foreground: #ececec;
+  --text: #ececec;
+  --text-info: #a3a3a3;
+  --muted: #8e8ea0;
+  --primary: #2563eb;
+  --accent-1: #10a37f;
+  --accent-2: #3b82f6;
+  --neutral: #2f2f2f;
+  --card-bg: #2f2f2f;
+  --chat-bg: #212121;
+  --attachment-bg: #2a2a2a;
+  --sidebar-bg: #171717;
+  --border: #4b5563;
+  --hover-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg: #343541;
+  --sidebar-active-text: #ffffff;
+  --user-bubble-text: #ffffff;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --skeleton-bg: #3f3f46;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* ─── Custom Color Themes ────────────────────────────────────────────────── */
+[data-color-theme='lavender'] {
+  --background: #2e1e2f;
+  --foreground: #ffffff;
+  --text: #ffffff;
+  --text-info: #cbc1cf;
+  --primary: #8b5cf6;
+  --accent-1: #c084fc;
+  --accent-2: #fb7185;
+  --neutral: #221523;
+  --border: #5c4c5f;
+  --sidebar-bg: #221523;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #423245;
+  --hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+[data-color-theme='copper-teal'] {
+  --background: #0d3a3d;
+  --foreground: #ffffff;
+  --text: #ffffff;
+  --text-info: #a3c1c4;
+  --primary: #0d9488;
+  --accent-1: #e07a5f;
+  --accent-2: #f4a261;
+  --neutral: #082c2f;
+  --border: #2a7277;
+  --sidebar-bg: #082c2f;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #1b5d62;
+  --hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+[data-color-theme='coffee'] {
+  --background: #3d2f2b;
+  --foreground: #ffffff;
+  --text: #ffffff;
+  --text-info: #d1c2bd;
+  --primary: #ca8a04;
+  --accent-1: #48c0a4;
+  --accent-2: #fca5a5;
+  --neutral: #2b1e1b;
+  --border: #604b47;
+  --sidebar-bg: #2b1e1b;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #4c3b37;
+  --hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+[data-color-theme='ocean'] {
+  --background: #1a2b3c;
+  --foreground: #ffffff;
+  --text: #ffffff;
+  --text-info: #a1b7cc;
+  --primary: #0284c7;
+  --accent-1: #3b82f6;
+  --accent-2: #10b981;
+  --neutral: #142230;
+  --border: #2f4862;
+  --sidebar-bg: #142230;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #203347;
+  --hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+[data-color-theme='cherry-blossom'] {
+  --background: #fff0f3;
+  --foreground: #3f222b;
+  --text: #3f222b;
+  --text-info: #9f6071;
+  --primary: #ffccd5;
+  --accent-1: #ff4d6d;
+  --accent-2: #ff758f;
+  --neutral: #fff5f7;
+  --border: #ffb3c1;
+  --sidebar-bg: #ffe5ec;
+  --sidebar-active-bg: var(--accent-1);
+  --sidebar-active-text: #ffffff;
+  --card-bg: #ffccd5;
+  --hover-bg: rgba(255, 77, 109, 0.1);
+}
+
+/* ─── Tailwind Theme Tokens ──────────────────────────────────────────────── */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-accent-1: var(--accent-1);
+  --color-accent-2: var(--accent-2);
+  --color-neutral: var(--neutral);
+  --color-border: var(--border);
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-active: var(--sidebar-active-bg);
+  --color-sidebar-active-text: var(--sidebar-active-text);
+  --color-card-bg: var(--card-bg);
+  --color-text: var(--text);
+  --color-text-info: var(--text-info);
+  --color-hover: var(--hover-bg);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-muted: var(--muted);
+  --color-skeleton-bg: var(--skeleton-bg);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+html {
+  font-size: calc(16px + var(--font-scale, 0px));
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

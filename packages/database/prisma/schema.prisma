@@ -1,98 +1,122 @@
-// Prisma schema for Deals Registration Portal
-// Database Naming Rule: STRICT PascalCase for all models and fields
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "sqlserver"
   url      = env("DATABASE_URL")
 }
 
 model DealHeader {
-  DealID       Int           @id @default(autoincrement())
-  DtRegistered DateTime
-  Expiration   DateTime
-  ExpDt        DateTime
-  Brand        String
-  CustomerID   String
-  DealRegID    String        @unique
-  ProjectName  String
-  AssignedAO   String
-  BU           String
-  DealStatus   Int
-  CreatedBy    String
-  CustName     String
-  Remarks      String?
-  DtCreated    DateTime      @default(now())
+  dealID       Int       @id @default(autoincrement())
+  dtRegistered DateTime? @db.Date
+  expiration   String?   @db.VarChar(50)
+  expDt        DateTime? @db.Date
+  brand        String?   @db.VarChar(50)
+  customerID   Int?
+  dealRegID    String?   @unique @db.VarChar(50)
+  ProjectName  String?   @db.VarChar(Max)
+  AssignedAO   String?   @db.VarChar(50)
+  BU           String?   @db.VarChar(50)
+  dealStatus   String?   @db.VarChar(Max)
+  dtCreated    DateTime? @db.DateTime
+  dtValidTo    DateTime? @db.DateTime
+  createdBy    String?   @db.VarChar(50)
+  custName     String?   @db.VarChar(Max)
+  remarks      String?   @db.VarChar(Max)
 
   DealItems    DealItems[]
-  DealWTN      DealWTN?
+  DealWTN      dealWTN?
   DealResponse DealResponse?
   DealLost     DealLost?
 }
 
 model DealItems {
-  ItemID     Int        @id @default(autoincrement())
-  DealID     Int
-  ItemDesc   String
-  Qty        Int
-  Currency   String
-  TotalAmt   Float
+  dealItemID Int     @id @default(autoincrement())
+  dealID     Int?
+  itemDesc   String? @db.VarChar(Max)
+  qty        String? @db.VarChar(50)
+  currency   String? @db.VarChar(50)
+  totalAmt   String? @db.VarChar(50)
 
-  DealHeader DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
-}
-
-model DealWTN {
-  WTNID        Int        @id @default(autoincrement())
-  DealID       Int        @unique
-  WhenToNotify DateTime
-
-  DealHeader   DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
-}
-
-model DealsRegNotification {
-  NotificationID Int       @id @default(autoincrement())
-  Creator        String
-  Subject        String
-  Message        String
-  SendTo         String
-  SendCC         String?
-  SendBCC        String?
-  DateCreated    DateTime  @default(now())
-  DateSent       DateTime?
-  Status         Int       @default(0) // 0=Unsent, 1=Sent
+  DealHeader DealHeader? @relation(fields: [dealID], references: [dealID], onDelete: Cascade)
 }
 
 model DealResponse {
-  ResponseID   Int        @id @default(autoincrement())
-  DealID       Int        @unique
-  ResponseDays Int
+  id           Int     @id @default(autoincrement())
+  dealID       Int?    @unique
+  responseDays String? @db.VarChar(50)
 
-  DealHeader   DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+  DealHeader   DealHeader? @relation(fields: [dealID], references: [dealID], onDelete: Cascade)
 }
 
 model DealLost {
-  LostID           Int        @id @default(autoincrement())
-  DealID           Int        @unique
-  CompetitorVendor String
-  CompetitorBrand  String
-  IcsOffer         Float
-  CompetitorOffer  Float
-  Reason           String
-  OtherInformation String?
+  dealID           Int     @id
+  competitorVendor String? @db.VarChar(200)
+  competitorBrand  String? @db.VarChar(200)
+  icsOffer         String? @db.VarChar(150)
+  competitorOffer  String? @db.VarChar(150)
+  reason           String? @db.VarChar(250)
+  otherInformation String? @db.VarChar(250)
 
-  DealHeader       DealHeader @relation(fields: [DealID], references: [DealID], onDelete: Cascade)
+  DealHeader       DealHeader @relation(fields: [dealID], references: [dealID], onDelete: Cascade)
 }
 
-model User {
-  UserID        Int      @id @default(autoincrement())
-  AccountName   String
-  Email         String   @unique
-  RememberToken String?
-  WhenCreated   DateTime @default(now())
-  DomainAccount String
-  AccountGroup  String
-  AccountID     String
+model cdbAccounts {
+  AccountID      Int       @id @default(autoincrement())
+  AccountIDNo    String    @db.NVarChar(100)
+  AONumber       Int
+  AccountName    String    @db.NVarChar(600)
+  AccountGroup   String    @db.NVarChar(100)
+  AccountType    String    @db.NVarChar(30)
+  DomainAccount  String    @db.NVarChar(100)
+  Email          String    @db.VarChar(30)
+  ValidTo        DateTime? @db.DateTime
+  SignaturePath  String?   @db.VarChar(500)
+  SignatureImage Bytes?
+  NickName       String?   @db.VarChar(50)
+  isActive       Int?
+  GAvatar        String?   @db.VarChar(Max)
+  LastSynced     DateTime? @db.DateTime
+}
+
+model DealBrands {
+  id         Int     @id @default(autoincrement())
+  brand      String? @db.VarChar(50)
+  assignedPM String? @db.VarChar(50)
+}
+
+model deals_reg_notification {
+  email_id    Int       @id @default(autoincrement())
+  creator     String?   @db.VarChar(Max)
+  subject     String?   @db.VarChar(Max)
+  message     String?   @db.VarChar(Max)
+  sendTo      String?   @db.VarChar(Max)
+  sendCC      String?   @db.VarChar(Max)
+  sendBCC     String?   @db.VarChar(Max)
+  dateCreated DateTime? @db.DateTime
+  status      Int       @default(0)
+  dateSent    DateTime? @db.DateTime
+}
+
+model DealStatus {
+  status_id  Int     @id @default(autoincrement())
+  statusDesc String? @db.VarChar(50)
+}
+
+model dealWTN {
+  id           Int       @id @default(autoincrement())
+  whenToNotify DateTime? @db.DateTime
+  dealID       Int?      @unique
+
+  DealHeader   DealHeader? @relation(fields: [dealID], references: [dealID], onDelete: Cascade)
+}
+
+model UsersTable {
+  AccountID        String    @id @db.VarChar(100)
+  AccountName      String    @db.VarChar(255)
+  Email            String    @unique @db.VarChar(255)
+  UserRole         String?   @db.VarChar(50)
+  RememberToken    String?   @db.VarChar(Max)
+  DateTimeCreation DateTime  @default(now()) @db.DateTime
 }

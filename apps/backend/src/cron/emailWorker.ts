@@ -27,13 +27,13 @@ export interface EmailWorkerResult {
  * dispatches emails via Nodemailer/SMTP, and updates Status = 1 with DateSent = GETDATE()
  */
 export async function processPendingEmails(): Promise<EmailWorkerResult> {
-  const pendingNotifications = await prisma.dealsRegNotification.findMany({
+  const pendingNotifications = await prisma.deals_reg_notification.findMany({
     where: {
-      Status: 0,
+      status: 0,
     },
     take: 50, // Batch limit per cycle
     orderBy: {
-      DateCreated: 'asc',
+      dateCreated: 'asc',
     },
   });
 
@@ -48,38 +48,38 @@ export async function processPendingEmails(): Promise<EmailWorkerResult> {
     try {
       // Dispatch email payload
       await transporter.sendMail({
-        from: notification.Creator || process.env.EMAIL_FROM || 'noreply@dealsportal.com',
-        to: notification.SendTo,
-        cc: notification.SendCC || undefined,
-        bcc: notification.SendBCC || undefined,
-        subject: notification.Subject,
-        html: notification.Message,
+        from: notification.creator || process.env.EMAIL_FROM || 'noreply@dealsportal.com',
+        to: notification.sendTo || undefined,
+        cc: notification.sendCC || undefined,
+        bcc: notification.sendBCC || undefined,
+        subject: notification.subject || 'Notification',
+        html: notification.message || '',
       });
 
-      // Update notification record in DB (Status = 1, DateSent = GETDATE())
-      await prisma.dealsRegNotification.update({
+      // Update notification record in DB (status = 1, dateSent = GETDATE())
+      await prisma.deals_reg_notification.update({
         where: {
-          NotificationID: notification.NotificationID,
+          email_id: notification.email_id,
         },
         data: {
-          Status: 1,
-          DateSent: new Date(),
+          status: 1,
+          dateSent: new Date(),
         },
       });
 
       results.successCount++;
       results.details.push({
-        notificationID: notification.NotificationID,
-        recipient: notification.SendTo,
+        notificationID: notification.email_id,
+        recipient: notification.sendTo || '',
         status: 'sent',
       });
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[EmailWorker] Failed sending notification ID ${notification.NotificationID}:`, errorMsg);
+      console.error(`[EmailWorker] Failed sending notification ID ${notification.email_id}:`, errorMsg);
       results.failureCount++;
       results.details.push({
-        notificationID: notification.NotificationID,
-        recipient: notification.SendTo,
+        notificationID: notification.email_id,
+        recipient: notification.sendTo || '',
         status: 'failed',
         error: errorMsg,
       });
