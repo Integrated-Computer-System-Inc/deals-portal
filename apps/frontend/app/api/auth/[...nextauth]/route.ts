@@ -11,24 +11,22 @@ const authOptions: NextAuthOptions = {
     }),
     CredentialsProvider({
       id: 'demo-credentials',
-      name: 'Demo Account Switcher',
+      name: 'Demo Login',
       credentials: {
-        role: { label: 'Role', type: 'text' },
         accountName: { label: 'Account Name', type: 'text' },
       },
       async authorize(credentials) {
-        const role = (credentials?.role || 'admin') as UserRole;
-        const accountName = credentials?.accountName || 'Sarah Jenkins';
+        const accountName = credentials?.accountName || 'Demo User';
 
         return {
           id: 'usr_demo_101',
           name: accountName,
-          email: `${accountName.toLowerCase().replace(/\s+/g, '.')}@company.com`,
-          DomainAccount: `CORP\\${accountName.toUpperCase().replace(/\s+/g, '')}`,
-          AccountGroup: role === 'bu_admin' ? 'BU2' : 'BU1',
-          AccountID: 'ACC-8890',
+          email: `demo@ics.com.ph`,
+          DomainAccount: `CORP\\DEMOUSER`,
+          AccountGroup: 'HQ',
+          AccountID: 'ACC-0001',
           AccountName: accountName,
-          role: role,
+          role: 'admin' as UserRole,
         };
       },
     }),
@@ -36,21 +34,23 @@ const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.DomainAccount = user.DomainAccount || 'CORP\\DEMOUSER';
-        token.AccountGroup = user.AccountGroup || 'BU1';
-        token.AccountID = user.AccountID || 'ACC-0001';
-        token.AccountName = user.AccountName || user.name || 'Demo User';
-        token.role = user.role || 'admin';
+        const u = user as any;
+        token.DomainAccount = u.DomainAccount || 'CORP\\DEMOUSER';
+        token.AccountGroup = u.AccountGroup || 'HQ';
+        token.AccountID = u.AccountID || 'ACC-0001';
+        token.AccountName = u.AccountName || u.name || 'Demo User';
+        token.role = u.role || 'admin';
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.DomainAccount = token.DomainAccount as string;
-        session.user.AccountGroup = token.AccountGroup as string;
-        session.user.AccountID = token.AccountID as string;
-        session.user.AccountName = token.AccountName as string;
-        session.user.role = token.role as UserRole;
+        const u = session.user as any;
+        u.DomainAccount = token.DomainAccount as string;
+        u.AccountGroup = token.AccountGroup as string;
+        u.AccountID = token.AccountID as string;
+        u.AccountName = token.AccountName as string;
+        u.role = token.role as UserRole;
       }
       return session;
     },

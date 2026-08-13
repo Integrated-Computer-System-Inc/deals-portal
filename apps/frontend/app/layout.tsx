@@ -1,20 +1,37 @@
 import './globals.css';
 import React from 'react';
 import NextAuthProvider from '../components/NextAuthProvider';
-import Navbar from '../components/Navbar';
+import AppShell from '../components/AppShell';
 
 export const metadata = {
-  title: 'Deals Registration Portal',
-  description: 'Enterprise Deal Registration and Approval Tracking System',
+  title: 'ICS Deal Registration',
+  description: 'Enterprise Deal Registration, Tracking and SLA Management',
 };
+
+// Inline script to apply saved theme before React hydration (prevents flash)
+const themeScript = `
+(function() {
+  try {
+    var t = localStorage.getItem('dealreg-color-theme');
+    var d = localStorage.getItem('dealreg-dark-mode');
+    if (t) document.documentElement.setAttribute('data-color-theme', t);
+    if (d === 'true') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  } catch(e) {}
+})();
+`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="antialiased font-sans bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="antialiased font-sans min-h-screen bg-background text-foreground">
         <NextAuthProvider>
-          <Navbar />
-          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
+          <AppShell>{children}</AppShell>
         </NextAuthProvider>
       </body>
     </html>

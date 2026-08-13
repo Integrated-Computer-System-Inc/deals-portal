@@ -1,8 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShieldAlert, X, Loader2 } from 'lucide-react';
+import { ShieldAlert, Loader2, DollarSign, HelpCircle } from 'lucide-react';
 import { saveLostDeal } from '../app/actions/deals';
+import {
+  AppModal,
+  AppModalHeader,
+  AppModalTitle,
+  AppModalDescription,
+  AppModalBody,
+  AppModalFooter,
+  AppInput,
+  AppTextarea,
+} from './ui';
 
 interface LostDealModalProps {
   dealID: number;
@@ -12,7 +22,13 @@ interface LostDealModalProps {
   onSuccess: () => void;
 }
 
-export default function LostDealModal({ dealID, dealRegID, isOpen, onClose, onSuccess }: LostDealModalProps) {
+export default function LostDealModal({
+  dealID,
+  dealRegID,
+  isOpen,
+  onClose,
+  onSuccess,
+}: LostDealModalProps) {
   const [competitorVendor, setCompetitorVendor] = useState('');
   const [competitorBrand, setCompetitorBrand] = useState('');
   const [icsOffer, setIcsOffer] = useState<number | ''>('');
@@ -21,8 +37,6 @@ export default function LostDealModal({ dealID, dealRegID, isOpen, onClose, onSu
   const [otherInformation, setOtherInformation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,126 +64,132 @@ export default function LostDealModal({ dealID, dealRegID, isOpen, onClose, onSu
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-          <div className="flex items-center space-x-2 text-rose-600">
-            <ShieldAlert className="w-5 h-5" />
-            <h3 className="font-bold text-slate-900 text-lg">Record Lost Deal Information</h3>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
+    <AppModal open={isOpen} onClose={onClose} width={580}>
+      <AppModalHeader>
+        <div className="flex items-center gap-2 text-rose-600">
+          <ShieldAlert className="w-5 h-5" />
+          <AppModalTitle>Record Lost Deal Information</AppModalTitle>
         </div>
+        <AppModalDescription>
+          Document competitor analytics and pricing details for lost deal: <span className="font-bold text-foreground">{dealRegID}</span>
+        </AppModalDescription>
+      </AppModalHeader>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <p className="text-xs text-slate-500">
-            Document competitor details for lost deal: <span className="font-semibold text-slate-700">{dealRegID}</span>
-          </p>
-
+      <form onSubmit={handleSubmit}>
+        <AppModalBody className="space-y-4 py-3">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium">
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium">
               {error}
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Competitor Vendor *</label>
-              <input
-                type="text"
+              <label className="block text-xs font-semibold text-foreground mb-1">
+                Competitor Vendor *
+              </label>
+              <AppInput
                 required
                 value={competitorVendor}
                 onChange={(e) => setCompetitorVendor(e.target.value)}
-                placeholder="e.g. Acme Systems"
-                className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                placeholder="e.g. Trend Micro / Dell Direct"
+                size="md"
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Competitor Brand *</label>
-              <input
-                type="text"
+              <label className="block text-xs font-semibold text-foreground mb-1">
+                Competitor Brand *
+              </label>
+              <AppInput
                 required
                 value={competitorBrand}
                 onChange={(e) => setCompetitorBrand(e.target.value)}
-                placeholder="e.g. Brand X"
-                className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                placeholder="e.g. Cisco / Lenovo"
+                size="md"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Our Offer Amount *</label>
-              <input
+              <label className="block text-xs font-semibold text-foreground mb-1">
+                ICS Offered Price
+              </label>
+              <AppInput
                 type="number"
-                step="0.01"
-                required
+                prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={icsOffer}
                 onChange={(e) => setIcsOffer(e.target.value ? Number(e.target.value) : '')}
-                placeholder="10000.00"
-                className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                placeholder="0.00"
+                size="md"
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Competitor Offer *</label>
-              <input
+              <label className="block text-xs font-semibold text-foreground mb-1">
+                Competitor Offered Price
+              </label>
+              <AppInput
                 type="number"
-                step="0.01"
-                required
+                prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={competitorOffer}
                 onChange={(e) => setCompetitorOffer(e.target.value ? Number(e.target.value) : '')}
-                placeholder="8500.00"
-                className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                placeholder="0.00"
+                size="md"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Primary Reason *</label>
+            <label className="block text-xs font-semibold text-foreground mb-1">
+              Primary Reason Lost *
+            </label>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
             >
-              <option value="Price Difference">Price Difference</option>
-              <option value="Product Features / Specs">Product Features / Specs</option>
-              <option value="Delivery Lead Time">Delivery Lead Time</option>
-              <option value="Customer Preference">Customer Preference</option>
-              <option value="Existing Relationship">Existing Relationship</option>
+              <option value="Price Difference">Price Difference / Lower Competitor Bid</option>
+              <option value="Lead Time / Stock Availability">Lead Time / Stock Availability</option>
+              <option value="Client Preference">Client / Technical Requirement Preference</option>
+              <option value="Budget Cancellation">Project / Budget Cancelled by Client</option>
+              <option value="Non-Compliance">Specifications Non-Compliance</option>
+              <option value="Other">Other Reasons</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Additional Notes</label>
-            <textarea
-              rows={3}
+            <label className="block text-xs font-semibold text-foreground mb-1">
+              Additional Intelligence & Notes
+            </label>
+            <AppTextarea
               value={otherInformation}
               onChange={(e) => setOtherInformation(e.target.value)}
-              placeholder="Provide context regarding customer decision or post-mortem notes..."
-              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              rows={3}
+              placeholder="Provide context regarding partner discounts, competitor bundles, or follow-up opportunities..."
             />
           </div>
+        </AppModalBody>
 
-          <div className="flex items-center justify-end space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex items-center space-x-2 px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-md transition disabled:opacity-50"
-            >
-              {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              <span>Save Lost Record</span>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading || !competitorVendor || !competitorBrand}
+            className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-sm transition disabled:opacity-50"
+          >
+            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>Save Lost Reason</span>
+          </button>
+        </AppModalFooter>
+      </form>
+    </AppModal>
   );
 }

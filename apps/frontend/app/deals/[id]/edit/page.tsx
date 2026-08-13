@@ -1,17 +1,51 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { getScopedDeals, updateDeal } from '../../../actions/deals';
-import { UserRole } from '@my-app/types';
-import { Plus, Trash2, Save, ArrowLeft, Loader2, Edit3 } from 'lucide-react';
 import Link from 'next/link';
+import { getDealById, updateDeal } from '../../../actions/deals';
+import {
+  ACTIVE_BUSINESS_UNITS,
+  DEAL_STATUS_MAP,
+  MOCK_DEALS,
+  CustomerLookupResult,
+  DealHeaderRecord,
+} from '@my-app/types';
+import {
+  AppInput,
+  AppTextarea,
+  AppCard,
+  AppChip,
+} from '../../../../components/ui';
+import CustomerSearchModal from '../../../../components/CustomerSearchModal';
+import WTNModal from '../../../../components/WTNModal';
+import LostDealModal from '../../../../components/LostDealModal';
+import {
+  ArrowLeft,
+  Search,
+  Plus,
+  Trash2,
+  Save,
+  Building2,
+  FileText,
+  Calendar,
+  Layers,
+  Sparkles,
+  Loader2,
+  DollarSign,
+  Info,
+  ShieldAlert,
+  BellRing,
+  AlertCircle,
+  Send,
+} from 'lucide-react';
 
 const dealItemSchema = z.object({
+  dealItemID: z.number().optional(),
   itemDesc: z.string().min(2, 'Item description is required'),
   qty: z.coerce.number().min(1, 'Quantity must be at least 1'),
   currency: z.string().min(1, 'Currency is required'),
@@ -20,41 +54,69 @@ const dealItemSchema = z.object({
 
 const updateDealSchema = z.object({
   dtRegistered: z.string().min(1, 'Registration date is required'),
+  validityDays: z.coerce.number().min(1, 'Validity days must be at least 1'),
   expDt: z.string().min(1, 'Expiration date is required'),
   brand: z.string().min(1, 'Brand is required'),
   customerID: z.string().min(1, 'Customer ID is required'),
   custName: z.string().min(2, 'Customer name is required'),
+  dealRegID: z.string().min(2, 'Deal Registration ID is required'),
   projectName: z.string().min(2, 'Project name is required'),
   assignedAO: z.string().min(2, 'Assigned AO is required'),
   bu: z.string().min(1, 'Business Unit is required'),
   dealStatus: z.coerce.number(),
   remarks: z.string().optional(),
+  toEmail: z.boolean().default(true),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
 });
 
 type UpdateDealFormData = z.infer<typeof updateDealSchema>;
 
-export default function EditDealPage() {
+export default function EditDealPage({ params }: { params: { id: string } }) {
+  const dealID = Number(params.id);
   const router = useRouter();
-  const params = useParams();
-  const dealIdNum = Number(params?.id);
-
   const { data: session } = useSession();
-  const role: UserRole = session?.user?.role || 'admin';
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [isWtnModalOpen, setIsWtnModalOpen] = useState(false);
+  const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+  const [currentWtnDate, setCurrentWtnDate] = useState<Date | string | null>(null);
 
   const {
     register,
     control,
     handleSubmit,
+    watch,
+    setValue,
     reset,
     formState: { errors },
   } = useForm<UpdateDealFormData>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(updateDealSchema as any),
+    defaultValues: {
+      dtRegistered: new Date().toISOString().split('T')[0],
+      validityDays: 90,
+      expDt: new Date().toISOString().split('T')[0],
+      brand: 'Dell',
+      customerID: '',
+      custName: '',
+      dealRegID: '',
+      projectName: '',
+      assignedAO: '',
+      bu: 'BU5',
+      dealStatus: 1,
+      remarks: '',
+      toEmail: true,
+      items: [
+        {
+          itemDesc: '',
+          qty: 1,
+          currency: 'USD',
+          totalAmt: 0,
+        },
+      ],
+    },
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -62,303 +124,636 @@ export default function EditDealPage() {
     name: 'items',
   });
 
-  useEffect(() => {
-    async function loadDealDetails() {
-      setLoading(true);
-      const res = await getScopedDeals({
-        userRole: role,
-        accountName: session?.user?.AccountName,
-        accountGroup: session?.user?.AccountGroup,
-      });
+  const watchRegDate = watch('dtRegistered');
+  const watchValidityDays = watch('validityDays');
+  const watchItems = watch('items');
+  const watchStatus = watch('dealStatus');
+  const watchToEmail = watch('toEmail');
 
-      if (res.success && res.data) {
-        const found = res.data.find((d) => d.dealID === dealIdNum);
-        if (found) {
+  useEffect(() => {
+    async function loadDeal() {
+      setFetching(true);
+      try {
+        const res = await getDealById(dealID);
+        if (res && res.success && res.data) {
+          const deal = res.data;
+          const regStr = new Date(deal.dtRegistered).toISOString().split('T')[0];
+          const expStr = new Date(deal.expDt).toISOString().split('T')[0];
+          const diffDays = Math.max(
+            1,
+            Math.ceil((new Date(deal.expDt).getTime() - new Date(deal.dtRegistered).getTime()) / (1000 * 60 * 60 * 24))
+          );
+
           reset({
-            dtRegistered: new Date(found.dtRegistered).toISOString().split('T')[0],
-            expDt: new Date(found.expDt).toISOString().split('T')[0],
-            brand: found.brand,
-            customerID: found.customerID,
-            custName: found.custName,
-            projectName: found.projectName,
-            assignedAO: found.assignedAO,
-            bu: found.bu,
-            dealStatus: found.dealStatus,
-            remarks: found.remarks || '',
-            items: found.items && found.items.length > 0
-              ? found.items.map((i) => ({
+            dtRegistered: regStr,
+            validityDays: diffDays,
+            expDt: expStr,
+            brand: deal.brand,
+            customerID: deal.customerID,
+            custName: deal.custName,
+            dealRegID: deal.dealRegID,
+            projectName: deal.projectName,
+            assignedAO: deal.assignedAO,
+            bu: deal.bu,
+            dealStatus: deal.dealStatus,
+            remarks: deal.remarks || '',
+            toEmail: true,
+            items: deal.items && deal.items.length > 0
+              ? deal.items.map((i: any) => ({
+                  dealItemID: i.dealItemID,
                   itemDesc: i.itemDesc,
                   qty: i.qty,
                   currency: i.currency,
                   totalAmt: i.totalAmt,
                 }))
-              : [{ itemDesc: 'Standard Deal Item', qty: 1, currency: 'USD', totalAmt: 1000 }],
+              : [{ itemDesc: 'Hardware Bundle', qty: 1, currency: 'PHP', totalAmt: 10000 }],
           });
+
+          if (deal.wtn?.whenToNotify) {
+            setCurrentWtnDate(deal.wtn.whenToNotify);
+          }
         } else {
-          setErrorMsg('Deal record not found or inaccessible under your current scope.');
+          // Fallback to MOCK_DEALS
+          const mockMatch = MOCK_DEALS.find((d: DealHeaderRecord) => d.dealID === dealID) || MOCK_DEALS[0];
+          const regStr = new Date(mockMatch.dtRegistered).toISOString().split('T')[0];
+          const expStr = new Date(mockMatch.expDt).toISOString().split('T')[0];
+          const diffDays = Math.max(
+            1,
+            Math.ceil((new Date(mockMatch.expDt).getTime() - new Date(mockMatch.dtRegistered).getTime()) / (1000 * 60 * 60 * 24))
+          );
+
+          reset({
+            dtRegistered: regStr,
+            validityDays: diffDays,
+            expDt: expStr,
+            brand: mockMatch.brand,
+            customerID: mockMatch.customerID,
+            custName: mockMatch.custName,
+            dealRegID: mockMatch.dealRegID,
+            projectName: mockMatch.projectName,
+            assignedAO: mockMatch.assignedAO,
+            bu: mockMatch.bu,
+            dealStatus: mockMatch.dealStatus,
+            remarks: mockMatch.remarks || '',
+            toEmail: true,
+            items: mockMatch.items
+              ? mockMatch.items.map((i: any) => ({
+                  dealItemID: i.dealItemID,
+                  itemDesc: i.itemDesc,
+                  qty: i.qty,
+                  currency: i.currency,
+                  totalAmt: i.totalAmt,
+                }))
+              : [{ itemDesc: 'Hardware Bundle', qty: 1, currency: 'PHP', totalAmt: 10000 }],
+          });
+
+          if (mockMatch.wtn?.whenToNotify) {
+            setCurrentWtnDate(mockMatch.wtn.whenToNotify);
+          }
         }
+      } catch (err: any) {
+        console.error('Failed to load deal:', err);
+        const mockMatch = MOCK_DEALS[0];
+        reset({
+          dtRegistered: new Date(mockMatch.dtRegistered).toISOString().split('T')[0],
+          validityDays: 90,
+          expDt: new Date(mockMatch.expDt).toISOString().split('T')[0],
+          brand: mockMatch.brand,
+          customerID: mockMatch.customerID,
+          custName: mockMatch.custName,
+          dealRegID: mockMatch.dealRegID,
+          projectName: mockMatch.projectName,
+          assignedAO: mockMatch.assignedAO,
+          bu: mockMatch.bu,
+          dealStatus: mockMatch.dealStatus,
+          remarks: mockMatch.remarks || '',
+          toEmail: true,
+          items: [
+            {
+              itemDesc: 'Standard Bundle',
+              qty: 1,
+              currency: 'PHP',
+              totalAmt: 50000,
+            },
+          ],
+        });
+      } finally {
+        setFetching(false);
       }
-      setLoading(false);
     }
 
-    if (dealIdNum) {
-      loadDealDetails();
+    if (dealID) {
+      loadDeal();
     }
-  }, [dealIdNum, role, session, reset]);
+  }, [dealID, reset]);
 
-  const onSubmit = async (data: UpdateDealFormData) => {
-    setSaving(true);
-    setErrorMsg(null);
-
-    const result = await updateDeal({
-      dealID: dealIdNum,
-      dtRegistered: data.dtRegistered,
-      expDt: data.expDt,
-      brand: data.brand,
-      customerID: data.customerID,
-      custName: data.custName,
-      projectName: data.projectName,
-      assignedAO: data.assignedAO,
-      bu: data.bu,
-      dealStatus: data.dealStatus,
-      remarks: data.remarks,
-      items: data.items,
-    });
-
-    setSaving(false);
-
-    if (result.success) {
-      router.push('/deals');
-    } else {
-      setErrorMsg(result.error || 'Failed to update deal record.');
+  // Reactive Expiration Calculation
+  const handleValidityChange = (days: number) => {
+    setValue('validityDays', days);
+    if (watchRegDate && days > 0) {
+      const reg = new Date(watchRegDate);
+      const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
+      setValue('expDt', newExp.toISOString().split('T')[0]);
     }
   };
 
-  if (loading) {
+  const handleExpDateChange = (expDateStr: string) => {
+    setValue('expDt', expDateStr);
+    if (watchRegDate && expDateStr) {
+      const reg = new Date(watchRegDate);
+      const exp = new Date(expDateStr);
+      const diffTime = exp.getTime() - reg.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) {
+        setValue('validityDays', diffDays);
+      }
+    }
+  };
+
+  // Customer Auto-Fill Handler
+  const handleSelectCustomer = (customer: CustomerLookupResult) => {
+    setValue('customerID', customer.customerID);
+    setValue('custName', customer.custName);
+    setValue('assignedAO', customer.assignedAO || 'Abegail Cebujano');
+    setValue('bu', customer.bu || 'BU5');
+  };
+
+  // Status Change Interceptor
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = Number(e.target.value);
+    setValue('dealStatus', newStatus);
+
+    if (newStatus === 7) {
+      setIsLostModalOpen(true);
+    }
+  };
+
+  // Currency Totals Calculation
+  const currencyTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    if (watchItems && Array.isArray(watchItems)) {
+      watchItems.forEach((item) => {
+        if (item && item.currency && item.totalAmt) {
+          const curr = item.currency;
+          totals[curr] = (totals[curr] || 0) + Number(item.totalAmt || 0);
+        }
+      });
+    }
+    return totals;
+  }, [watchItems]);
+
+  const onSubmit = async (data: UpdateDealFormData) => {
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const payload = {
+        dealID,
+        dtRegistered: new Date(data.dtRegistered),
+        expiration: Number(data.validityDays),
+        expDt: new Date(data.expDt),
+        brand: data.brand,
+        customerID: data.customerID,
+        custName: data.custName,
+        dealRegID: data.dealRegID,
+        projectName: data.projectName,
+        assignedAO: data.assignedAO,
+        bu: data.bu,
+        dealStatus: Number(data.dealStatus),
+        remarks: data.remarks || '',
+        toEmail: Boolean(data.toEmail),
+        items: data.items.map((item) => ({
+          dealItemID: item.dealItemID,
+          itemDesc: item.itemDesc,
+          qty: Number(item.qty),
+          currency: item.currency,
+          totalAmt: Number(item.totalAmt),
+        })),
+      };
+
+      const result = await updateDeal(payload);
+
+      if (result.success) {
+        router.push('/deals');
+        router.refresh();
+      } else {
+        setErrorMsg(result.error || 'Failed to update deal registration');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (fetching) {
     return (
-      <div className="py-20 text-center text-slate-500 font-medium flex items-center justify-center space-x-2">
-        <Loader2 className="w-5 h-5 animate-spin text-sky-600" />
-        <span>Loading deal details...</span>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <span className="text-sm font-semibold text-muted">Loading deal details...</span>
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Top Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+      {/* Top Header Breadcrumb */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
           <Link
             href="/deals"
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white border border-slate-200 rounded-xl transition"
+            className="p-2 rounded-xl bg-neutral/80 hover:bg-neutral border border-border/70 text-muted hover:text-foreground transition"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <Edit3 className="w-6 h-6 text-indigo-600" />
-              <span>Edit Deal Record #{dealIdNum}</span>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
+              Edit Deal Registration
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-semibold border border-amber-500/20">
+                #{dealID}
+              </span>
             </h1>
-            <p className="text-xs font-medium text-slate-500">
-              Update header info, line items, and status SLA calculation trigger
+            <p className="text-xs text-muted mt-0.5">
+              Update deal attributes, adjust When-To-Notify alert dates, and modify line items.
             </p>
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+          {/* Quick WTN Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsWtnModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 rounded-xl text-xs font-semibold hover:bg-amber-500/20 transition border border-amber-500/20"
+          >
+            <BellRing className="w-4 h-4" />
+            <span>Adjust WTN Date</span>
+          </button>
+
+          {/* Quick Lost Deal Trigger */}
+          {watchStatus !== 7 && (
+            <button
+              type="button"
+              onClick={() => setIsLostModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 text-rose-600 rounded-xl text-xs font-semibold hover:bg-rose-500/20 transition border border-rose-500/20"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              <span>Mark as Lost</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-        {errorMsg && (
-          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-medium">
-            {errorMsg}
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-6">
+        {/* Section 1: Customer Identification */}
+        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-sky-600" />
+              <h2 className="font-bold text-sm text-foreground">1. Customer Identification</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCustomerModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/10 text-sky-600 rounded-lg text-xs font-semibold hover:bg-sky-500/20 transition border border-sky-500/20"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>LiveSearch Customer</span>
+            </button>
           </div>
-        )}
 
-        {/* Section 1: Header Specs */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-6">
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">
-            1. Deal Header Information
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Registration Date *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Customer Name *</label>
+              <input
+                {...register('custName')}
+                placeholder="Search or enter customer company..."
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                  errors.custName ? 'border-rose-500 ring-1 ring-rose-500' : 'border-border'
+                }`}
+              />
+              {errors.custName && <p className="text-[10px] text-rose-500 mt-1">{errors.custName.message}</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Customer ID *</label>
+              <input
+                {...register('customerID')}
+                placeholder="e.g. CUST-3184"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                  errors.customerID ? 'border-rose-500' : 'border-border'
+                }`}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
+              <input
+                {...register('assignedAO')}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
+              <select
+                {...register('bu')}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {ACTIVE_BUSINESS_UNITS.map((bu) => (
+                  <option key={bu} value={bu}>
+                    {bu}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </AppCard>
+
+        {/* Section 2: Deal Specification & Timing */}
+        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-emerald-600" />
+              <h2 className="font-bold text-sm text-foreground">2. Deal Registration Details</h2>
+            </div>
+            {currentWtnDate && (
+              <span className="text-[11px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                WTN: {new Date(currentWtnDate).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Product Brand *</label>
+              <select
+                {...register('brand')}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="Dell">Dell</option>
+                <option value="HP">HP</option>
+                <option value="Lenovo">Lenovo</option>
+                <option value="Cisco">Cisco</option>
+                <option value="Microsoft">Microsoft</option>
+                <option value="Fortinet">Fortinet</option>
+                <option value="APC">APC</option>
+                <option value="Epson">Epson</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Deal Registration ID *</label>
+              <input
+                {...register('dealRegID')}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Current Deal Status</label>
+              <select
+                value={watchStatus}
+                onChange={handleStatusChange}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
+                  <option key={id} value={id}>
+                    {meta.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Project Name & Description *</label>
+            <input
+              {...register('projectName')}
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          {/* Reactive Date Synchronizer */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-neutral/40 border border-border/60">
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Date Registered *</label>
               <input
                 type="date"
                 {...register('dtRegistered')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Expiration Date *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Validity (in Days) *</label>
+              <input
+                type="number"
+                value={watchValidityDays}
+                onChange={(e) => handleValidityChange(Number(e.target.value))}
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Expiration Date *</label>
               <input
                 type="date"
-                {...register('expDt')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                value={watch('expDt')}
+                onChange={(e) => handleExpDateChange(e.target.value)}
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              {errors.expDt && <p className="text-[11px] text-rose-500 mt-1">{errors.expDt.message}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Brand *</label>
-              <select
-                {...register('brand')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              >
-                <option value="Cisco">Cisco</option>
-                <option value="Fortinet">Fortinet</option>
-                <option value="HPE Aruba">HPE Aruba</option>
-                <option value="Dell Technologies">Dell Technologies</option>
-                <option value="Palo Alto Networks">Palo Alto Networks</option>
-                <option value="Microsoft">Microsoft</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Customer ID *</label>
-              <input
-                type="text"
-                {...register('customerID')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Customer Name *</label>
-              <input
-                type="text"
-                {...register('custName')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Project Name *</label>
-              <input
-                type="text"
-                {...register('projectName')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Assigned AO *</label>
-              <input
-                type="text"
-                {...register('assignedAO')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Deal Status *</label>
-              <select
-                {...register('dealStatus')}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              >
-                <option value={1}>1 - Registered (Triggers SLA calc from Pending)</option>
-                <option value={4}>4 - Pending</option>
-                <option value={8}>8 - Lost</option>
-              </select>
             </div>
           </div>
-        </div>
 
-        {/* Section 2: Dynamic Line Items */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
-              2. Dynamic Line Items
-            </h3>
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Remarks & Partner Notes</label>
+            <AppTextarea
+              {...register('remarks')}
+              placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
+              rows={2}
+            />
+          </div>
+        </AppCard>
+
+        {/* Section 3: Dynamic Deal Items */}
+        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-600" />
+              <h2 className="font-bold text-sm text-foreground">3. Deal Products & Line Items</h2>
+            </div>
             <button
               type="button"
-              onClick={() => append({ itemDesc: '', qty: 1, currency: 'USD', totalAmt: 0 })}
-              className="flex items-center space-x-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-xl transition"
+              onClick={() =>
+                append({
+                  itemDesc: '',
+                  qty: 1,
+                  currency: 'PHP',
+                  totalAmt: 0,
+                })
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 transition shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Line Item</span>
+              <span>Add Item</span>
             </button>
           </div>
 
           <div className="space-y-3">
             {fields.map((field, index) => (
-              <div key={field.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col md:flex-row gap-3 items-start md:items-center">
-                <div className="flex-1 w-full">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Description</label>
+              <div
+                key={field.id}
+                className="grid grid-cols-12 gap-3 items-center p-3 rounded-xl bg-neutral/30 border border-border/60 hover:border-border transition"
+              >
+                <div className="col-span-12 sm:col-span-5">
+                  <label className="block text-[11px] font-semibold text-muted mb-1">
+                    Item #{index + 1} Description *
+                  </label>
                   <input
-                    type="text"
-                    {...register(`items.${index}.itemDesc`)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    {...register(`items.${index}.itemDesc` as const)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
 
-                <div className="w-full md:w-28">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Qty</label>
+                <div className="col-span-4 sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-muted mb-1">Qty *</label>
                   <input
                     type="number"
                     min="1"
-                    {...register(`items.${index}.qty`)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    {...register(`items.${index}.qty` as const)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
 
-                <div className="w-full md:w-32">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Currency</label>
+                <div className="col-span-3 sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-muted mb-1">Currency *</label>
                   <select
-                    {...register(`items.${index}.currency`)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    {...register(`items.${index}.currency` as const)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
-                    <option value="USD">USD ($)</option>
-                    <option value="PHP">PHP (₱)</option>
-                    <option value="EUR">EUR (€)</option>
+                    <option value="PHP">PHP</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="SGD">SGD</option>
+                    <option value="JPY">JPY</option>
                   </select>
                 </div>
 
-                <div className="w-full md:w-36">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Total Amount</label>
+                <div className="col-span-4 sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-muted mb-1">Total Amount *</label>
                   <input
                     type="number"
                     step="0.01"
-                    {...register(`items.${index}.totalAmt`)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    {...register(`items.${index}.totalAmt` as const)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
 
-                {fields.length > 1 && (
+                <div className="col-span-1 text-right sm:pt-5">
                   <button
                     type="button"
                     onClick={() => remove(index)}
-                    className="mt-4 md:mt-4 p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition"
-                    title="Remove Item"
+                    disabled={fields.length === 1}
+                    className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-30"
+                    title="Delete Item"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
-                )}
+                </div>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center justify-end space-x-4 pt-4">
+          {/* Currency Summary Footer */}
+          <div className="flex items-center justify-between p-4 rounded-xl bg-neutral/80 border border-border/80">
+            <span className="text-xs font-bold text-foreground">Total Deal Amount:</span>
+            <div className="flex items-center gap-3 font-mono font-bold text-sm text-primary">
+              {Object.entries(currencyTotals).map(([curr, amt]) => (
+                <span key={curr} className="bg-background px-3 py-1 rounded-lg border border-border shadow-xs">
+                  {curr} {amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              ))}
+            </div>
+          </div>
+        </AppCard>
+
+        {/* Section 4: Email Notification & Actions */}
+        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600 border border-sky-500/20">
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">Send Email Notification on Update</div>
+              <div className="text-[11px] text-muted">
+                Queues update email in deals_reg_notification for Assigned AO & BU Head (skips BU6).
+              </div>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              {...register('toEmail')}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-neutral peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary border border-border"></div>
+          </label>
+        </AppCard>
+
+        {/* Action Footer */}
+        <div className="flex items-center justify-end gap-3 pt-2">
           <Link
             href="/deals"
-            className="px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition"
+            className="px-5 py-2.5 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl border border-border transition"
           >
             Cancel
           </Link>
-
           <button
             type="submit"
-            disabled={saving}
-            className="flex items-center space-x-2 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-bold text-xs px-6 py-3 rounded-2xl shadow-lg shadow-indigo-500/20 transition active:scale-95 disabled:opacity-50"
+            disabled={loading}
+            className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md disabled:opacity-50"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>Update Deal Record</span>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <span>Save & Apply Updates</span>
           </button>
         </div>
       </form>
+
+      {/* Customer LiveSearch Modal */}
+      <CustomerSearchModal
+        isOpen={isCustomerModalOpen}
+        onClose={() => setIsCustomerModalOpen(false)}
+        onSelectCustomer={handleSelectCustomer}
+      />
+
+      {/* WTN Modal */}
+      <WTNModal
+        dealID={dealID}
+        dealRegID={watch('dealRegID') || String(dealID)}
+        currentWTN={currentWtnDate}
+        isOpen={isWtnModalOpen}
+        onClose={() => setIsWtnModalOpen(false)}
+        onSuccess={() => {}}
+      />
+
+      {/* Lost Deal Modal */}
+      <LostDealModal
+        dealID={dealID}
+        dealRegID={watch('dealRegID') || String(dealID)}
+        isOpen={isLostModalOpen}
+        onClose={() => setIsLostModalOpen(false)}
+        onSuccess={() => {}}
+      />
     </div>
   );
 }

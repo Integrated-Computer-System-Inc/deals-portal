@@ -10,17 +10,19 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
+    "@integrated-computer-system/ui-kit": "^1.0.7",
     "@my-app/database": "*",
     "@my-app/types": "*",
-    "clsx": "^2.1.0",
+    "antd": "^6.3.1",
+    "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
-    "lucide-react": "^0.359.0",
+    "lucide-react": "^0.577.0",
     "next": "^14.1.4",
     "next-auth": "^4.24.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.51.1",
-    "tailwind-merge": "^2.2.2",
+    "tailwind-merge": "^3.5.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
