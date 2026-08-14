@@ -1,1 +1,0 @@
-export { AppBookmark } from './AppBookmark';

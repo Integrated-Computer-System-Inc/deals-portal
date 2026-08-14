@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from './src/index';
 
 async function main() {
   console.log('Creating UsersTable if it does not exist...');

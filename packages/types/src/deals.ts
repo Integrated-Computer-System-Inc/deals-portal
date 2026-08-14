@@ -65,7 +65,7 @@ export interface UpdateWTNPayload {
   whenToNotify?: string | Date;
 }
 
-export type UserRole = 'admin' | 'ao' | 'bu_admin';
+export type UserRole = 'admin' | 'bu' | 'ao' | 'aa' | 'bu_admin';
 
 export interface ScopedDealsFilter {
   userRole: UserRole;
@@ -146,11 +146,36 @@ export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success'
   8: { label: 'Lost', variant: 'danger' },
 };
 
+export interface LiveSearchCustomerItem {
+  is_active: string | null;
+  CustomerID: string;
+  CustomerTypeCode: string;
+  CustomerName: string;
+  CustomerNumber: string;
+  SalesGroup: string | null;
+  DistributionChannel: string | null;
+  Division: string | null;
+  BU: string | null;
+  AO: string | null;
+  F9: string;
+  Reason: string;
+  CustomerType: string;
+  trDate: string;
+  OLDAO: string | null;
+  addressID: string | null;
+  SourceDB: string;
+  DateCreated: string;
+  CreatedBy: string;
+}
+
 export interface CustomerLookupResult {
   customerID: string;
   custName: string;
   bu: string;
   assignedAO: string;
+  isActive?: boolean;
+  createdDate?: string;
+  createdBy?: string;
 }
 
 export const MOCK_CUSTOMERS: CustomerLookupResult[] = [

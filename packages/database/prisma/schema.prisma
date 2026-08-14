@@ -78,6 +78,10 @@ model cdbAccounts {
   isActive       Int?
   GAvatar        String?   @db.VarChar(Max)
   LastSynced     DateTime? @db.DateTime
+
+  @@index([AccountName])
+  @@index([AccountIDNo])
+  @@index([AccountGroup])
 }
 
 model DealBrands {
