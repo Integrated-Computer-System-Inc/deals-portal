@@ -20,6 +20,8 @@ import {
 } from '../../../components/ui';
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
 import LostDealModal from '../../../components/LostDealModal';
+import BrandSelect from '../../../components/BrandSelect';
+import { invalidateDealsCache } from '../../../hooks/useDeals';
 import {
   ArrowLeft,
   Search,
@@ -31,6 +33,7 @@ import {
   Layers,
   Loader2,
   Info,
+  CheckCircle,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -41,17 +44,19 @@ const dealItemSchema = z.object({
 });
 
 const createDealSchema = z.object({
-  dealRegID: z.string().min(1, 'Deal Registration ID is required'),
-  dtRegistered: z.string().min(1, 'Registration date is required'),
+  dealRegID: z.string().trim().min(1, 'Deal Registration ID is required'),
+  dtRegistered: z.string().trim().min(1, 'Registration date is required'),
   validityDays: z.coerce.number().min(1, 'Validity days must be at least 1'),
-  expDt: z.string().min(1, 'Expiration date is required'),
-  brand: z.string().min(1, 'Brand is required'),
-  customerID: z.string().min(1, 'Customer ID is required'),
-  custName: z.string().min(2, 'Customer name is required'),
-  projectName: z.string().min(2, 'Project name is required'),
-  assignedAO: z.string().min(2, 'Assigned AO is required'),
-  bu: z.string().min(1, 'Business Unit is required'),
-  dealStatus: z.union([z.string(), z.number()]).default(4),
+  expDt: z.string().trim().min(1, 'Expiration date is required'),
+  brand: z.string().trim().min(1, 'At least one brand is required'),
+  customerID: z.union([z.string(), z.number()]).optional().nullable(),
+  custName: z.string().trim().min(2, 'Customer name is required'),
+  projectName: z.string().trim().min(2, 'Project name is required'),
+  assignedAO: z.string().trim().min(2, 'Assigned AO is required'),
+  bu: z.string().trim().min(1, 'Business Unit is required'),
+  dealStatus: z.union([z.string(), z.number()]).refine((val) => val !== '' && val !== undefined && val !== null, {
+    message: 'Initial deal status is required',
+  }),
   remarks: z.string().optional(),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
 });
@@ -63,6 +68,7 @@ export default function NewDealPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
 
@@ -74,9 +80,6 @@ export default function NewDealPage() {
     }
   }, [session, userRole, router]);
 
-  const defaultRegDate = new Date().toISOString().split('T')[0];
-  const defaultExpDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
   const {
     register,
     control,
@@ -87,17 +90,17 @@ export default function NewDealPage() {
   } = useForm<CreateDealFormData>({
     resolver: zodResolver(createDealSchema as any),
     defaultValues: {
-      dealRegID: `DR-${Math.floor(1000000 + Math.random() * 9000000)}`,
-      dtRegistered: defaultRegDate,
+      dealRegID: '',
+      dtRegistered: '',
       validityDays: 90,
-      expDt: defaultExpDate,
-      brand: 'Dell',
+      expDt: '',
+      brand: '',
       customerID: '',
       custName: '',
       projectName: '',
       assignedAO: '',
       bu: 'BU5',
-      dealStatus: 4, // Pending
+      dealStatus: '' as any,
       remarks: '',
       items: [
         {
@@ -117,32 +120,54 @@ export default function NewDealPage() {
 
   const watchRegDate = watch('dtRegistered');
   const watchValidityDays = watch('validityDays');
+  const watchBrand = watch('brand');
   const watchItems = watch('items');
   const watchStatus = watch('dealStatus');
+  const watchBU = watch('bu');
+
+  const buOptions = useMemo(() => {
+    const list = [...ACTIVE_BUSINESS_UNITS] as string[];
+    if (watchBU && !list.includes(watchBU)) {
+      list.unshift(watchBU);
+    }
+    return list;
+  }, [watchBU]);
+
+  const handleRegDateChange = (regDateStr: string) => {
+    setValue('dtRegistered', regDateStr, { shouldValidate: true });
+    const days = watchValidityDays || 90;
+    if (regDateStr && days > 0) {
+      const reg = new Date(regDateStr);
+      const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
+      setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
+    } else {
+      setValue('expDt', '', { shouldValidate: true });
+    }
+  };
 
   const handleValidityChange = (days: number) => {
-    setValue('validityDays', days);
+    setValue('validityDays', days, { shouldValidate: true });
     if (watchRegDate && days > 0) {
       const reg = new Date(watchRegDate);
       const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
-      setValue('expDt', newExp.toISOString().split('T')[0]);
+      setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr);
+    setValue('expDt', expDateStr, { shouldValidate: true });
     if (watchRegDate && expDateStr) {
       const reg = new Date(watchRegDate).getTime();
       const exp = new Date(expDateStr).getTime();
       const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
       if (diffDays > 0) {
-        setValue('validityDays', diffDays);
+        setValue('validityDays', diffDays, { shouldValidate: true });
       }
     }
   };
 
-  const handleStatusChange = (newStatus: number) => {
-    setValue('dealStatus', newStatus);
+  const handleStatusChange = (newStatus: string | number) => {
+    setValue('dealStatus', newStatus, { shouldValidate: true });
     if (Number(newStatus) === 7 || Number(newStatus) === 8) {
       setIsLostModalOpen(true);
     }
@@ -150,10 +175,12 @@ export default function NewDealPage() {
 
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
     setValue('customerID', customer.customerID);
-    setValue('custName', customer.custName);
-    setValue('bu', customer.bu);
+    setValue('custName', customer.custName, { shouldValidate: true });
+    if (customer.bu) {
+      setValue('bu', customer.bu.trim(), { shouldValidate: true });
+    }
     if (customer.assignedAO) {
-      setValue('assignedAO', customer.assignedAO);
+      setValue('assignedAO', customer.assignedAO.trim(), { shouldValidate: true });
     }
   };
 
@@ -167,9 +194,18 @@ export default function NewDealPage() {
     return totals;
   }, [watchItems]);
 
+  const onInvalid = (fieldErrors: any) => {
+    const errorKeys = Object.keys(fieldErrors);
+    if (errorKeys.length > 0) {
+      setErrorMsg('Please complete all required fields marked with * (Deal Reg ID, Brand Name, Date Registered, Initial Deal Status, Customer Name, Line Items) before submitting.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const onSubmit = async (data: CreateDealFormData) => {
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     const creatorName = (session?.user as any)?.AccountName || session?.user?.name || 'System User';
 
@@ -195,16 +231,21 @@ export default function NewDealPage() {
         creatorName
       );
 
-      setLoading(false);
-
       if (result.success) {
-        router.push('/deals');
+        await invalidateDealsCache();
+        setSuccessMsg('Deal successfully registered! Redirecting to deals list...');
+        setTimeout(() => {
+          router.push('/deals');
+        }, 1000);
       } else {
+        setLoading(false);
         setErrorMsg(result.error || 'Failed to submit deal registration.');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
-    } catch {
+    } catch (err: any) {
       setLoading(false);
-      router.push('/deals');
+      setErrorMsg(err?.message || 'An unexpected error occurred while saving.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -238,24 +279,31 @@ export default function NewDealPage() {
           </Link>
           <button
             type="button"
-            onClick={handleSubmit(onSubmit)}
+            onClick={handleSubmit(onSubmit, onInvalid)}
             disabled={loading}
             className="flex items-center gap-1.5 px-5 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>Submit Registration</span>
+            <span>{loading ? 'Saving Deal...' : 'Save & Register Deal'}</span>
           </button>
         </div>
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2">
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in">
           <Info className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {successMsg && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in">
+          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6">
         {/* Section 1: Customer Account */}
         <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
@@ -273,8 +321,8 @@ export default function NewDealPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
+          <div className="space-y-4">
+            <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
               <input
                 {...register('custName')}
@@ -284,40 +332,31 @@ export default function NewDealPage() {
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Customer ID Reference *</label>
-              <input
-                {...register('customerID')}
-                placeholder="e.g. CUST-3184 or 1000547"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
-            </div>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
+                <select
+                  {...register('bu')}
+                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  {buOptions.map((bu: string) => (
+                    <option key={bu} value={bu}>
+                      {bu}
+                    </option>
+                  ))}
+                </select>
+                {errors.bu && <p className="text-[11px] text-rose-500 mt-1">{errors.bu.message}</p>}
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
-              <select
-                {...register('bu')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
-                  <option key={bu} value={bu}>
-                    {bu}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
-              <input
-                {...register('assignedAO')}
-                placeholder="e.g. Abegail Cebujano"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
+                <input
+                  {...register('assignedAO')}
+                  placeholder="e.g. Abegail Cebujano"
+                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
+              </div>
             </div>
           </div>
         </AppCard>
@@ -342,36 +381,30 @@ export default function NewDealPage() {
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Brand Name *</label>
-              <select
-                {...register('brand')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="Dell">Dell</option>
-                <option value="HPi">HPi</option>
-                <option value="HPe">HPe</option>
-                <option value="HP Poly">HP Poly</option>
-                <option value="Cisco">Cisco</option>
-                <option value="Microsoft">Microsoft</option>
-                <option value="Lenovo">Lenovo</option>
-                <option value="Fortinet">Fortinet</option>
-                <option value="VMware">VMware</option>
-                <option value="Palo Alto">Palo Alto</option>
-              </select>
+              <BrandSelect
+                value={watchBrand || ''}
+                onChange={(brand) => setValue('brand', brand, { shouldValidate: true })}
+                error={errors.brand?.message}
+                placeholder="Select a brand..."
+              />
+              {errors.brand && <p className="text-[11px] text-rose-500 mt-1">{errors.brand.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Initial Deal Status *</label>
               <select
-                value={watchStatus}
-                onChange={(e) => handleStatusChange(Number(e.target.value))}
+                value={watchStatus || ''}
+                onChange={(e) => handleStatusChange(e.target.value ? Number(e.target.value) : '')}
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
+                <option value="">Select Deal Status...</option>
                 {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
                   <option key={id} value={id}>
                     {meta.label}
                   </option>
                 ))}
               </select>
+              {errors.dealStatus && <p className="text-[11px] text-rose-500 mt-1">{errors.dealStatus.message}</p>}
             </div>
           </div>
 
@@ -391,29 +424,33 @@ export default function NewDealPage() {
               <label className="block text-xs font-semibold text-foreground mb-1">Date Registered *</label>
               <input
                 type="date"
-                {...register('dtRegistered')}
+                value={watchRegDate || ''}
+                onChange={(e) => handleRegDateChange(e.target.value)}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
+              {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Validity (in Days) *</label>
               <input
                 type="number"
-                value={watchValidityDays}
+                value={watchValidityDays || ''}
                 onChange={(e) => handleValidityChange(Number(e.target.value))}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
+              {errors.validityDays && <p className="text-[11px] text-rose-500 mt-1">{errors.validityDays.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Expiration Date *</label>
               <input
                 type="date"
-                value={watch('expDt')}
+                value={watch('expDt') || ''}
                 onChange={(e) => handleExpDateChange(e.target.value)}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
+              {errors.expDt && <p className="text-[11px] text-rose-500 mt-1">{errors.expDt.message}</p>}
             </div>
           </div>
 
@@ -544,7 +581,7 @@ export default function NewDealPage() {
             className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>Save & Register Deal</span>
+            <span>{loading ? 'Saving & Registering Deal...' : 'Save & Register Deal'}</span>
           </button>
         </div>
       </form>

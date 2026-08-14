@@ -39,21 +39,73 @@ function parseSafeInt(val: any, fallback = 0): number {
 export async function getScopedDeals(
   filter: ScopedDealsFilter,
   _token?: string
-): Promise<{ success: boolean; data?: DealHeaderRecord[]; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: DealHeaderRecord[];
+  totalCount?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  error?: string;
+}> {
   try {
     const session = await getServerSession(authOptions);
     const userRole = filter.userRole || (session?.user as any)?.role || 'admin';
     const accountName = filter.accountName || (session?.user as any)?.AccountName;
     const accountGroup = filter.accountGroup || (session?.user as any)?.AccountGroup;
 
-    const whereClause: Record<string, unknown> = {};
+    const page = Math.max(1, filter.page || 1);
+    const pageSize = filter.pageSize !== undefined ? filter.pageSize : 25;
+    const searchQuery = (filter.searchQuery || '').trim();
+    const statusFilter = filter.statusFilter || 'ALL';
+    const buFilter = filter.buFilter || 'ALL';
+    const brandFilter = filter.brandFilter || 'ALL';
 
+    const andConditions: any[] = [];
+
+    // Role-based scoping
     if (userRole === 'ao' && accountName) {
-      whereClause.AssignedAO = accountName;
+      andConditions.push({ AssignedAO: accountName });
     } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      whereClause.BU = accountGroup;
+      andConditions.push({ BU: accountGroup });
     }
 
+    // Status filter
+    if (statusFilter !== 'ALL') {
+      andConditions.push({ dealStatus: String(statusFilter) });
+    }
+
+    // BU filter
+    if (buFilter !== 'ALL') {
+      andConditions.push({ BU: String(buFilter) });
+    }
+
+    // Brand filter
+    if (brandFilter !== 'ALL' && brandFilter !== '') {
+      andConditions.push({ brand: String(brandFilter) });
+    }
+
+    // Search query pushdown (checks dealRegID, ProjectName, custName, AssignedAO, brand)
+    if (searchQuery) {
+      andConditions.push({
+        OR: [
+          { dealRegID: { contains: searchQuery } },
+          { ProjectName: { contains: searchQuery } },
+          { custName: { contains: searchQuery } },
+          { AssignedAO: { contains: searchQuery } },
+          { brand: { contains: searchQuery } },
+        ],
+      });
+    }
+
+    const whereClause = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    // 1. Database-level count for exact pagination
+    const totalCount = await prisma.dealHeader.count({
+      where: whereClause,
+    });
+
+    // 2. Database-level limit & offset
     const rawDeals = await prisma.dealHeader.findMany({
       where: whereClause,
       include: {
@@ -65,6 +117,12 @@ export async function getScopedDeals(
       orderBy: {
         dtCreated: 'desc',
       },
+      ...(pageSize > 0
+        ? {
+            take: pageSize,
+            skip: (page - 1) * pageSize,
+          }
+        : {}),
     });
 
     const formattedDeals: DealHeaderRecord[] = rawDeals.map((deal) => {
@@ -131,7 +189,16 @@ export async function getScopedDeals(
       };
     });
 
-    return { success: true, data: formattedDeals };
+    const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1;
+
+    return {
+      success: true,
+      data: formattedDeals,
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[Action: getScopedDeals] Error:', message);
@@ -256,88 +323,126 @@ export async function createDeal(
     tenDaysBeforeExp.setDate(tenDaysBeforeExp.getDate() - 10);
     const whenToNotify = now > tenDaysBeforeExp ? now : tenDaysBeforeExp;
 
+    const customerIDVal = typeof payload.customerID === 'string'
+      ? (parseInt(payload.customerID, 10) || null)
+      : (payload.customerID ?? null);
+
     const result = await prisma.$transaction(async (tx) => {
+      // 1. Calculate next dealID safely
+      const maxDealResult = await tx.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(dealID), 0) AS maxId FROM [dbo].[DealHeader]`
+      );
+      const nextDealID = Number(maxDealResult?.[0]?.maxId || 0) + 1;
+
       // 1. Create DealHeader
-      const header = await tx.dealHeader.create({
-        data: {
-          dtRegistered: regDate,
-          expiration: String(payload.expDt),
-          expDt: expDate,
-          brand: payload.brand,
-          customerID: typeof payload.customerID === 'string' ? parseInt(payload.customerID, 10) : payload.customerID,
-          dealRegID: dealRegID,
-          ProjectName: payload.ProjectName,
-          AssignedAO: payload.AssignedAO,
-          BU: payload.BU,
-          dealStatus: String(payload.dealStatus),
-          createdBy: domainAccount,
-          custName: payload.custName,
-          remarks: payload.remarks || null,
-          dtCreated: now,
-          dtValidTo: expDate,
-        },
-      });
+      await tx.$executeRawUnsafe(
+        `INSERT INTO [dbo].[DealHeader] (
+          [dealID], [dtRegistered], [expiration], [expDt], [brand], [customerID], [dealRegID],
+          [ProjectName], [AssignedAO], [BU], [dealStatus], [createdBy], [custName], [remarks],
+          [dtCreated], [dtValidTo]
+        ) VALUES (
+          @P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9, @P10, @P11, @P12, @P13, @P14, @P15, @P16
+        )`,
+        nextDealID,
+        regDate,
+        String(payload.expDt),
+        expDate,
+        payload.brand,
+        customerIDVal,
+        dealRegID,
+        payload.ProjectName || payload.projectName,
+        payload.AssignedAO || payload.assignedAO,
+        payload.BU || payload.bu,
+        String(payload.dealStatus),
+        domainAccount,
+        payload.custName,
+        payload.remarks || null,
+        now,
+        expDate
+      );
 
       // 2. Loop through each line item in the form array -> DealItems
       let totalAmount = 0;
       if (payload.items && payload.items.length > 0) {
-        await tx.dealItems.createMany({
-          data: payload.items.map((item) => {
-            totalAmount += Number(item.totalAmt || 0);
-            return {
-              dealID: header.dealID,
-              itemDesc: item.itemDesc,
-              qty: String(item.qty),
-              currency: item.currency,
-              totalAmt: String(item.totalAmt),
-            };
-          }),
-        });
+        const maxItemResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(dealItemID), 0) AS maxId FROM [dbo].[DealItems]`
+        );
+        let currentItemId = Number(maxItemResult?.[0]?.maxId || 0);
+
+        for (const item of payload.items) {
+          currentItemId++;
+          totalAmount += Number(item.totalAmt || 0);
+          await tx.$executeRawUnsafe(
+            `INSERT INTO [dbo].[DealItems] ([dealItemID], [dealID], [itemDesc], [qty], [currency], [totalAmt])
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6)`,
+            currentItemId,
+            nextDealID,
+            item.itemDesc,
+            String(item.qty),
+            item.currency,
+            String(item.totalAmt)
+          );
+        }
       }
 
       // 3. Create dealWTN
-      await tx.dealWTN.create({
-        data: {
-          dealID: header.dealID,
-          whenToNotify: whenToNotify,
-        },
-      });
+      const maxWtnResult = await tx.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
+      );
+      const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO [dbo].[dealWTN] ([id], [dealID], [whenToNotify])
+         VALUES (@P1, @P2, @P3)`,
+        nextWtnId,
+        nextDealID,
+        whenToNotify
+      );
 
       // 4. Target Table: deals_reg_notification (Skip if BU == 'BU6')
-      if (payload.BU !== 'BU6') {
-        const recipients = await resolveDealEmailRecipients(payload.AssignedAO, payload.BU);
+      const buVal = payload.BU || payload.bu;
+      const aoVal = payload.AssignedAO || payload.assignedAO;
+      if (buVal !== 'BU6') {
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
         const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
 
         const messageHtml = `
           <h2>Deal Registration: Created Deal Notification</h2>
           <p>A new deal has been registered for <strong>${payload.custName}</strong> by ${userName} (${domainAccount}).</p>
           <ul>
-            <li><strong>Project Name:</strong> ${payload.ProjectName}</li>
+            <li><strong>Project Name:</strong> ${payload.ProjectName || payload.projectName}</li>
             <li><strong>Brand:</strong> ${payload.brand}</li>
-            <li><strong>Business Unit (BU):</strong> ${payload.BU}</li>
-            <li><strong>Assigned AO:</strong> ${payload.AssignedAO}</li>
+            <li><strong>Business Unit (BU):</strong> ${buVal}</li>
+            <li><strong>Assigned AO:</strong> ${aoVal}</li>
             <li><strong>Registration Date:</strong> ${regDate.toLocaleDateString()}</li>
             <li><strong>Expiration Date:</strong> ${expDate.toLocaleDateString()}</li>
             <li><strong>Total Amount:</strong> ${totalAmount.toLocaleString()}</li>
           </ul>
-          <p><a href="${baseUrl}/deals/${header.dealID}/edit" style="display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">View Deal in Portal</a></p>
+          <p><a href="${baseUrl}/deals/${nextDealID}/edit" style="display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">View Deal in Portal</a></p>
         `;
 
-        await tx.deals_reg_notification.create({
-          data: {
-            creator: domainAccount,
-            subject: 'Deal Registration: Created Deal Notification',
-            message: messageHtml,
-            sendTo: recipients.sendTo,
-            sendCC: recipients.sendCC,
-            sendBCC: recipients.sendBCC,
-            dateCreated: now,
-            status: 0, // Unsent flag
-          },
-        });
+        const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
+        );
+        const nextNotifId = Number(maxNotifResult?.[0]?.maxId || 0) + 1;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO [dbo].[deals_reg_notification] (
+            [email_id], [creator], [subject], [message], [sendTo], [sendCC], [sendBCC], [dateCreated], [status]
+          ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
+          nextNotifId,
+          domainAccount,
+          'Deal Registration: Created Deal Notification',
+          messageHtml,
+          recipients.sendTo,
+          recipients.sendCC,
+          recipients.sendBCC,
+          now,
+          0
+        );
       }
 
-      return header;
+      return { dealID: nextDealID };
     });
 
     revalidatePath('/deals');
@@ -392,7 +497,9 @@ export async function updateDeal(
           expiration: String(payload.expDt),
           expDt: expDate,
           brand: payload.brand,
-          customerID: typeof payload.customerID === 'string' ? parseInt(payload.customerID, 10) : payload.customerID,
+          customerID: typeof payload.customerID === 'string'
+            ? (parseInt(payload.customerID, 10) || null)
+            : (payload.customerID ?? null),
           ProjectName: payload.ProjectName,
           AssignedAO: payload.AssignedAO,
           BU: payload.BU,
@@ -410,25 +517,41 @@ export async function updateDeal(
 
       let totalAmount = 0;
       if (payload.items && payload.items.length > 0) {
-        await tx.dealItems.createMany({
-          data: payload.items.map((item) => {
-            totalAmount += Number(item.totalAmt || 0);
-            return {
-              dealID: dealID,
-              itemDesc: item.itemDesc,
-              qty: String(item.qty),
-              currency: item.currency,
-              totalAmt: String(item.totalAmt),
-            };
-          }),
-        });
+        const maxItemResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(dealItemID), 0) AS maxId FROM [dbo].[DealItems]`
+        );
+        let currentItemId = Number(maxItemResult?.[0]?.maxId || 0);
+
+        for (const item of payload.items) {
+          currentItemId++;
+          totalAmount += Number(item.totalAmt || 0);
+          await tx.$executeRawUnsafe(
+            `INSERT INTO [dbo].[DealItems] ([dealItemID], [dealID], [itemDesc], [qty], [currency], [totalAmt])
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6)`,
+            currentItemId,
+            dealID,
+            item.itemDesc,
+            String(item.qty),
+            item.currency,
+            String(item.totalAmt)
+          );
+        }
       }
 
       // 3. Target Table: dealWTN (DELETE then INSERT new whenToNotify = dtExpDt - 2 days)
       await tx.dealWTN.deleteMany({ where: { dealID: dealID } });
-      await tx.dealWTN.create({
-        data: { dealID: dealID, whenToNotify: twoDaysBeforeExp },
-      });
+      const maxWtnResult = await tx.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
+      );
+      const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO [dbo].[dealWTN] ([id], [dealID], [whenToNotify])
+         VALUES (@P1, @P2, @P3)`,
+        nextWtnId,
+        dealID,
+        twoDaysBeforeExp
+      );
 
       // 4. Target Table: DealResponse (SLA Tracking)
       // If old status was 4 (Pending) and new status is 1 (Registered), calculate diffInDays(dtCreated, now()) and insert/update record
@@ -444,9 +567,16 @@ export async function updateDeal(
             data: { responseDays: String(diffInDays) },
           });
         } else {
-          await tx.dealResponse.create({
-            data: { dealID: dealID, responseDays: String(diffInDays) },
-          });
+          const maxRes = await tx.$queryRawUnsafe<any[]>(
+            `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[DealResponse]`
+          );
+          const nextResId = Number(maxRes?.[0]?.maxId || 0) + 1;
+          await tx.$executeRawUnsafe(
+            `INSERT INTO [dbo].[DealResponse] ([id], [dealID], [responseDays]) VALUES (@P1, @P2, @P3)`,
+            nextResId,
+            dealID,
+            String(diffInDays)
+          );
         }
       }
 
@@ -477,18 +607,25 @@ export async function updateDeal(
           <p><a href="${baseUrl}/deals/${dealID}/edit" style="display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">View Deal in Portal</a></p>
         `;
 
-        await tx.deals_reg_notification.create({
-          data: {
-            creator: domainAccount,
-            subject: `Deal Registration: Update Notification (${currentDeal.dealRegID})`,
-            message: messageHtml,
-            sendTo: recipients.sendTo,
-            sendCC: recipients.sendCC,
-            sendBCC: recipients.sendBCC,
-            status: 0,
-            dateCreated: now,
-          },
-        });
+        const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
+        );
+        const nextNotifId = Number(maxNotifResult?.[0]?.maxId || 0) + 1;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO [dbo].[deals_reg_notification] (
+            [email_id], [creator], [subject], [message], [sendTo], [sendCC], [sendBCC], [dateCreated], [status]
+          ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
+          nextNotifId,
+          domainAccount,
+          `Deal Registration: Update Notification (${currentDeal.dealRegID})`,
+          messageHtml,
+          recipients.sendTo,
+          recipients.sendCC,
+          recipients.sendBCC,
+          now,
+          0
+        );
       }
     });
 
@@ -523,9 +660,18 @@ export async function updateWTN(
         data: { whenToNotify: wtnDate },
       });
     } else {
-      await prisma.dealWTN.create({
-        data: { dealID: dealID, whenToNotify: wtnDate },
-      });
+      const maxWtnResult = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
+      );
+      const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO [dbo].[dealWTN] ([id], [dealID], [whenToNotify])
+         VALUES (@P1, @P2, @P3)`,
+        nextWtnId,
+        dealID,
+        wtnDate
+      );
     }
 
     revalidatePath('/deals');
@@ -582,7 +728,8 @@ export async function saveLostDeal(
 
 /**
  * 7. searchCustomers (Query Action)
- * Autocomplete and search customer accounts using ICE CREAM liveSearch API with local cdbAccounts ingestion & indexing.
+ * Lightweight server action fallback for querying ICE CREAM liveSearch API.
+ * Pure read-only API with zero database overhead.
  */
 export async function searchCustomers(
   query: string = '',
@@ -594,147 +741,49 @@ export async function searchCustomers(
       return { success: true, data: [] };
     }
 
-    const fetchIceCream = async (searchTerm: string) => {
-      try {
-        const encodedKey = encodeURIComponent(Buffer.from(searchTerm.trim()).toString('base64'));
-        const apiRes = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedKey}`, {
-          signal: AbortSignal.timeout(4000),
+    const encodedKey = encodeURIComponent(Buffer.from(cleanQuery).toString('base64'));
+    const apiRes = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedKey}`, {
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!apiRes.ok) {
+      console.warn(`[Action: searchCustomers] API returned status ${apiRes.status}`);
+      return { success: true, data: [] };
+    }
+
+    const rawData = await apiRes.json();
+    const list: any[] = Array.isArray(rawData) ? rawData : (rawData.data || []);
+
+    const candidateMap = new Map<string, any>();
+
+    for (const item of list) {
+      const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
+      const custName = item.CustomerName || 'Unknown Account';
+      const bu = item.BU || item.bu || item.BusinessUnit || item.AccountGroup || 'BU5';
+      const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
+      const isActive = item.is_active === '1' || item.is_active === 1 || item.isActive === true || item.is_active === null;
+      const createdDate = item.DateCreated;
+      const createdBy = item.CreatedBy;
+
+      // Unique key per (customerID, bu, assignedAO) so distinct BU/AO options are preserved
+      const uniqueKey = `${customerID}-${bu}-${assignedAO}-${custName}`.toLowerCase();
+      if (!candidateMap.has(uniqueKey)) {
+        candidateMap.set(uniqueKey, {
+          customerID,
+          custName,
+          bu,
+          assignedAO,
+          isActive,
+          createdDate,
+          createdBy,
         });
-        if (!apiRes.ok) return [];
-        const data = await apiRes.json();
-        const list = Array.isArray(data) ? data : (data.data || []);
-        return list.map((item: any) => ({
-          customerID: item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`,
-          custName: item.CustomerName || 'Unknown Account',
-          bu: item.BU || 'BU5',
-          assignedAO: item.AO || 'Assigned AO',
-          isActive: item.is_active === '1' || item.is_active === 1 || item.isActive === true,
-          createdDate: item.DateCreated,
-          createdBy: item.CreatedBy,
-        }));
-      } catch (err) {
-        console.warn(`[Search: fetchIceCream] Error fetching for "${searchTerm}":`, err);
-        return [];
       }
-    };
-
-    let candidateMap = new Map<string, any>();
-
-    // 1. Primary Query to ICE CREAM API
-    try {
-      const primaryResults = await fetchIceCream(cleanQuery);
-      for (const item of primaryResults) {
-        const key = `${item.customerID}-${item.custName}`.toLowerCase();
-        candidateMap.set(key, item);
-      }
-
-      // 2. Tokenized Fallback: If multi-word query (e.g. "Security Bank") returned few results, query tokens
-      if (cleanQuery.includes(' ')) {
-        const words = cleanQuery.split(/\s+/).filter((w) => w.length >= 2);
-        const wordsToQuery = Array.from(new Set([words[0], words.sort((a, b) => b.length - a.length)[0]]));
-
-        for (const token of wordsToQuery) {
-          if (token && token.length >= 2 && token !== cleanQuery) {
-            const tokenResults = await fetchIceCream(token);
-            for (const item of tokenResults) {
-              const key = `${item.customerID}-${item.custName}`.toLowerCase();
-              if (!candidateMap.has(key)) {
-                candidateMap.set(key, item);
-              }
-            }
-          }
-        }
-      }
-    } catch (apiErr) {
-      console.warn('[Action: searchCustomers] ICE CREAM API fetch error:', apiErr);
     }
 
     const candidateList = Array.from(candidateMap.values());
 
-    // 3. Background Ingestion to cdbAccounts
-    if (candidateList.length > 0) {
-      (async () => {
-        try {
-          for (const item of candidateList.slice(0, 30)) {
-            if (!item.custName || item.custName === 'Unknown Account') continue;
-
-            const existing = await prisma.cdbAccounts.findFirst({
-              where: {
-                OR: [
-                  { AccountIDNo: String(item.customerID) },
-                  { AccountName: String(item.custName) },
-                ],
-              },
-            });
-
-            if (existing) {
-              await prisma.cdbAccounts.update({
-                where: { AccountID: existing.AccountID },
-                data: {
-                  AccountName: item.custName,
-                  AccountGroup: item.bu || existing.AccountGroup,
-                  DomainAccount: item.assignedAO || existing.DomainAccount,
-                  isActive: item.isActive ? 1 : 0,
-                  LastSynced: new Date(),
-                },
-              });
-            } else {
-              await prisma.cdbAccounts.create({
-                data: {
-                  AccountIDNo: String(item.customerID),
-                  AONumber: 0,
-                  AccountName: item.custName,
-                  AccountGroup: item.bu || 'BU5',
-                  AccountType: 'CUSTOMER',
-                  DomainAccount: item.assignedAO || 'Assigned AO',
-                  Email: '',
-                  isActive: item.isActive ? 1 : 0,
-                  LastSynced: new Date(),
-                },
-              });
-            }
-          }
-        } catch (dbSyncErr) {
-          console.warn('[Action: searchCustomers] Background cdbAccounts sync warning:', dbSyncErr);
-        }
-      })();
-    }
-
-    // 4. If remote results are empty, search local cdbAccounts
-    if (candidateList.length === 0) {
-      try {
-        const words = cleanQuery.split(/\s+/).filter((w) => w.length >= 2);
-        const orConditions: any[] = [{ AccountName: { contains: cleanQuery } }];
-        for (const w of words) {
-          orConditions.push({ AccountName: { contains: w } });
-        }
-
-        const localAccounts = await prisma.cdbAccounts.findMany({
-          where: {
-            OR: orConditions,
-          },
-          take: 40,
-        });
-
-        for (const acc of localAccounts) {
-          const item = {
-            customerID: acc.AccountIDNo || `CUST-${acc.AccountID}`,
-            custName: acc.AccountName,
-            bu: acc.AccountGroup || 'BU1',
-            assignedAO: acc.DomainAccount || 'Assigned AO',
-            isActive: acc.isActive === 1,
-          };
-          const key = `${item.customerID}-${item.custName}`.toLowerCase();
-          candidateMap.set(key, item);
-        }
-      } catch (localErr) {
-        console.warn('[Action: searchCustomers] Local DB search warning:', localErr);
-      }
-    }
-
-    // 5. Rank and return all candidates using multi-tier relevance scoring
-    const allCandidates = Array.from(candidateMap.values());
-    const rankedResults = rankCustomersByRelevance(allCandidates, cleanQuery);
+    // Rank results by relevance (exact phrase > prefix phrase > word matches)
+    const rankedResults = rankCustomersByRelevance(candidateList, cleanQuery);
 
     return { success: true, data: rankedResults };
   } catch (err: unknown) {
@@ -743,3 +792,281 @@ export async function searchCustomers(
     return { success: false, error: message };
   }
 }
+
+/**
+ * 8. exportDealsCSVData (Server Action)
+ * High-performance, lean query specifically designed for streaming / downloading all matching deals to CSV.
+ */
+export async function exportDealsCSVData(
+  filter: ScopedDealsFilter
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    const userRole = filter.userRole || (session?.user as any)?.role || 'admin';
+    const accountName = filter.accountName || (session?.user as any)?.AccountName;
+    const accountGroup = filter.accountGroup || (session?.user as any)?.AccountGroup;
+
+    const searchQuery = (filter.searchQuery || '').trim();
+    const statusFilter = filter.statusFilter || 'ALL';
+    const buFilter = filter.buFilter || 'ALL';
+    const brandFilter = filter.brandFilter || 'ALL';
+
+    const andConditions: any[] = [];
+
+    if (userRole === 'ao' && accountName) {
+      andConditions.push({ AssignedAO: accountName });
+    } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
+      andConditions.push({ BU: accountGroup });
+    }
+
+    if (statusFilter !== 'ALL') {
+      andConditions.push({ dealStatus: String(statusFilter) });
+    }
+
+    if (buFilter !== 'ALL') {
+      andConditions.push({ BU: String(buFilter) });
+    }
+
+    if (brandFilter !== 'ALL' && brandFilter !== '') {
+      andConditions.push({ brand: String(brandFilter) });
+    }
+
+    if (searchQuery) {
+      andConditions.push({
+        OR: [
+          { dealRegID: { contains: searchQuery } },
+          { ProjectName: { contains: searchQuery } },
+          { custName: { contains: searchQuery } },
+          { AssignedAO: { contains: searchQuery } },
+          { brand: { contains: searchQuery } },
+        ],
+      });
+    }
+
+    const whereClause = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    const rawDeals = await prisma.dealHeader.findMany({
+      where: whereClause,
+      select: {
+        dealRegID: true,
+        dtRegistered: true,
+        expDt: true,
+        expiration: true,
+        custName: true,
+        ProjectName: true,
+        brand: true,
+        BU: true,
+        AssignedAO: true,
+        dealStatus: true,
+        DealItems: {
+          select: {
+            currency: true,
+            totalAmt: true,
+          },
+        },
+      },
+      orderBy: {
+        dtCreated: 'desc',
+      },
+    });
+
+    const rows = rawDeals.map((deal) => {
+      const totalsByCurrency: Record<string, number> = {};
+      deal.DealItems.forEach((item) => {
+        const curr = item.currency || 'USD';
+        const amt = parseSafeNumber(item.totalAmt);
+        totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
+      });
+
+      return {
+        dealRegID: deal.dealRegID || '',
+        dtRegistered: deal.dtRegistered,
+        expDt: deal.expDt || deal.expiration,
+        custName: deal.custName || '',
+        projectName: deal.ProjectName || '',
+        brand: deal.brand || '',
+        bu: deal.BU || '',
+        assignedAO: deal.AssignedAO || '',
+        dealStatus: deal.dealStatus || '1',
+        aggregatedTotals: totalsByCurrency,
+      };
+    });
+
+    return { success: true, data: rows };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Action: exportDealsCSVData] Error:', message);
+    return { success: false, error: message };
+  }
+}
+
+export interface DashboardSummaryData {
+  totalCount: number;
+  totalRegistered: number;
+  expiredThisMonth: number;
+  dealsByBrand: { brand: string; count: number }[];
+  dealsByBU: { bu: string; count: number }[];
+  recentDeals: DealHeaderRecord[];
+}
+
+/**
+ * 9. getDashboardSummary (Server Action)
+ * High-performance SQL Server aggregation query for the main Dashboard metrics across all 8,400+ deals.
+ */
+export async function getDashboardSummary(): Promise<{
+  success: boolean;
+  data?: DashboardSummaryData;
+  error?: string;
+}> {
+  try {
+    const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role || 'admin';
+    const accountName = (session?.user as any)?.AccountName;
+    const accountGroup = (session?.user as any)?.AccountGroup;
+
+    const andConditions: any[] = [];
+    if (userRole === 'ao' && accountName) {
+      andConditions.push({ AssignedAO: accountName });
+    } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
+      andConditions.push({ BU: accountGroup });
+    }
+
+    const baseWhere = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const [
+      totalCount,
+      totalRegistered,
+      expiredThisMonth,
+      dealsByBrandGroup,
+      dealsByBUGroup,
+      recentRawDeals,
+    ] = await Promise.all([
+      // 1. Total deals in scope
+      prisma.dealHeader.count({ where: baseWhere }),
+      // 2. Registered status ('1')
+      prisma.dealHeader.count({
+        where: {
+          ...baseWhere,
+          dealStatus: '1',
+        },
+      }),
+      // 3. Expired this month
+      prisma.dealHeader.count({
+        where: {
+          ...baseWhere,
+          expDt: {
+            gte: startOfMonth,
+            lte: endOfMonth,
+            lt: now,
+          },
+        },
+      }),
+      // 4. Deals Grouped by Brand (Top 10)
+      prisma.dealHeader.groupBy({
+        by: ['brand'],
+        where: baseWhere,
+        _count: {
+          dealID: true,
+        },
+        orderBy: {
+          _count: {
+            dealID: 'desc',
+          },
+        },
+        take: 10,
+      }),
+      // 5. Deals Grouped by BU
+      prisma.dealHeader.groupBy({
+        by: ['BU'],
+        where: baseWhere,
+        _count: {
+          dealID: true,
+        },
+        orderBy: {
+          _count: {
+            dealID: 'desc',
+          },
+        },
+      }),
+      // 6. Recent 5 deals
+      prisma.dealHeader.findMany({
+        where: baseWhere,
+        take: 5,
+        orderBy: {
+          dtCreated: 'desc',
+        },
+        include: {
+          DealItems: true,
+        },
+      }),
+    ]);
+
+    const formattedRecentDeals: DealHeaderRecord[] = recentRawDeals.map((deal) => {
+      const totalsByCurrency: CurrencyTotals = {};
+      deal.DealItems.forEach((item) => {
+        const curr = item.currency || 'USD';
+        const amt = parseSafeNumber(item.totalAmt);
+        totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
+      });
+
+      return {
+        dealID: deal.dealID,
+        dtRegistered: deal.dtRegistered || new Date(),
+        expiration: deal.expiration || null,
+        expDt: deal.expDt || new Date(),
+        brand: deal.brand || '',
+        customerID: deal.customerID,
+        dealRegID: deal.dealRegID || '',
+        ProjectName: deal.ProjectName || '',
+        AssignedAO: deal.AssignedAO || '',
+        BU: deal.BU || '',
+        dealStatus: deal.dealStatus || '1',
+        createdBy: deal.createdBy || '',
+        custName: deal.custName || '',
+        remarks: deal.remarks || null,
+        dtCreated: deal.dtCreated || new Date(),
+        dtValidTo: deal.dtValidTo || null,
+        items: deal.DealItems.map((i) => ({
+          itemID: i.dealItemID,
+          dealID: i.dealID || deal.dealID,
+          itemDesc: i.itemDesc || '',
+          qty: parseSafeInt(i.qty, 1),
+          currency: i.currency || 'USD',
+          totalAmt: parseSafeNumber(i.totalAmt),
+        })),
+        aggregatedTotals: totalsByCurrency,
+      };
+    });
+
+    const dealsByBrand = dealsByBrandGroup.map((b) => ({
+      brand: b.brand || 'Unspecified',
+      count: b._count.dealID,
+    }));
+
+    const dealsByBU = dealsByBUGroup.map((bu) => ({
+      bu: bu.BU || 'Unassigned',
+      count: bu._count.dealID,
+    }));
+
+    return {
+      success: true,
+      data: {
+        totalCount,
+        totalRegistered,
+        expiredThisMonth,
+        dealsByBrand,
+        dealsByBU,
+        recentDeals: formattedRecentDeals,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Action: getDashboardSummary] Error:', message);
+    return { success: false, error: message };
+  }
+}
+

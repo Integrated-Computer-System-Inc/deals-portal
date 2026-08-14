@@ -11,10 +11,18 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
+    const pageParam = searchParams.get('page');
+    const pageSizeParam = searchParams.get('pageSize');
+
     const filter: ScopedDealsFilter = {
       userRole: (searchParams.get('userRole') as ScopedDealsFilter['userRole']) || undefined,
       accountName: searchParams.get('accountName') || undefined,
       accountGroup: searchParams.get('accountGroup') || undefined,
+      page: pageParam ? parseInt(pageParam, 10) : undefined,
+      pageSize: pageSizeParam ? parseInt(pageSizeParam, 10) : undefined,
+      searchQuery: searchParams.get('q') || searchParams.get('search') || searchParams.get('searchQuery') || undefined,
+      statusFilter: searchParams.get('status') || searchParams.get('statusFilter') || undefined,
+      buFilter: searchParams.get('bu') || searchParams.get('buFilter') || undefined,
     };
 
     const result = await getScopedDeals(filter);
@@ -23,7 +31,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: result.data });
+    return NextResponse.json({
+      success: true,
+      data: result.data,
+      totalCount: result.totalCount,
+      page: result.page,
+      pageSize: result.pageSize,
+      totalPages: result.totalPages,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[/api/deals] Execution error:', message);

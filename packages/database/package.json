@@ -7,6 +7,7 @@
     "build": "tsc",
     "generate": "npx prisma generate",
     "db:push": "npx prisma db push",
+    "db:index": "ts-node scripts/apply-indexes.ts",
     "seed": "npx ts-node src/seed.ts"
   },
   "dependencies": {

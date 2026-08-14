@@ -13,7 +13,7 @@ import {
 } from './ui';
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { CustomerLookupResult } from '@my-app/types';
-import { searchCustomers } from '../app/actions/deals';
+import { getCachedSearchResults, setCachedSearchResults } from '@/lib/customerSearchCache';
 
 interface CustomerSearchModalProps {
   isOpen: boolean;
@@ -30,7 +30,7 @@ export default function CustomerSearchModal({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CustomerLookupResult[]>([]);
   const [isManualEntry, setIsManualEntry] = useState(false);
-  
+
   // Step 2 State
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerLookupResult | null>(null);
 
@@ -42,10 +42,10 @@ export default function CustomerSearchModal({
   // Track whether we've done at least one completed search for the current term
   const hasSearchedRef = useRef(false);
 
-  // In-memory search cache for fast responsiveness
-  const cacheRef = useRef<Record<string, CustomerLookupResult[]>>({});
+  // Track latest request ID to prevent race conditions & out-of-order overwrites
+  const latestRequestIdRef = useRef(0);
 
-  // Live ICE CREAM customer search with 300ms debounce
+  // Live ICE CREAM customer search with 250ms debounce, persistent client cache & AbortController
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
@@ -53,6 +53,7 @@ export default function CustomerSearchModal({
       setIsManualEntry(false);
       setResults([]);
       hasSearchedRef.current = false;
+      latestRequestIdRef.current++;
       return;
     }
 
@@ -61,39 +62,73 @@ export default function CustomerSearchModal({
       setResults([]);
       setLoading(false);
       hasSearchedRef.current = false;
+      latestRequestIdRef.current++;
       return;
     }
 
-    if (cacheRef.current[trimmed]) {
-      setResults(cacheRef.current[trimmed]);
+    // Instant Tier-1/Tier-2 Cache Hit (0ms latency, no spinner flicker)
+    const cached = getCachedSearchResults(trimmed);
+    if (cached) {
+      latestRequestIdRef.current++;
+      setResults(cached);
       setLoading(false);
       hasSearchedRef.current = true;
       return;
     }
 
-    // Mark as loading — don't clear results yet so old results stay visible while debouncing
     setLoading(true);
+
+    const abortController = new AbortController();
+    const currentRequestId = ++latestRequestIdRef.current;
+
     const timer = setTimeout(async () => {
       try {
-        const res = await searchCustomers(trimmed);
-        if (res.success && res.data) {
-          if (res.data.length > 0) {
-            cacheRef.current[trimmed] = res.data;
-          }
-          setResults(res.data);
-        } else {
-          setResults([]);
-        }
-      } catch (err) {
-        console.error('Error searching live customers:', err);
-        setResults([]);
-      } finally {
-        setLoading(false);
-        hasSearchedRef.current = true;
-      }
-    }, 300);
+        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(trimmed)}`, {
+          signal: abortController.signal,
+          headers: {
+            'Accept': 'application/json',
+          },
+        });
 
-    return () => clearTimeout(timer);
+        if (!res.ok) {
+          throw new Error(`Search API returned status ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // Only apply results if this request is still the newest one
+        if (currentRequestId === latestRequestIdRef.current) {
+          if (data.success && Array.isArray(data.data)) {
+            if (data.data.length > 0) {
+              setCachedSearchResults(trimmed, data.data);
+            }
+            setResults(data.data);
+          } else {
+            setResults([]);
+          }
+          hasSearchedRef.current = true;
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          // Request was aborted cleanly due to newer input; do nothing
+          return;
+        }
+        if (currentRequestId === latestRequestIdRef.current) {
+          console.error('Error searching live customers:', err);
+          setResults([]);
+          hasSearchedRef.current = true;
+        }
+      } finally {
+        if (currentRequestId === latestRequestIdRef.current) {
+          setLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      abortController.abort();
+    };
   }, [searchTerm, isOpen]);
 
   const handleSelectCustomerForVerification = (customer: CustomerLookupResult) => {
@@ -141,9 +176,9 @@ export default function CustomerSearchModal({
           </AppModalTitle>
         </div>
         <AppModalDescription>
-          {selectedCustomer 
-            ? 'Please verify the account details before attaching to this deal.' 
-            : isManualEntry 
+          {selectedCustomer
+            ? 'Please verify the account details before attaching to this deal.'
+            : isManualEntry
               ? 'Fill out the details below to attach a new client not yet registered in CRM.'
               : 'Search company accounts via ICE CREAM liveSearch API by Company Name.'}
         </AppModalDescription>
@@ -157,13 +192,6 @@ export default function CustomerSearchModal({
               <div className="col-span-2 pb-2 border-b border-border/50">
                 <p className="text-xs text-muted mb-1">Company / Customer Name</p>
                 <p className="font-semibold text-lg text-foreground">{selectedCustomer.custName}</p>
-              </div>
-              
-              <div>
-                <p className="text-xs text-muted mb-1">Customer ID</p>
-                <p className="font-mono text-sm text-foreground bg-background px-2 py-1 rounded inline-block border border-border/50">
-                  {selectedCustomer.customerID}
-                </p>
               </div>
 
               <div>
@@ -193,7 +221,7 @@ export default function CustomerSearchModal({
                   {selectedCustomer.assignedAO}
                 </div>
               </div>
-              
+
               {selectedCustomer.createdDate && (
                 <div>
                   <p className="text-xs text-muted mb-1">Created Date</p>
@@ -202,7 +230,7 @@ export default function CustomerSearchModal({
                   </p>
                 </div>
               )}
-              
+
               {selectedCustomer.createdBy && (
                 <div>
                   <p className="text-xs text-muted mb-1">Created By</p>
@@ -248,14 +276,14 @@ export default function CustomerSearchModal({
             <div className="relative">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Type company name to search accounts (e.g. APPSDEV WFH)..."
+                placeholder="Type company name to search accounts..."
                 value={searchTerm}
                 onChange={(e: any) => {
                   const val = e.target.value;
                   setSearchTerm(val);
-                  // Do NOT clear results here — keep old results visible during debounce
                   if (!val || !val.trim() || val.trim().length < 2) {
                     setLoading(false);
+                    setResults([]);
                     hasSearchedRef.current = false;
                   } else {
                     setLoading(true);
@@ -266,8 +294,9 @@ export default function CustomerSearchModal({
                 size="lg"
               />
               {loading && (
-                <div className="absolute right-3 top-3">
+                <div className="absolute right-3 top-3 pointer-events-none flex items-center gap-1.5 text-xs text-sky-600 font-medium bg-background/80 pl-2">
                   <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
+                  <span className="hidden sm:inline text-[11px] text-muted">Searching...</span>
                 </div>
               )}
             </div>
@@ -294,8 +323,8 @@ export default function CustomerSearchModal({
 
             {/* Results List */}
             <div className="border border-border/70 rounded-xl overflow-hidden max-h-[360px] overflow-y-auto divide-y divide-border/50 bg-neutral/20">
-              {loading ? (
-                /* Skeleton loading rows — shown while debounce + API fetch is in progress */
+              {loading && results.length === 0 ? (
+                /* Skeleton loading rows — shown on initial search when no results exist yet */
                 <div className="divide-y divide-border/50">
                   {[0, 1, 2].map((i) => (
                     <div key={i} className="p-3.5 flex items-center justify-between">
@@ -317,26 +346,42 @@ export default function CustomerSearchModal({
                   ))}
                 </div>
               ) : results.length > 0 ? (
-                results.map((c) => (
+                results.map((c, index) => (
                   <div
-                    key={`${c.customerID}-${c.custName}`}
+                    key={`${c.customerID}-${c.bu}-${c.assignedAO}-${c.custName}-${index}`}
                     onClick={() => handleSelectCustomerForVerification(c)}
                     className="p-3.5 hover:bg-neutral flex items-center justify-between cursor-pointer transition group"
                   >
                     <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-bold font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
                           CustomerName
                         </span>
+                        {c.matchTier === 'exact' && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
+                            Exact Match
+                          </span>
+                        )}
+                        {c.matchTier === 'fuzzy' && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/30">
+                            Close Match
+                          </span>
+                        )}
+                        {c.matchTier === 'synonym' && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-600 border border-purple-500/30">
+                            Acronym / Alias
+                          </span>
+                        )}
+                        {c.matchTier === 'token' && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 border border-blue-500/30">
+                            Related
+                          </span>
+                        )}
                         <span className="font-semibold text-sm text-foreground group-hover:text-sky-600 transition">
                           {c.custName}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted">
-                        <span className="font-mono bg-neutral px-1.5 py-0.5 rounded border border-border/60">
-                          {c.customerID}
-                        </span>
-                        <span>•</span>
                         <span className="flex items-center gap-1">
                           <User className="w-3 h-3 text-sky-500" /> {c.assignedAO}
                         </span>
@@ -372,7 +417,7 @@ export default function CustomerSearchModal({
                       </>
                     )}
                   </div>
-                  {searchTerm.trim().length >= 2 && (
+                  {searchTerm.trim().length >= 2 && !loading && (
                     <button
                       type="button"
                       onClick={() => {

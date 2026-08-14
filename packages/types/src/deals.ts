@@ -13,7 +13,7 @@ export interface CreateDealPayload {
   dtRegistered: string | Date;
   expDt: string | Date;
   brand: string;
-  customerID: number | string;
+  customerID?: number | string | null;
   dealRegID?: string;
   projectName?: string;
   ProjectName?: string;
@@ -33,7 +33,7 @@ export interface UpdateDealPayload {
   dtRegistered: string | Date;
   expDt: string | Date;
   brand: string;
-  customerID: number | string;
+  customerID?: number | string | null;
   dealRegID?: string;
   projectName?: string;
   ProjectName?: string;
@@ -68,9 +68,23 @@ export interface UpdateWTNPayload {
 export type UserRole = 'admin' | 'bu' | 'ao' | 'aa' | 'bu_admin';
 
 export interface ScopedDealsFilter {
-  userRole: UserRole;
+  userRole?: UserRole;
   accountName?: string;
   accountGroup?: string;
+  page?: number;
+  pageSize?: number;
+  searchQuery?: string;
+  statusFilter?: string;
+  buFilter?: string;
+  brandFilter?: string;
+}
+
+export interface PaginatedDealsResult {
+  deals: DealHeaderRecord[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface CurrencyTotals {
@@ -176,6 +190,7 @@ export interface CustomerLookupResult {
   isActive?: boolean;
   createdDate?: string;
   createdBy?: string;
+  matchTier?: 'exact' | 'prefix' | 'token' | 'synonym' | 'fuzzy';
 }
 
 export const MOCK_CUSTOMERS: CustomerLookupResult[] = [

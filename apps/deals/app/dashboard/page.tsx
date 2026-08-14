@@ -1,15 +1,13 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { getScopedDeals } from '../actions/deals';
+import { useDashboardMetrics } from '../../hooks/useDashboardMetrics';
 import {
-  DealHeaderRecord,
   UserRole,
   DEAL_STATUS_MAP,
   ACTIVE_BUSINESS_UNITS,
-  MOCK_DEALS,
 } from '@my-app/types';
 import {
   AppCard,
@@ -26,82 +24,29 @@ import {
   User,
   Sparkles,
   BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const { data: session } = useSession();
-  const [deals, setDeals] = useState<DealHeaderRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { metrics, loading, validating, refresh } = useDashboardMetrics();
 
   const role: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || 'Demo User';
   const accountGroup = (session?.user as any)?.AccountGroup || 'HQ';
 
-  useEffect(() => {
-    async function loadDashboardData() {
-      setLoading(true);
-      try {
-        const res = await getScopedDeals({
-          userRole: role,
-          accountName,
-          accountGroup,
-        });
+  const totalRegistered = metrics?.totalRegistered ?? 0;
+  const expiredThisMonth = metrics?.expiredThisMonth ?? 0;
+  const totalCount = metrics?.totalCount ?? 0;
+  const dealsByBrand = metrics?.dealsByBrand ?? [];
+  const dealsByBU = metrics?.dealsByBU ?? [];
+  const recentDeals = metrics?.recentDeals ?? [];
 
-        if (res && res.success && Array.isArray(res.data)) {
-          setDeals(res.data);
-        } else {
-          console.warn('[Dashboard] MSSQL fetch warning:', res?.error);
-        }
-      } catch (err) {
-        console.error('[Dashboard] Failed to fetch real deals from MSSQL:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadDashboardData();
-  }, [role, accountName, accountGroup]);
-
-  // Metric Computations
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-
-  const totalRegistered = deals.filter((d) => String(d.dealStatus) === '1' || d.dealStatus === 1).length;
-
-  const expiredThisMonth = deals.filter((d) => {
-    const rawExp = d.expDt || d.expiration;
-    if (!rawExp) return false;
-    const exp = new Date(rawExp);
-    return exp.getMonth() === currentMonth && exp.getFullYear() === currentYear && exp < now;
-  }).length;
-
-  // Deals per Brand breakdown
-  const dealsPerBrandMap = useMemo(() => {
-    const map: Record<string, { count: number; totalValue: number }> = {};
-    deals.forEach((d) => {
-      const brand = d.brand || 'Unspecified';
-      if (!map[brand]) {
-        map[brand] = { count: 0, totalValue: 0 };
-      }
-      map[brand].count += 1;
-      const amt = d.items?.reduce((sum: number, i: any) => sum + (i.totalAmt || 0), 0) || 0;
-      map[brand].totalValue += amt;
-    });
-    return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
-  }, [deals]);
-
-  // Deals per BU breakdown
-  const dealsPerBUMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    ACTIVE_BUSINESS_UNITS.forEach((bu: string) => {
-      map[bu] = 0;
-    });
-    deals.forEach((d) => {
-      const bu = d.BU || d.bu || 'BU1';
-      map[bu] = (map[bu] || 0) + 1;
-    });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [deals]);
+  // Build BU breakdown map with defaults
+  const dealsPerBUMap = ACTIVE_BUSINESS_UNITS.map((bu) => {
+    const found = dealsByBU.find((b) => b.bu.toUpperCase() === bu.toUpperCase());
+    return [bu, found ? found.count : 0] as [string, number];
+  });
 
   const isViewOnly = role === 'bu' || role === 'bu_admin' || role === 'ao';
 
@@ -134,6 +79,14 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => refresh()}
+            className="p-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition"
+            title="Refresh Dashboard Metrics"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading || validating ? 'animate-spin' : ''}`} />
+          </button>
           {!isViewOnly && (
             <Link
               href="/deals/new"
@@ -161,7 +114,7 @@ export default function DashboardPage() {
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-3xl font-bold text-foreground mt-2 font-mono">
-            {totalRegistered}
+            {loading ? '...' : totalRegistered.toLocaleString()}
           </div>
           <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
             <TrendingUp className="w-3 h-3" /> Active registered pipelines
@@ -174,7 +127,7 @@ export default function DashboardPage() {
             <Clock className="w-4 h-4 text-rose-500" />
           </div>
           <div className="text-3xl font-bold text-rose-600 mt-2 font-mono">
-            {expiredThisMonth}
+            {loading ? '...' : expiredThisMonth.toLocaleString()}
           </div>
           <div className="text-[11px] text-muted mt-1">Requires re-registration / WTN</div>
         </AppCard>
@@ -185,23 +138,23 @@ export default function DashboardPage() {
             <Layers className="w-4 h-4 text-sky-500" />
           </div>
           <div className="text-3xl font-bold text-foreground mt-2 font-mono">
-            {dealsPerBrandMap.length}
+            {loading ? '...' : dealsByBrand.length}
           </div>
           <div className="text-[11px] text-sky-600 font-semibold mt-1">
-            Top: {dealsPerBrandMap[0]?.[0] || 'Dell'}
+            Top: {dealsByBrand[0]?.brand || 'Dell'} ({dealsByBrand[0]?.count || 0})
           </div>
         </AppCard>
 
         <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs">
           <div className="flex items-center justify-between text-muted text-xs font-semibold">
-            <span>Business Units Covered</span>
+            <span>Total Pipeline Deals</span>
             <Building2 className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="text-3xl font-bold text-foreground mt-2 font-mono">
-            {ACTIVE_BUSINESS_UNITS.length}
+            {loading ? '...' : totalCount.toLocaleString()}
           </div>
           <div className="text-[11px] text-indigo-600 font-semibold mt-1">
-            BU1, BU2, BU5, BU8, BU10, BU12
+            Across 6 active BUs
           </div>
         </AppCard>
       </div>
@@ -213,26 +166,26 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-sky-600" />
-              <h2 className="font-bold text-sm text-foreground">Deals Distribution by Brand</h2>
+              <h2 className="font-bold text-sm text-foreground">Deals Distribution by Brand (Top 10)</h2>
             </div>
-            <span className="text-xs text-muted font-medium">{deals.length} total deals</span>
+            <span className="text-xs text-muted font-medium">{totalCount.toLocaleString()} total deals</span>
           </div>
 
           <div className="space-y-3">
-            {dealsPerBrandMap.map(([brand, data]) => {
-              const percentage = deals.length > 0 ? Math.round((data.count / deals.length) * 100) : 0;
+            {dealsByBrand.map((item) => {
+              const percentage = totalCount > 0 ? Math.round((item.count / totalCount) * 100) : 0;
               return (
-                <div key={brand} className="space-y-1.5">
+                <div key={item.brand} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-foreground">{brand}</span>
+                    <span className="font-semibold text-foreground">{item.brand}</span>
                     <span className="font-mono text-muted">
-                      {data.count} deal{data.count === 1 ? '' : 's'} ({percentage}%)
+                      {item.count.toLocaleString()} deal{item.count === 1 ? '' : 's'} ({percentage}%)
                     </span>
                   </div>
                   <div className="w-full h-2 bg-neutral rounded-full overflow-hidden border border-border/40">
                     <div
                       className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${percentage}%` }}
+                      style={{ width: `${Math.max(percentage, 2)}%` }}
                     />
                   </div>
                 </div>
@@ -261,7 +214,7 @@ export default function DashboardPage() {
                   <span className="text-xs font-bold text-sky-600 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">
                     {bu}
                   </span>
-                  <span className="text-xs font-mono font-bold text-foreground">{count}</span>
+                  <span className="text-xs font-mono font-bold text-foreground">{count.toLocaleString()}</span>
                 </div>
                 <span className="text-[10px] text-muted mt-2">Active opportunities</span>
               </div>
@@ -287,7 +240,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="divide-y divide-border/50">
-          {deals.slice(0, 5).map((deal) => {
+          {recentDeals.map((deal) => {
             const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
             const statusMeta = DEAL_STATUS_MAP[statusNum] || {
               label: `Status ${deal.dealStatus}`,

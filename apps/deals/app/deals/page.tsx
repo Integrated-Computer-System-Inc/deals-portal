@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { getScopedDeals } from '../actions/deals';
+import { useDeals } from '../../hooks/useDeals';
 import {
   DealHeaderRecord,
   UserRole,
@@ -37,122 +37,107 @@ import {
   Eye,
 } from 'lucide-react';
 
+import { getScopedDeals, exportDealsCSVData } from '../actions/deals';
+
 export default function DealsPage() {
   const { data: session } = useSession();
-  const [deals, setDeals] = useState<DealHeaderRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [buFilter, setBuFilter] = useState<string>('ALL');
+  const [isExporting, setIsExporting] = useState(false);
 
-  const handleExportCSV = () => {
-    if (!filteredDeals || filteredDeals.length === 0) return;
+  // Debounce search query changes by 300ms
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
-    const headers = [
-      'Deal Reg ID',
-      'Date Registered',
-      'Expiration Date',
-      'Customer Name',
-      'Project Name',
-      'Brand',
-      'BU',
-      'Assigned AO',
-      'Status',
-      'Total Amount',
-    ];
+  const { deals, totalCount, totalPages, loading, validating, refresh } = useDeals({
+    page,
+    pageSize,
+    searchQuery: debouncedSearch,
+    statusFilter,
+    buFilter,
+  });
 
-    const rows = filteredDeals.map((deal) => {
-      const projName = deal.ProjectName || deal.projectName || '';
-      const ao = deal.AssignedAO || deal.assignedAO || '';
-      const bu = deal.BU || deal.bu || '';
-      const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
-      const statusMeta = DEAL_STATUS_MAP[statusNum] || { label: `Status ${deal.dealStatus}` };
-      const expDate = deal.expDt || deal.expiration;
+  const role: UserRole = (session?.user as any)?.role || 'admin';
 
-      return [
-        `"${deal.dealRegID || ''}"`,
-        `"${deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : ''}"`,
-        `"${expDate ? new Date(expDate).toLocaleDateString() : ''}"`,
-        `"${(deal.custName || '').replace(/"/g, '""')}"`,
-        `"${projName.replace(/"/g, '""')}"`,
-        `"${deal.brand || ''}"`,
-        `"${bu}"`,
-        `"${ao.replace(/"/g, '""')}"`,
-        `"${statusMeta.label}"`,
-        `"${formatAmounts(deal)}"`,
-      ].join(',');
-    });
+  const handleExportCSV = async () => {
+    try {
+      setIsExporting(true);
+      const res = await exportDealsCSVData({
+        userRole: role,
+        accountName: (session?.user as any)?.AccountName,
+        accountGroup: (session?.user as any)?.AccountGroup,
+        searchQuery: debouncedSearch,
+        statusFilter,
+        buFilter,
+      });
 
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Deals_Registry_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      if (!res.success || !res.data || res.data.length === 0) {
+        return;
+      }
+
+      const headers = [
+        'Deal Reg ID',
+        'Date Registered',
+        'Expiration Date',
+        'Customer Name',
+        'Project Name',
+        'Brand',
+        'BU',
+        'Assigned AO',
+        'Status',
+        'Total Amount',
+      ];
+
+      const rows = res.data.map((deal: any) => {
+        const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
+        const statusMeta = DEAL_STATUS_MAP[statusNum] || { label: `Status ${deal.dealStatus}` };
+        const expDate = deal.expDt;
+        const amounts = Object.entries(deal.aggregatedTotals || {})
+          .map(([c, a]: [string, any]) => `${c} ${Number(a).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+          .join(' | ') || 'PHP 0.00';
+
+        return [
+          `"${deal.dealRegID || ''}"`,
+          `"${deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : ''}"`,
+          `"${expDate ? new Date(expDate).toLocaleDateString() : ''}"`,
+          `"${(deal.custName || '').replace(/"/g, '""')}"`,
+          `"${(deal.projectName || '').replace(/"/g, '""')}"`,
+          `"${deal.brand || ''}"`,
+          `"${deal.bu || ''}"`,
+          `"${(deal.assignedAO || '').replace(/"/g, '""')}"`,
+          `"${statusMeta.label}"`,
+          `"${amounts}"`,
+        ].join(',');
+      });
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Deals_Registry_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Export CSV error:', err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Modals
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
-
-  const role: UserRole = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
-  const accountGroup = (session?.user as any)?.AccountGroup;
-
-  const fetchDeals = async () => {
-    setLoading(true);
-    try {
-      const res = await getScopedDeals({
-        userRole: role,
-        accountName,
-        accountGroup,
-      });
-
-      if (res && res.success && Array.isArray(res.data)) {
-        setDeals(res.data);
-      } else {
-        console.warn('[DealsPage] MSSQL fetch warning:', res?.error);
-      }
-    } catch (err) {
-      console.error('[DealsPage] Failed to fetch deals from MSSQL:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDeals();
-  }, [role, accountName, accountGroup]);
-
-  // Filter deals
-  const filteredDeals = useMemo(() => {
-    return deals.filter((deal) => {
-      const projName = deal.ProjectName || deal.projectName || '';
-      const custName = deal.custName || '';
-      const regID = deal.dealRegID || '';
-      const ao = deal.AssignedAO || deal.assignedAO || '';
-      const brand = deal.brand || '';
-      const bu = deal.BU || deal.bu || '';
-
-      const matchesSearch =
-        projName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        custName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        regID.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ao.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        brand.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesStatus =
-        statusFilter === 'ALL' || String(deal.dealStatus) === statusFilter;
-
-      const matchesBU =
-        buFilter === 'ALL' || bu === buFilter;
-
-      return matchesSearch && matchesStatus && matchesBU;
-    });
-  }, [deals, searchQuery, statusFilter, buFilter]);
 
   // Metrics summary
   const metrics = useMemo(() => {
@@ -382,22 +367,23 @@ export default function DealsPage() {
         <div className="flex items-center gap-2.5">
           <button
             type="button"
-            onClick={fetchDeals}
+            onClick={() => refresh()}
             className="p-2 text-muted hover:text-foreground bg-neutral/80 border border-border/70 rounded-xl hover:bg-neutral transition"
             title="Refresh Deals Data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading || validating ? 'animate-spin' : ''}`} />
           </button>
 
           {canExport && (
             <button
               type="button"
               onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-neutral bg-neutral/80 border border-border/70 rounded-xl transition shadow-xs"
+              disabled={isExporting}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-neutral bg-neutral/80 border border-border/70 rounded-xl transition shadow-xs disabled:opacity-60"
               title="Export Filtered Deals to CSV"
             >
-              <Download className="w-4 h-4 text-sky-600" />
-              <span>Export CSV</span>
+              <Download className={`w-4 h-4 text-sky-600 ${isExporting ? 'animate-bounce' : ''}`} />
+              <span>{isExporting ? 'Exporting...' : 'Export CSV'}</span>
             </button>
           )}
 
@@ -421,7 +407,7 @@ export default function DealsPage() {
             <Layers className="w-4 h-4 text-sky-500" />
           </div>
           <div className="text-2xl font-bold text-foreground mt-2 font-mono">
-            {metrics.totalCount}
+            {totalCount.toLocaleString()}
           </div>
           <div className="text-[11px] text-muted mt-1">Across all registered BUs</div>
         </AppCard>
@@ -434,7 +420,7 @@ export default function DealsPage() {
           <div className="text-2xl font-bold text-emerald-600 mt-2 font-mono">
             {metrics.registeredCount}
           </div>
-          <div className="text-[11px] text-muted mt-1">Active partner approvals</div>
+          <div className="text-[11px] text-muted mt-1">On current page view</div>
         </AppCard>
 
         <AppCard className="p-4 bg-background border border-border/70 rounded-xl shadow-xs">
@@ -478,7 +464,10 @@ export default function DealsPage() {
             <span className="text-xs font-semibold text-muted mr-1">BU:</span>
             <button
               type="button"
-              onClick={() => setBuFilter('ALL')}
+              onClick={() => {
+                setBuFilter('ALL');
+                setPage(1);
+              }}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
                 buFilter === 'ALL'
                   ? 'bg-primary text-white border-primary'
@@ -491,7 +480,10 @@ export default function DealsPage() {
               <button
                 key={bu}
                 type="button"
-                onClick={() => setBuFilter(bu)}
+                onClick={() => {
+                  setBuFilter(bu);
+                  setPage(1);
+                }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
                   buFilter === bu
                     ? 'bg-sky-600 text-white border-sky-600'
@@ -509,23 +501,28 @@ export default function DealsPage() {
           <span className="font-semibold text-muted mr-1">Status:</span>
           <button
             type="button"
-            onClick={() => setStatusFilter('ALL')}
+            onClick={() => {
+              setStatusFilter('ALL');
+              setPage(1);
+            }}
             className={`px-2.5 py-1 rounded-lg font-semibold transition ${
               statusFilter === 'ALL'
                 ? 'bg-primary/15 text-primary font-bold border border-primary/30'
                 : 'text-muted hover:text-foreground'
             }`}
           >
-            All ({deals.length})
+            All
           </button>
           {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => {
-            const count = deals.filter((d) => String(d.dealStatus) === id).length;
             const isSelected = statusFilter === id;
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => setStatusFilter(id)}
+                onClick={() => {
+                  setStatusFilter(id);
+                  setPage(1);
+                }}
                 className={`px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 ${
                   isSelected
                     ? 'bg-neutral text-foreground font-bold border border-border shadow-xs'
@@ -533,9 +530,6 @@ export default function DealsPage() {
                 }`}
               >
                 <span>{meta.label}</span>
-                <span className="text-[10px] px-1 rounded-full bg-neutral font-mono">
-                  {count}
-                </span>
               </button>
             );
           })}
@@ -546,12 +540,24 @@ export default function DealsPage() {
       <AppCard className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
         <AppTable
           columns={columns}
-          dataSource={filteredDeals}
+          dataSource={deals}
           rowKey={(record: any) => record.dealID}
+          loading={loading || validating}
           pagination={{
-            pageSize: 10,
+            current: page,
+            pageSize: pageSize,
+            total: totalCount,
             showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50'],
+            pageSizeOptions: ['10', '25', '50', '100'],
+            onChange: (newPage: number, newPageSize: number) => {
+              setPage(newPage);
+              if (newPageSize !== pageSize) {
+                setPageSize(newPageSize);
+                setPage(1);
+              }
+            },
+            showTotal: (total: number, range: [number, number]) =>
+              `${range[0]}-${range[1]} of ${total.toLocaleString()} deals`,
           }}
         />
       </AppCard>
@@ -564,7 +570,7 @@ export default function DealsPage() {
           currentWTN={wtnTarget.date}
           isOpen={true}
           onClose={() => setWtnTarget(null)}
-          onSuccess={fetchDeals}
+          onSuccess={() => refresh()}
         />
       )}
 
@@ -575,7 +581,7 @@ export default function DealsPage() {
           dealRegID={lostTarget.regID}
           isOpen={true}
           onClose={() => setLostTarget(null)}
-          onSuccess={fetchDeals}
+          onSuccess={() => refresh()}
         />
       )}
     </div>
