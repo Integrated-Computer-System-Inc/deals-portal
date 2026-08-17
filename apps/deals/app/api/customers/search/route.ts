@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { rankCustomersByRelevance, cleanCorporateName } from '@/lib/searchUtils';
+import { rankCustomersByRelevance, cleanCorporateName, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { CustomerLookupResult } from '@my-app/types';
 
 export const dynamic = 'force-dynamic';
@@ -52,7 +52,8 @@ function ingestRawItems(items: any[], candidateMap: Map<string, CustomerLookupRe
 
     const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
     const custName = item.CustomerName || 'Unknown Account';
-    const bu = item.BU || item.bu || item.BusinessUnit || item.AccountGroup || 'BU5';
+    const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
+    const bu = normalizeBusinessUnit(rawBuValue);
     const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
     const isActive = true;
     const createdDate = item.DateCreated;

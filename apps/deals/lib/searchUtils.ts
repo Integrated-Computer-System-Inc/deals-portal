@@ -230,3 +230,27 @@ export function rankCustomersByRelevance<T extends { custName: string; isActive?
     .sort((a, b) => b.score - a.score)
     .map(({ item }) => item);
 }
+
+/**
+ * Normalizes Business Unit code into standard format (e.g., 'bu 5' -> 'BU5', 'bu-1' -> 'BU1', 'bu12' -> 'BU12')
+ */
+export function normalizeBusinessUnit(rawBu?: string | null): string {
+  if (!rawBu) return 'BU5';
+  const trimmed = rawBu.trim();
+  if (!trimmed) return 'BU5';
+
+  // If already standard BU pattern like BU5, bu 5, bu-5, BU_5, BU 10
+  const match = trimmed.match(/^BU\s*[-_]?\s*(\d+)$/i);
+  if (match) {
+    return `BU${match[1]}`;
+  }
+
+  // If pure number like '5' or '10'
+  if (/^\d+$/.test(trimmed)) {
+    return `BU${trimmed}`;
+  }
+
+  // Otherwise, return cleaned uppercase string
+  return trimmed.toUpperCase();
+}
+

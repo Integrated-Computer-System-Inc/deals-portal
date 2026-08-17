@@ -56,3 +56,34 @@ export function formatActivityDateKey(dateStr: string): string {
   }
 }
 
+/**
+ * Safely adds days to a date string formatted as YYYY-MM-DD using UTC arithmetic
+ */
+export function addDaysToDateString(dateStr: string, days: number): string {
+  if (!dateStr || isNaN(days)) return '';
+  const clean = dateStr.split('T')[0];
+  const parts = clean.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return '';
+  
+  const [year, month, day] = parts;
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+/**
+ * Calculates the difference in days between two YYYY-MM-DD date strings
+ */
+export function getDaysDifference(startDateStr: string, endDateStr: string): number {
+  if (!startDateStr || !endDateStr) return 0;
+  const cleanStart = startDateStr.split('T')[0];
+  const cleanEnd = endDateStr.split('T')[0];
+  
+  const p1 = cleanStart.split('-').map(Number);
+  const p2 = cleanEnd.split('-').map(Number);
+  if (p1.length !== 3 || p2.length !== 3 || p1.some(isNaN) || p2.some(isNaN)) return 0;
+
+  const t1 = Date.UTC(p1[0], p1[1] - 1, p1[2]);
+  const t2 = Date.UTC(p2[0], p2[1] - 1, p2[2]);
+  return Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
+}

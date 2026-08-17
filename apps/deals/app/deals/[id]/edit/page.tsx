@@ -18,11 +18,13 @@ import {
   UserRole,
 } from '@my-app/types';
 import { useDealQuery, useUpdateDealMutation } from '@/hooks/useDealsQuery';
+import { normalizeBusinessUnit } from '@/lib/searchUtils';
 import {
   AppTextarea,
   AppCard,
   AppChip,
 } from '../../../../components/ui';
+import { addDaysToDateString, getDaysDifference } from '../../../../components/utils/time';
 import CustomerSearchModal from '../../../../components/CustomerSearchModal';
 import WTNModal from '../../../../components/WTNModal';
 import LostDealModal from '../../../../components/LostDealModal';
@@ -40,6 +42,8 @@ import {
   Info,
   ShieldAlert,
   BellRing,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -82,6 +86,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isWtnModalOpen, setIsWtnModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+  const [isCustomerFromIceCream, setIsCustomerFromIceCream] = useState(false);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
@@ -133,6 +138,15 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const watchValidityDays = watch('validityDays');
   const watchItems = watch('items') || [];
   const watchStatus = watch('dealStatus');
+  const watchBu = watch('bu');
+
+  const buOptions = useMemo(() => {
+    const base = [...ACTIVE_BUSINESS_UNITS] as string[];
+    if (watchBu && !base.includes(watchBu)) {
+      base.push(watchBu);
+    }
+    return base;
+  }, [watchBu]);
 
   useEffect(() => {
     if (!deal) return;
@@ -147,17 +161,19 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
       Math.ceil((expDateVal.getTime() - regDateVal.getTime()) / (1000 * 60 * 60 * 24))
     );
 
+    const initialBu = normalizeBusinessUnit(deal.BU || deal.bu || 'BU5');
+
     reset({
       dtRegistered: regStr,
       validityDays: diffDays,
       expDt: expStr,
       brand: deal.brand || 'Dell',
-      customerID: deal.customerID ? String(deal.customerID) : 'CUST-3184',
+      customerID: deal.customerID ? String(deal.customerID) : '',
       custName: deal.custName || '',
       dealRegID: deal.dealRegID || String(deal.dealID),
       projectName: deal.ProjectName || deal.projectName || '',
       assignedAO: deal.AssignedAO || deal.assignedAO || '',
-      bu: deal.BU || deal.bu || 'BU5',
+      bu: initialBu,
       dealStatus: deal.dealStatus ?? 1,
       remarks: deal.remarks || '',
       toEmail: true,
@@ -173,28 +189,40 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
           : [{ itemDesc: 'Standard Item', qty: 1, currency: 'PHP', totalAmt: 0 }],
     });
 
+    setIsCustomerFromIceCream(Boolean(deal.customerID));
+
     if (deal.wtn?.whenToNotify) {
       setCurrentWtnDate(deal.wtn.whenToNotify);
     }
   }, [deal, reset]);
 
+  const handleRegDateChange = (dateStr: string) => {
+    setValue('dtRegistered', dateStr, { shouldValidate: true, shouldDirty: true });
+    if (!dateStr) {
+      setValue('expDt', '', { shouldValidate: true, shouldDirty: true });
+      setValue('validityDays', undefined, { shouldValidate: true, shouldDirty: true });
+      return;
+    }
+    const days = watchValidityDays && watchValidityDays > 0 ? watchValidityDays : 90;
+    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
+    const computedExp = addDaysToDateString(dateStr, days);
+    setValue('expDt', computedExp, { shouldValidate: true, shouldDirty: true });
+  };
+
   const handleValidityChange = (days: number) => {
-    setValue('validityDays', days);
-    if (watchRegDate && days > 0) {
-      const reg = new Date(watchRegDate);
-      const exp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
-      setValue('expDt', exp.toISOString().split('T')[0]);
+    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
+    if (watchRegDate && days && days > 0) {
+      const newExp = addDaysToDateString(watchRegDate, days);
+      setValue('expDt', newExp, { shouldValidate: true, shouldDirty: true });
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr);
+    setValue('expDt', expDateStr, { shouldValidate: true, shouldDirty: true });
     if (watchRegDate && expDateStr) {
-      const reg = new Date(watchRegDate).getTime();
-      const exp = new Date(expDateStr).getTime();
-      const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+      const diffDays = getDaysDifference(watchRegDate, expDateStr);
       if (diffDays > 0) {
-        setValue('validityDays', diffDays);
+        setValue('validityDays', diffDays, { shouldValidate: true, shouldDirty: true });
       }
     }
   };
@@ -209,10 +237,12 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
     setValue('customerID', customer.customerID);
     setValue('custName', customer.custName);
-    setValue('bu', customer.bu);
+    const normalizedBU = normalizeBusinessUnit(customer.bu);
+    setValue('bu', normalizedBU, { shouldValidate: true, shouldDirty: true });
     if (customer.assignedAO) {
       setValue('assignedAO', customer.assignedAO);
     }
+    setIsCustomerFromIceCream(!customer.isManual && Boolean(customer.customerID || customer.custName));
   };
 
   const currencyTotals = useMemo(() => {
@@ -228,6 +258,8 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const onSubmit = async (data: UpdateDealFormData) => {
     setErrorMsg(null);
 
+    const finalBu = data.bu || watch('bu') || 'BU5';
+
     try {
       const result = await updateMutation.mutateAsync({
         dealID,
@@ -241,8 +273,8 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         ProjectName: data.projectName,
         assignedAO: data.assignedAO,
         AssignedAO: data.assignedAO,
-        bu: data.bu,
-        BU: data.bu,
+        bu: finalBu,
+        BU: finalBu,
         dealStatus: data.dealStatus,
         remarks: data.remarks,
         toEmail: data.toEmail,
@@ -373,7 +405,10 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                   watch('customerID') ? (
                     <button
                       type="button"
-                      onClick={() => setValue('customerID', '')}
+                      onClick={() => {
+                        setValue('customerID', '');
+                        setIsCustomerFromIceCream(false);
+                      }}
                       className="text-[11px] text-sky-600 dark:text-sky-400 hover:text-sky-700 font-semibold hover:underline flex items-center gap-1"
                     >
                       Detach / Clear ID
@@ -385,6 +420,12 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               </div>
               <input
                 {...register('customerID')}
+                onChange={(e) => {
+                  register('customerID').onChange(e);
+                  if (!e.target.value) {
+                    setIsCustomerFromIceCream(false);
+                  }
+                }}
                 disabled={isViewOnly}
                 placeholder="e.g. CUST-3184 or leave blank"
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
@@ -395,18 +436,43 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-foreground">Business Unit (BU) *</label>
+                {!isViewOnly && isCustomerFromIceCream ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">
+                      <Lock className="w-2.5 h-2.5" /> Synced from CRM
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomerFromIceCream(false)}
+                      className="text-[10px] text-muted hover:text-foreground underline"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <select
                 {...register('bu')}
-                disabled={isViewOnly}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                value={watchBu || ''}
+                onChange={(e) => {
+                  register('bu').onChange(e);
+                  setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true });
+                }}
+                disabled={isViewOnly || isCustomerFromIceCream}
+                className={`w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 transition ${
+                  isCustomerFromIceCream && !isViewOnly ? 'opacity-85 bg-neutral/50 cursor-not-allowed border-sky-500/30' : ''
+                }`}
               >
-                {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
+                <option value="">Select Business Unit...</option>
+                {buOptions.map((bu: string) => (
                   <option key={bu} value={bu}>
                     {bu}
                   </option>
                 ))}
               </select>
+              {errors.bu && <p className="text-[11px] text-rose-500 mt-1">{errors.bu.message}</p>}
             </div>
 
             <div>
@@ -495,6 +561,10 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <input
                 type="date"
                 {...register('dtRegistered')}
+                onChange={(e) => {
+                  register('dtRegistered').onChange(e);
+                  handleRegDateChange(e.target.value);
+                }}
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />

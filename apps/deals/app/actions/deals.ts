@@ -14,7 +14,7 @@ import {
 } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveDealEmailRecipients } from '@/lib/notifications';
-import { rankCustomersByRelevance } from '@/lib/searchUtils';
+import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -774,7 +774,8 @@ export async function searchCustomers(
 
       const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
       const custName = item.CustomerName || 'Unknown Account';
-      const bu = item.BU || item.bu || item.BusinessUnit || item.AccountGroup || 'BU5';
+      const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
+      const bu = normalizeBusinessUnit(rawBuValue);
       const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
       const isActive = true;
       const createdDate = item.DateCreated;

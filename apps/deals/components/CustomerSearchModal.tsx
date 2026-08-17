@@ -110,6 +110,7 @@ export default function CustomerSearchModal({
       onSelectCustomer({
         ...selectedCustomer,
         customerID: attachCustomerID ? selectedCustomer.customerID : '',
+        isManual: false,
       });
       onClose();
     }
@@ -123,6 +124,7 @@ export default function CustomerSearchModal({
       bu: manualBU || 'BU5',
       assignedAO: manualAO.trim() || '',
       isActive: true,
+      isManual: true,
     };
     onSelectCustomer(newCustomer);
     setIsManualEntry(false);

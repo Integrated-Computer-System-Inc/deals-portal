@@ -9,6 +9,7 @@ import { z } from 'zod';
 import Link from 'next/link';
 import { createDeal } from '../../actions/deals';
 import { useCreateDealMutation } from '@/hooks/useDealsQuery';
+import { normalizeBusinessUnit } from '@/lib/searchUtils';
 import {
   ACTIVE_BUSINESS_UNITS,
   DEAL_STATUS_MAP,
@@ -19,6 +20,7 @@ import {
   AppTextarea,
   AppCard,
 } from '../../../components/ui';
+import { addDaysToDateString, getDaysDifference } from '../../../components/utils/time';
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
 import LostDealModal from '../../../components/LostDealModal';
 import {
@@ -32,6 +34,8 @@ import {
   Layers,
   Loader2,
   Info,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -66,6 +70,7 @@ export default function NewDealPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+  const [isCustomerFromIceCream, setIsCustomerFromIceCream] = useState(false);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
 
@@ -117,24 +122,43 @@ export default function NewDealPage() {
   const watchValidityDays = watch('validityDays');
   const watchStatus = watch('dealStatus');
   const watchItems = watch('items') || [];
+  const watchBu = watch('bu');
+
+  const buOptions = useMemo(() => {
+    const base = [...ACTIVE_BUSINESS_UNITS] as string[];
+    if (watchBu && !base.includes(watchBu)) {
+      base.push(watchBu);
+    }
+    return base;
+  }, [watchBu]);
+
+  const handleRegDateChange = (dateStr: string) => {
+    setValue('dtRegistered', dateStr, { shouldValidate: true, shouldDirty: true });
+    if (!dateStr) {
+      setValue('expDt', '', { shouldValidate: true, shouldDirty: true });
+      setValue('validityDays', undefined, { shouldValidate: true, shouldDirty: true });
+      return;
+    }
+    const days = watchValidityDays && watchValidityDays > 0 ? watchValidityDays : 90;
+    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
+    const computedExp = addDaysToDateString(dateStr, days);
+    setValue('expDt', computedExp, { shouldValidate: true, shouldDirty: true });
+  };
 
   const handleValidityChange = (days?: number) => {
-    setValue('validityDays', days);
+    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
     if (watchRegDate && days && days > 0) {
-      const reg = new Date(watchRegDate);
-      const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
-      setValue('expDt', newExp.toISOString().split('T')[0]);
+      const newExp = addDaysToDateString(watchRegDate, days);
+      setValue('expDt', newExp, { shouldValidate: true, shouldDirty: true });
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr);
+    setValue('expDt', expDateStr, { shouldValidate: true, shouldDirty: true });
     if (watchRegDate && expDateStr) {
-      const reg = new Date(watchRegDate).getTime();
-      const exp = new Date(expDateStr).getTime();
-      const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+      const diffDays = getDaysDifference(watchRegDate, expDateStr);
       if (diffDays > 0) {
-        setValue('validityDays', diffDays);
+        setValue('validityDays', diffDays, { shouldValidate: true, shouldDirty: true });
       }
     }
   };
@@ -149,10 +173,12 @@ export default function NewDealPage() {
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
     setValue('customerID', customer.customerID);
     setValue('custName', customer.custName);
-    setValue('bu', customer.bu);
+    const normalizedBU = normalizeBusinessUnit(customer.bu);
+    setValue('bu', normalizedBU, { shouldValidate: true, shouldDirty: true });
     if (customer.assignedAO) {
       setValue('assignedAO', customer.assignedAO);
     }
+    setIsCustomerFromIceCream(!customer.isManual && Boolean(customer.customerID || customer.custName));
   };
 
   const currencyTotals = useMemo(() => {
@@ -168,6 +194,8 @@ export default function NewDealPage() {
   const onSubmit = async (data: CreateDealFormData) => {
     setErrorMsg(null);
 
+    const finalBu = data.bu || watch('bu') || 'BU5';
+
     try {
       const result = await createMutation.mutateAsync(
         {
@@ -181,8 +209,8 @@ export default function NewDealPage() {
           ProjectName: data.projectName,
           assignedAO: data.assignedAO,
           AssignedAO: data.assignedAO,
-          bu: data.bu,
-          BU: data.bu,
+          bu: finalBu,
+          BU: finalBu,
           dealStatus: data.dealStatus,
           remarks: data.remarks,
           items: data.items,
@@ -280,7 +308,10 @@ export default function NewDealPage() {
                 {watch('customerID') ? (
                   <button
                     type="button"
-                    onClick={() => setValue('customerID', '')}
+                    onClick={() => {
+                      setValue('customerID', '');
+                      setIsCustomerFromIceCream(false);
+                    }}
                     className="text-[11px] text-sky-600 dark:text-sky-400 hover:text-sky-700 font-semibold hover:underline flex items-center gap-1"
                   >
                     Detach / Clear ID
@@ -291,6 +322,12 @@ export default function NewDealPage() {
               </div>
               <input
                 {...register('customerID')}
+                onChange={(e) => {
+                  register('customerID').onChange(e);
+                  if (!e.target.value) {
+                    setIsCustomerFromIceCream(false);
+                  }
+                }}
                 placeholder="e.g. CUST-3184 or leave blank"
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
@@ -300,13 +337,37 @@ export default function NewDealPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-foreground">Business Unit (BU) *</label>
+                {isCustomerFromIceCream ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">
+                      <Lock className="w-2.5 h-2.5" /> Synced from CRM
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomerFromIceCream(false)}
+                      className="text-[10px] text-muted hover:text-foreground underline"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <select
                 {...register('bu')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                value={watchBu || ''}
+                onChange={(e) => {
+                  register('bu').onChange(e);
+                  setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true });
+                }}
+                disabled={isCustomerFromIceCream}
+                className={`w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition ${
+                  isCustomerFromIceCream ? 'opacity-85 bg-neutral/50 cursor-not-allowed border-sky-500/30' : ''
+                }`}
               >
                 <option value="">Select Business Unit...</option>
-                {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
+                {buOptions.map((bu: string) => (
                   <option key={bu} value={bu}>
                     {bu}
                   </option>
@@ -399,6 +460,10 @@ export default function NewDealPage() {
               <input
                 type="date"
                 {...register('dtRegistered')}
+                onChange={(e) => {
+                  register('dtRegistered').onChange(e);
+                  handleRegDateChange(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
