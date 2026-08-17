@@ -201,7 +201,7 @@ export const AppInput = React.forwardRef<any, AppInputProps>(
                     onClick={handleSuffixClick}
                     className={cn(
                         "flex items-center justify-center px-3.5 bg-text-info/10 dark:bg-text-info/20 border-l border-border/60 text-text transition-colors h-full",
-                        isSearchActive && "bg-accent-1! hover:bg-accent-1/90! border-l-0! text-white! cursor-pointer",
+                        isSearchActive && "!bg-accent-1 hover:!bg-accent-1/90 !border-l-0 !text-white cursor-pointer",
                         config.suffixClassName,
                         suffixClassName
                     )}
@@ -222,20 +222,20 @@ export const AppInput = React.forwardRef<any, AppInputProps>(
                 size === 'md' && "h-10 text-sm [&_.ant-input]:text-sm [&_.ant-input]:!py-2 [&_.ant-input]:!px-3.5",
                 size === 'lg' && "h-12 text-base [&_.ant-input]:text-base [&_.ant-input]:!py-3 [&_.ant-input]:!px-4",
                 shape === 'pill' ? "rounded-full [&_.ant-input]:rounded-full" : "rounded-xl [&_.ant-input]:rounded-xl",
-                "bg-neutral/50! border-border! hover:bg-neutral/80! hover:border-border!",
-                "focus-within:bg-neutral/80! focus-within:border-accent-1! focus-within:ring-2! focus-within:ring-accent-1/40!",
-                "[&.ant-input]:bg-neutral/50 [&.ant-input]:border-border [&.ant-input]:hover:bg-neutral/80 [&.ant-input]:hover:border-border",
-                "[&.ant-input]:focus:bg-neutral/80 [&.ant-input]:focus:border-accent-1 [&.ant-input]:focus:ring-2 [&.ant-input]:focus:ring-accent-1/40",
-                "[&.ant-input-affix-wrapper_.ant-input]:bg-transparent! [&.ant-input-affix-wrapper_.ant-input]:border-0!",
+                "!bg-neutral/50 !border-border hover:!bg-neutral/80 hover:!border-border",
+                "focus-within:!bg-neutral/80 focus-within:!border-accent-1 focus-within:!ring-2 focus-within:!ring-accent-1/40",
+                "[&.ant-input]:!bg-neutral/50 [&.ant-input]:!border-border [&.ant-input]:hover:!bg-neutral/80 [&.ant-input]:hover:!border-border",
+                "[&.ant-input]:focus:!bg-neutral/80 [&.ant-input]:focus:!border-accent-1 [&.ant-input]:focus:!ring-2 [&.ant-input]:focus:!ring-accent-1/40",
+                "[&.ant-input-affix-wrapper_.ant-input]:!bg-transparent [&.ant-input-affix-wrapper_.ant-input]:!border-0",
                 "[&_.ant-input::placeholder]:text-foreground/30",
                 size === 'sm' && "[&_.ant-input-affix-wrapper_.ant-input]:!px-2.5",
                 size === 'md' && "[&_.ant-input-affix-wrapper_.ant-input]:!px-3.5",
                 size === 'lg' && "[&_.ant-input-affix-wrapper_.ant-input]:!px-4",
-                (resolvedLeftIcon || resolvedRightIcon) && "py-0!",
-                resolvedLeftIcon && "pl-0! [&_.ant-input-prefix]:h-full [&_.ant-input-prefix]:m-0! [&_.ant-input-prefix]:flex [&_.ant-input-prefix]:items-stretch [&_.ant-input-prefix]:pointer-events-auto",
-                resolvedRightIcon && "pr-0! [&_.ant-input-suffix]:h-full [&_.ant-input-suffix]:m-0! [&_.ant-input-suffix]:flex [&_.ant-input-suffix]:items-stretch [&_.ant-input-suffix]:pointer-events-auto",
-                error && "border-red-500/60! focus-within:border-red-500! focus-within:ring-red-500/30!",
-                error && "[&.ant-input]:border-red-500/60 [&.ant-input]:focus:border-red-500 [&.ant-input]:focus:ring-red-500/30",
+                (resolvedLeftIcon || resolvedRightIcon) && "!py-0",
+                resolvedLeftIcon && "!pl-0 [&_.ant-input-prefix]:h-full [&_.ant-input-prefix]:!m-0 [&_.ant-input-prefix]:flex [&_.ant-input-prefix]:items-stretch [&_.ant-input-prefix]:pointer-events-auto",
+                resolvedRightIcon && "!pr-0 [&_.ant-input-suffix]:h-full [&_.ant-input-suffix]:!m-0 [&_.ant-input-suffix]:flex [&_.ant-input-suffix]:items-stretch [&_.ant-input-suffix]:pointer-events-auto",
+                error && "!border-red-500/60 focus-within:!border-red-500 focus-within:!ring-red-500/30",
+                error && "[&.ant-input]:!border-red-500/60 [&.ant-input]:focus:!border-red-500 [&.ant-input]:focus:!ring-red-500/30",
                 disabled && "opacity-40 pointer-events-none"
             ),
             ...props

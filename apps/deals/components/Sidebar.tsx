@@ -4,19 +4,22 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
+import { Tooltip } from 'antd';
 import {
   AppSidebar,
   AppAvatar,
   AppButton,
   AppModal,
-  AppDivider,
+  useSidebar,
 } from './ui';
 import {
-  LayoutDashboard,
+  Home,
   FileSpreadsheet,
   PlusCircle,
   LogOut,
-  AlertTriangle,
+  PanelLeftClose,
+  PanelLeft,
+  X,
 } from 'lucide-react';
 import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
@@ -26,6 +29,7 @@ export default function Sidebar() {
   const router = useRouter();
   const { data: session } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
+  const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || session?.user?.name || 'Demo User';
@@ -43,9 +47,9 @@ export default function Sidebar() {
 
   const menuItems = [
     {
-      title: 'Dashboard',
+      title: 'Home',
       href: '/dashboard',
-      icon: <LayoutDashboard size={18} />,
+      icon: <Home size={18} />,
     },
     {
       title: 'Deals Registry',
@@ -67,40 +71,97 @@ export default function Sidebar() {
     <>
       <AppSidebar className="border-r border-border bg-sidebar flex flex-col h-screen shrink-0">
         {/* Brand Header */}
-        <AppSidebar.Header className="p-4 border-b border-border/50 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0">
-              ICS
+        <AppSidebar.Header className={collapsed ? "p-3 border-b border-border/50 shrink-0" : "p-3.5 border-b border-border/50 shrink-0"}>
+          {collapsed ? (
+            /* Collapsed Header: Centered ICS Logo & Centered Expand Button */
+            <div className="flex flex-col items-center justify-center gap-2.5 w-full">
+              <Tooltip title="ICS Deal Registration" placement="right">
+                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 cursor-default select-none mx-auto">
+                  ICS
+                </div>
+              </Tooltip>
+
+              <Tooltip title="Expand Sidebar" placement="right">
+                <div>
+                  <AppButton
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleCollapsed}
+                    className="text-muted hover:text-foreground hover:bg-neutral shrink-0 h-9 w-9 flex items-center justify-center rounded-lg mx-auto"
+                    aria-label="Expand Sidebar"
+                    leftIcon={<PanelLeft size={16} />}
+                  />
+                </div>
+              </Tooltip>
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-sm text-foreground tracking-tight leading-tight">
-                Deal Registration
-              </span>
-              <span className="text-[11px] text-muted font-normal leading-tight">
-                Integrated Computer Systems, Inc.
-              </span>
+          ) : (
+            /* Expanded Header: Full Brand Title & Collapse Button */
+            <div className="flex items-center justify-between gap-2.5 w-full">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 select-none">
+                  ICS
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
+                    Deal Registration
+                  </span>
+                  <span className="text-[10px] text-muted font-normal leading-tight truncate">
+                    Integrated Computer Systems
+                  </span>
+                </div>
+              </div>
+
+              {!isMobile && (
+                <Tooltip title="Collapse Sidebar" placement="right">
+                  <div>
+                    <AppButton
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleCollapsed}
+                      className="text-muted hover:text-foreground hover:bg-neutral shrink-0 h-8 w-8 flex items-center justify-center rounded-lg"
+                      aria-label="Collapse Sidebar"
+                      leftIcon={<PanelLeftClose size={16} />}
+                    />
+                  </div>
+                </Tooltip>
+              )}
+
+              {isMobile && (
+                <AppButton
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMobileOpen(false)}
+                  className="text-muted hover:text-foreground hover:bg-neutral shrink-0 h-8 w-8 flex items-center justify-center rounded-lg lg:hidden"
+                  title="Close Menu"
+                  aria-label="Close Menu"
+                  leftIcon={<X size={18} />}
+                />
+              )}
             </div>
-          </div>
+          )}
         </AppSidebar.Header>
 
-        {/* Theme Switcher — Below Header */}
-        <div className="px-3 py-2.5 border-b border-border/40 shrink-0">
-          <ThemeSwitcher />
-        </div>
-
         {/* Main Navigation */}
-        <AppSidebar.Content className="p-2 flex-1 overflow-y-auto">
-          <AppSidebar.Group>
-            <div className="px-3 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted">
-              Menu
-            </div>
+        <AppSidebar.Content className={collapsed ? "p-2 flex-1 flex flex-col items-center overflow-y-auto" : "p-2 flex-1 overflow-y-auto"}>
+          <AppSidebar.Group className="w-full flex flex-col items-center">
+            {!collapsed && (
+              <div className="px-3 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
+                Menu
+              </div>
+            )}
             {menuItems.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <Link key={item.href} href={item.href} className="block w-full no-underline">
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex justify-center w-full no-underline"
+                >
                   <AppSidebar.Item
                     icon={item.icon}
                     active={isActive}
+                    tooltipPlacement="right"
                   >
                     {item.title}
                   </AppSidebar.Item>
@@ -110,36 +171,77 @@ export default function Sidebar() {
           </AppSidebar.Group>
         </AppSidebar.Content>
 
-        {/* Sticky User Footer - Aligned with username & icon button */}
-        <AppSidebar.Footer className="p-3 border-t border-border/50 bg-sidebar shrink-0 mt-auto">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <AppAvatar
-                name={accountName}
-                src={accountImage}
-                size={34}
-                className="shrink-0"
-              />
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
-                  {accountName}
-                </span>
-                <span className="text-[10px] text-muted truncate">
-                  {getRoleLabel()}
-                </span>
+        {/* Sticky User Footer */}
+        <AppSidebar.Footer className={collapsed ? "p-2.5 border-t border-border/50 bg-sidebar shrink-0 mt-auto flex flex-col items-center justify-center" : "p-3 border-t border-border/50 bg-sidebar shrink-0 mt-auto"}>
+          {collapsed ? (
+            /* Collapsed Footer (Aligned along identical vertical axis) */
+            <div className="flex flex-col items-center justify-center gap-2 w-full">
+              <Tooltip title={`${accountName} (${getRoleLabel()})`} placement="right">
+                <div className="flex items-center justify-center">
+                  <AppAvatar
+                    name={accountName}
+                    src={accountImage}
+                    size={34}
+                    className="shrink-0 cursor-pointer mx-auto"
+                  />
+                </div>
+              </Tooltip>
+
+              <div className="flex flex-col items-center justify-center gap-1.5 mt-1 w-full">
+                <div className="flex items-center justify-center">
+                  <ThemeSwitcher />
+                </div>
+                <Tooltip title="Sign Out" placement="right">
+                  <div>
+                    <AppButton
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowSignOutConfirm(true)}
+                      className="text-muted hover:text-danger hover:bg-danger/10 shrink-0 h-9 w-9 flex items-center justify-center rounded-lg mx-auto"
+                      aria-label="Sign Out"
+                      leftIcon={<LogOut size={16} />}
+                    />
+                  </div>
+                </Tooltip>
               </div>
             </div>
+          ) : (
+            /* Expanded Footer */
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <AppAvatar
+                  name={accountName}
+                  src={accountImage}
+                  size={34}
+                  className="shrink-0"
+                />
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
+                    {accountName}
+                  </span>
+                  <span className="text-[10px] text-muted truncate">
+                    {getRoleLabel()}
+                  </span>
+                </div>
+              </div>
 
-            <AppButton
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSignOutConfirm(true)}
-              className="text-muted hover:text-danger hover:bg-danger/10 shrink-0 h-8 w-8 rounded-lg"
-              title="Sign Out"
-              aria-label="Sign Out"
-              leftIcon={<LogOut size={16} />}
-            />
-          </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <ThemeSwitcher />
+                <Tooltip title="Sign Out" placement="top">
+                  <div>
+                    <AppButton
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowSignOutConfirm(true)}
+                      className="text-muted hover:text-danger hover:bg-danger/10 shrink-0 h-8 w-8 flex items-center justify-center rounded-lg"
+                      aria-label="Sign Out"
+                      leftIcon={<LogOut size={16} />}
+                    />
+                  </div>
+                </Tooltip>
+              </div>
+            </div>
+          )}
         </AppSidebar.Footer>
       </AppSidebar>
 
@@ -151,7 +253,7 @@ export default function Sidebar() {
       >
         <AppModal.Header>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-950/60 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+            <div className="h-10 w-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 shrink-0">
               <LogOut size={20} />
             </div>
             <div>

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ShieldAlert, Loader2, DollarSign, HelpCircle } from 'lucide-react';
-import { saveLostDeal } from '../app/actions/deals';
+import { useLostDealMutation } from '@/hooks/useDealsQuery';
 import {
   AppModal,
   AppModalHeader,
@@ -35,33 +35,37 @@ export default function LostDealModal({
   const [competitorOffer, setCompetitorOffer] = useState<number | ''>('');
   const [reason, setReason] = useState('Price Difference');
   const [otherInformation, setOtherInformation] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const lostMutation = useLostDealMutation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
 
-    const res = await saveLostDeal({
-      dealID,
-      competitorVendor,
-      competitorBrand,
-      icsOffer: Number(icsOffer) || 0,
-      competitorOffer: Number(competitorOffer) || 0,
-      reason,
-      otherInformation,
-    });
+    try {
+      const res = await lostMutation.mutateAsync({
+        dealID,
+        competitorVendor,
+        competitorBrand,
+        icsOffer: Number(icsOffer) || 0,
+        competitorOffer: Number(competitorOffer) || 0,
+        reason,
+        otherInformation,
+      });
 
-    setLoading(false);
-
-    if (res.success) {
-      onSuccess();
-      onClose();
-    } else {
-      setError(res.error || 'Failed to record lost deal information.');
+      if (res && res.success) {
+        onSuccess();
+        onClose();
+      } else {
+        setError(res?.error || 'Failed to record lost deal information.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to record lost deal information.');
     }
   };
+
+  const loading = lostMutation.isPending;
 
   return (
     <AppModal open={isOpen} onClose={onClose} width={580}>

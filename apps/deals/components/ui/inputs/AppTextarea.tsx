@@ -48,12 +48,13 @@ export const AppTextarea = React.forwardRef<any, AppTextareaProps>(
                     placeholder={resolvedPlaceholder}
                     className={cn(
                         "w-full transition-all text-foreground",
-                        "bg-neutral/50! border-border! hover:bg-neutral/80! hover:border-border!",
-                        "focus:bg-neutral/80! focus:border-accent-1! focus:ring-2! focus:ring-accent-1/40!",
-                        "rounded-xl! p-3.5! text-sm!",
-                        "[&::placeholder]:text-foreground/30",
-                        error && "border-red-500/60! focus:border-red-500! focus:ring-red-500/30!",
-                        disabled && "opacity-40 pointer-events-none"
+                        "!bg-neutral/50 !border-border hover:!bg-neutral/80 hover:!border-border",
+                        "focus:!bg-neutral/80 focus:!border-accent-1 focus:!ring-2 focus:!ring-accent-1/40",
+                        "!rounded-xl !p-3.5 !text-sm",
+                        "[&::placeholder]:text-foreground/40",
+                        error && "!border-red-500/60 focus:!border-red-500 focus:!ring-red-500/30",
+                        disabled && "opacity-40 pointer-events-none",
+                        className
                     )}
                     {...props}
                 />

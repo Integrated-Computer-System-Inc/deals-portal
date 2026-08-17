@@ -1,6 +1,7 @@
 import './globals.css';
 import React from 'react';
 import NextAuthProvider from '../components/NextAuthProvider';
+import QueryProvider from '../components/QueryProvider';
 import AppShell from '../components/AppShell';
 
 export const metadata = {
@@ -12,12 +13,22 @@ export const metadata = {
 const themeScript = `
 (function() {
   try {
-    var t = localStorage.getItem('dealreg-color-theme');
+    var t = localStorage.getItem('dealreg-color-theme') || 'dark-default';
     var d = localStorage.getItem('dealreg-dark-mode');
-    if (t) document.documentElement.setAttribute('data-color-theme', t);
-    if (d === 'true') {
+    var isDark = d === null ? true : (d !== 'false');
+    
+    if (t && t !== 'dark-default' && t !== 'default') {
+      document.documentElement.setAttribute('data-color-theme', t);
+    } else {
+      document.documentElement.removeAttribute('data-color-theme');
+    }
+    
+    if (isDark) {
       document.documentElement.classList.add('dark');
       document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.removeAttribute('data-theme');
     }
   } catch(e) {}
 })();
@@ -31,7 +42,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="antialiased font-sans min-h-screen bg-background text-foreground">
         <NextAuthProvider>
-          <AppShell>{children}</AppShell>
+          <QueryProvider>
+            <AppShell>{children}</AppShell>
+          </QueryProvider>
         </NextAuthProvider>
       </body>
     </html>

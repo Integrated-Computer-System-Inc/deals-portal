@@ -1,7 +1,6 @@
 'use client';
 
-import React from 'react';
-import { Modal } from 'antd';
+import { Modal, ConfigProvider } from 'antd';
 import type { ModalProps } from 'antd';
 import { AppLabel } from '../labels';
 import { cn } from '../../utils/cn';
@@ -52,25 +51,55 @@ const AppModalRoot: React.FC<AppModalProps> = ({
     };
 
     return (
-        <Modal
-            open={open}
-            onCancel={onClose}
-            title={null}
-            footer={null}
-            width={width}
-            centered={centered}
-            className={cn('app-modal', className)}
-            classNames={{
-                mask: 'backdrop-blur-sm bg-black/45 dark:bg-black/60',
-                content: cn('!rounded-2xl border border-border bg-background shadow-2xl', paddings[padding]),
-                header: 'bg-transparent border-0 mb-0 p-0',
-                body: 'p-0',
-                footer: 'p-0 mt-4',
-            } as any}
-            {...props}
+        <ConfigProvider
+            theme={{
+                token: {
+                    colorBgElevated: 'var(--card-bg)',
+                    colorText: 'var(--foreground)',
+                    colorTextHeading: 'var(--foreground)',
+                    colorIcon: 'var(--muted)',
+                    colorIconHover: 'var(--foreground)',
+                    borderRadiusLG: 20,
+                },
+                components: {
+                    Modal: {
+                        contentBg: 'var(--card-bg)',
+                        headerBg: 'transparent',
+                        titleColor: 'var(--foreground)',
+                    },
+                },
+            }}
         >
-            {children}
-        </Modal>
+            <Modal
+                open={open}
+                onCancel={onClose}
+                title={null}
+                footer={null}
+                width={width}
+                centered={centered}
+                className={cn('app-modal', className)}
+                styles={{
+                    content: {
+                        backgroundColor: 'var(--card-bg)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--foreground)',
+                    },
+                    mask: {
+                        backdropFilter: 'blur(8px)',
+                    },
+                } as any}
+                classNames={{
+                    mask: 'backdrop-blur-sm bg-black/50 dark:bg-black/70',
+                    content: cn('!rounded-2xl border border-border !bg-card-bg !text-foreground shadow-2xl', paddings[padding]),
+                    header: '!bg-transparent !border-0 mb-0 p-0',
+                    body: 'p-0 !text-foreground',
+                    footer: 'p-0 mt-4',
+                } as any}
+                {...props}
+            >
+                {children}
+            </Modal>
+        </ConfigProvider>
     );
 };
 

@@ -59,14 +59,14 @@ export const AppDateRangePicker = React.forwardRef<any, AppDateRangePickerProps>
                         size === 'sm' && "h-8 text-xs [&_.ant-picker-input_input]:text-xs [&_.ant-picker-input_input]:!py-1",
                         size === 'md' && "h-10 text-sm [&_.ant-picker-input_input]:text-sm [&_.ant-picker-input_input]:!py-2",
                         size === 'lg' && "h-12 text-base [&_.ant-picker-input_input]:text-base [&_.ant-picker-input_input]:!py-3",
-                        shape === 'pill' ? "rounded-full!" : "rounded-xl!",
-                        "bg-neutral/50! border-border! hover:bg-neutral/80! hover:border-border!",
-                        "focus-within:bg-neutral/80! focus-within:border-accent-1! focus-within:ring-2! focus-within:ring-accent-1/40!",
-                        "px-3.5!",
+                        shape === 'pill' ? "!rounded-full" : "!rounded-xl",
+                        "!bg-neutral/50 !border-border hover:!bg-neutral/80 hover:!border-border",
+                        "focus-within:!bg-neutral/80 focus-within:!border-accent-1 focus-within:!ring-2 focus-within:!ring-accent-1/40",
+                        "!px-3.5",
                         "[&_.ant-picker-input_input::placeholder]:text-foreground/30",
-                        "[&_.ant-picker-active-bar]:bg-accent-1!",
+                        "[&_.ant-picker-active-bar]:!bg-accent-1",
                         "[&_.ant-picker-separator]:text-foreground/40",
-                        error && "border-red-500/60! focus-within:border-red-500! focus-within:ring-red-500/30!",
+                        error && "!border-red-500/60 focus-within:!border-red-500 focus-within:!ring-red-500/30",
                         disabled && "opacity-40 pointer-events-none"
                     )}
                     {...props}

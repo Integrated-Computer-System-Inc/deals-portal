@@ -9,7 +9,6 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { getDealById, updateDeal } from '../../../actions/deals';
 import {
   ACTIVE_BUSINESS_UNITS,
   DEAL_STATUS_MAP,
@@ -18,6 +17,7 @@ import {
   DealHeaderRecord,
   UserRole,
 } from '@my-app/types';
+import { useDealQuery, useUpdateDealMutation } from '@/hooks/useDealsQuery';
 import {
   AppTextarea,
   AppCard,
@@ -26,8 +26,6 @@ import {
 import CustomerSearchModal from '../../../../components/CustomerSearchModal';
 import WTNModal from '../../../../components/WTNModal';
 import LostDealModal from '../../../../components/LostDealModal';
-import BrandSelect from '../../../../components/BrandSelect';
-import { invalidateDealsCache } from '../../../../hooks/useDeals';
 import {
   ArrowLeft,
   Search,
@@ -42,7 +40,6 @@ import {
   Info,
   ShieldAlert,
   BellRing,
-  CheckCircle,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -54,16 +51,16 @@ const dealItemSchema = z.object({
 });
 
 const updateDealSchema = z.object({
-  dtRegistered: z.string().trim().min(1, 'Registration date is required'),
-  validityDays: z.coerce.number().min(1, 'Validity days must be at least 1'),
-  expDt: z.string().trim().min(1, 'Expiration date is required'),
-  brand: z.string().trim().min(1, 'At least one brand is required'),
-  customerID: z.union([z.string(), z.number()]).optional().nullable(),
-  custName: z.string().trim().min(2, 'Customer name is required'),
-  dealRegID: z.string().trim().min(1, 'Deal Registration ID is required'),
-  projectName: z.string().trim().min(2, 'Project name is required'),
-  assignedAO: z.string().trim().min(2, 'Assigned AO is required'),
-  bu: z.string().trim().min(1, 'Business Unit is required'),
+  dtRegistered: z.string().min(1, 'Registration date is required'),
+  validityDays: z.coerce.number().optional(),
+  expDt: z.string().min(1, 'Expiration date is required'),
+  brand: z.string().min(1, 'Brand is required'),
+  customerID: z.string().optional().default(''),
+  custName: z.string().min(2, 'Customer name is required'),
+  dealRegID: z.string().min(1, 'Deal Registration ID is required'),
+  projectName: z.string().min(2, 'Project name is required'),
+  assignedAO: z.string().min(2, 'Assigned AO is required'),
+  bu: z.string().min(1, 'Business Unit is required'),
   dealStatus: z.union([z.string(), z.number()]),
   remarks: z.string().optional(),
   toEmail: z.boolean().default(true),
@@ -73,18 +70,24 @@ const updateDealSchema = z.object({
 type UpdateDealFormData = z.infer<typeof updateDealSchema>;
 
 export default function EditDealPage({ params }: { params: { id: string } }) {
-  const dealID = Number(params.id);
   const router = useRouter();
   const { data: session } = useSession();
+  const dealID = parseInt(params.id, 10);
 
-  const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(true);
+  const { data: deal, isLoading: fetching } = useDealQuery(dealID);
+  const updateMutation = useUpdateDealMutation();
+
+  const [currentWtnDate, setCurrentWtnDate] = useState<Date | string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isWtnModalOpen, setIsWtnModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
-  const [currentWtnDate, setCurrentWtnDate] = useState<Date | string | null>(null);
+
+  const userRole: UserRole = (session?.user as any)?.role || 'admin';
+  const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
+
+  const defaultRegDate = new Date().toISOString().split('T')[0];
+  const defaultExpDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const {
     register,
@@ -97,9 +100,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   } = useForm<UpdateDealFormData>({
     resolver: zodResolver(updateDealSchema as any),
     defaultValues: {
-      dtRegistered: new Date().toISOString().split('T')[0],
+      dtRegistered: defaultRegDate,
       validityDays: 90,
-      expDt: new Date().toISOString().split('T')[0],
+      expDt: defaultExpDate,
       brand: 'Dell',
       customerID: '',
       custName: '',
@@ -114,7 +117,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         {
           itemDesc: '',
           qty: 1,
-          currency: 'USD',
+          currency: 'PHP',
           totalAmt: 0,
         },
       ],
@@ -128,56 +131,38 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
   const watchRegDate = watch('dtRegistered');
   const watchValidityDays = watch('validityDays');
-  const watchBrand = watch('brand');
-  const watchItems = watch('items');
+  const watchItems = watch('items') || [];
   const watchStatus = watch('dealStatus');
-  const watchToEmail = watch('toEmail');
-  const watchBU = watch('bu');
 
-  const buOptions = useMemo(() => {
-    const list = [...ACTIVE_BUSINESS_UNITS] as string[];
-    if (watchBU && !list.includes(watchBU)) {
-      list.unshift(watchBU);
-    }
-    return list;
-  }, [watchBU]);
+  useEffect(() => {
+    if (!deal) return;
 
-  const loadDeal = async () => {
-    setFetching(true);
-    try {
-      const res = await getDealById(dealID);
-      const deal = (res && res.success && res.data) ? res.data : null;
+    const regDateVal = deal.dtRegistered ? new Date(deal.dtRegistered) : new Date();
+    const expDateVal = deal.expDt || deal.expiration ? new Date(deal.expDt || deal.expiration!) : new Date();
 
-      if (!deal) {
-        console.warn(`[EditDealPage] Deal #${dealID} not found in database.`);
-        return;
-      }
-      
-      const regDateVal = deal.dtRegistered ? new Date(deal.dtRegistered) : new Date();
-      const expDateVal = (deal.expDt || deal.expiration) ? new Date(deal.expDt || deal.expiration!) : new Date();
+    const regStr = regDateVal.toISOString().split('T')[0];
+    const expStr = expDateVal.toISOString().split('T')[0];
+    const diffDays = Math.max(
+      1,
+      Math.ceil((expDateVal.getTime() - regDateVal.getTime()) / (1000 * 60 * 60 * 24))
+    );
 
-      const regStr = regDateVal.toISOString().split('T')[0];
-      const expStr = expDateVal.toISOString().split('T')[0];
-      const diffDays = Math.max(
-        1,
-        Math.ceil((expDateVal.getTime() - regDateVal.getTime()) / (1000 * 60 * 60 * 24))
-      );
-
-      reset({
-        dtRegistered: regStr,
-        validityDays: diffDays,
-        expDt: expStr,
-        brand: deal.brand || '',
-        customerID: deal.customerID ? String(deal.customerID) : '',
-        custName: deal.custName || '',
-        dealRegID: deal.dealRegID || String(deal.dealID),
-        projectName: deal.ProjectName || deal.projectName || '',
-        assignedAO: deal.AssignedAO || deal.assignedAO || '',
-        bu: (deal.BU || deal.bu || 'BU5').trim(),
-        dealStatus: deal.dealStatus ?? 1,
-        remarks: deal.remarks || '',
-        toEmail: true,
-        items: deal.items && deal.items.length > 0
+    reset({
+      dtRegistered: regStr,
+      validityDays: diffDays,
+      expDt: expStr,
+      brand: deal.brand || 'Dell',
+      customerID: deal.customerID ? String(deal.customerID) : 'CUST-3184',
+      custName: deal.custName || '',
+      dealRegID: deal.dealRegID || String(deal.dealID),
+      projectName: deal.ProjectName || deal.projectName || '',
+      assignedAO: deal.AssignedAO || deal.assignedAO || '',
+      bu: deal.BU || deal.bu || 'BU5',
+      dealStatus: deal.dealStatus ?? 1,
+      remarks: deal.remarks || '',
+      toEmail: true,
+      items:
+        deal.items && deal.items.length > 0
           ? deal.items.map((i: any) => ({
               dealItemID: i.itemID || i.dealItemID,
               itemDesc: i.itemDesc || '',
@@ -186,59 +171,36 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               totalAmt: i.totalAmt || 0,
             }))
           : [{ itemDesc: 'Standard Item', qty: 1, currency: 'PHP', totalAmt: 0 }],
-      });
+    });
 
-      if (deal.wtn?.whenToNotify) {
-        setCurrentWtnDate(deal.wtn.whenToNotify);
-      }
-    } catch (err: any) {
-      console.error('Failed to load deal:', err);
-    } finally {
-      setFetching(false);
+    if (deal.wtn?.whenToNotify) {
+      setCurrentWtnDate(deal.wtn.whenToNotify);
     }
-  };
-
-  useEffect(() => {
-    if (dealID) {
-      loadDeal();
-    }
-  }, [dealID]);
-
-  const handleRegDateChange = (regDateStr: string) => {
-    setValue('dtRegistered', regDateStr, { shouldValidate: true });
-    const days = watchValidityDays || 90;
-    if (regDateStr && days > 0) {
-      const reg = new Date(regDateStr);
-      const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
-      setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
-    } else {
-      setValue('expDt', '', { shouldValidate: true });
-    }
-  };
+  }, [deal, reset]);
 
   const handleValidityChange = (days: number) => {
-    setValue('validityDays', days, { shouldValidate: true });
+    setValue('validityDays', days);
     if (watchRegDate && days > 0) {
       const reg = new Date(watchRegDate);
-      const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
-      setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
+      const exp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
+      setValue('expDt', exp.toISOString().split('T')[0]);
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr, { shouldValidate: true });
+    setValue('expDt', expDateStr);
     if (watchRegDate && expDateStr) {
       const reg = new Date(watchRegDate).getTime();
       const exp = new Date(expDateStr).getTime();
       const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
       if (diffDays > 0) {
-        setValue('validityDays', diffDays, { shouldValidate: true });
+        setValue('validityDays', diffDays);
       }
     }
   };
 
   const handleStatusChange = (newStatus: number) => {
-    setValue('dealStatus', newStatus, { shouldValidate: true });
+    setValue('dealStatus', newStatus);
     if (Number(newStatus) === 7 || Number(newStatus) === 8) {
       setIsLostModalOpen(true);
     }
@@ -246,12 +208,10 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
     setValue('customerID', customer.customerID);
-    setValue('custName', customer.custName, { shouldValidate: true });
-    if (customer.bu) {
-      setValue('bu', customer.bu.trim(), { shouldValidate: true });
-    }
+    setValue('custName', customer.custName);
+    setValue('bu', customer.bu);
     if (customer.assignedAO) {
-      setValue('assignedAO', customer.assignedAO.trim(), { shouldValidate: true });
+      setValue('assignedAO', customer.assignedAO);
     }
   };
 
@@ -265,21 +225,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     return totals;
   }, [watchItems]);
 
-  const onInvalid = (fieldErrors: any) => {
-    const errorKeys = Object.keys(fieldErrors);
-    if (errorKeys.length > 0) {
-      setErrorMsg('Please complete all required fields marked with * before updating.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
   const onSubmit = async (data: UpdateDealFormData) => {
-    setLoading(true);
     setErrorMsg(null);
-    setSuccessMsg(null);
 
     try {
-      const result = await updateDeal({
+      const result = await updateMutation.mutateAsync({
         dealID,
         dtRegistered: data.dtRegistered,
         expDt: data.expDt,
@@ -299,23 +249,17 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         items: data.items,
       });
 
-      if (result.success) {
-        await invalidateDealsCache();
-        setSuccessMsg('Deal record updated successfully! Redirecting...');
-        setTimeout(() => {
-          router.push('/deals');
-        }, 1000);
+      if (result && result.success) {
+        router.push('/deals');
       } else {
-        setLoading(false);
-        setErrorMsg(result.error || 'Failed to update deal record.');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setErrorMsg(result?.error || 'Failed to update deal record.');
       }
     } catch (err: any) {
-      setLoading(false);
-      setErrorMsg(err?.message || 'An unexpected error occurred.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setErrorMsg(err?.message || 'A network error occurred.');
     }
   };
+
+  const loading = updateMutation.isPending;
 
   if (fetching) {
     return (
@@ -326,9 +270,6 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     );
   }
 
-  const userRole: UserRole = (session?.user as any)?.role || 'admin';
-  const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
-
   const statusNum = typeof watchStatus === 'number' ? watchStatus : parseInt(watchStatus) || 1;
   const statusMeta = DEAL_STATUS_MAP[statusNum] || {
     label: `Status ${watchStatus}`,
@@ -338,16 +279,16 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       {/* Header Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
             href="/deals"
-            className="p-2 rounded-xl bg-neutral/80 hover:bg-neutral border border-border/70 text-muted hover:text-foreground transition"
+            className="p-2 rounded-xl bg-neutral hover:bg-neutral/80 border border-border text-muted hover:text-foreground transition shadow-xs"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
                 {isViewOnly ? 'Deal Details' : 'Edit Deal'} #{watch('dealRegID') || dealID}
               </h1>
@@ -362,11 +303,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         </div>
 
         {!isViewOnly && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setIsWtnModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition flex-1 sm:flex-initial"
             >
               <BellRing className="w-3.5 h-3.5" />
               <span>Update WTN</span>
@@ -376,7 +317,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <button
                 type="button"
                 onClick={() => setIsLostModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-xs font-semibold rounded-xl border border-rose-500/30 transition"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 text-xs font-semibold rounded-xl border border-rose-500/30 transition flex-1 sm:flex-initial"
               >
                 <ShieldAlert className="w-3.5 h-3.5" />
                 <span>Mark Lost</span>
@@ -387,22 +328,15 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/30 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in">
+        <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2">
           <Info className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in">
-          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{successMsg}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Section 1: Customer Account */}
-        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+        <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
             <div className="flex items-center gap-2">
               <Building2 className="w-4 h-4 text-sky-600" />
@@ -420,51 +354,75 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          <div className="space-y-4">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
               <input
                 {...register('custName')}
                 disabled={isViewOnly}
                 placeholder="e.g. HEALTHPROOF (MANILA) INC."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
-                <select
-                  {...register('bu')}
-                  disabled={isViewOnly}
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
-                >
-                  {buOptions.map((bu: string) => (
-                    <option key={bu} value={bu}>
-                      {bu}
-                    </option>
-                  ))}
-                </select>
-                {errors.bu && <p className="text-[11px] text-rose-500 mt-1">{errors.bu.message}</p>}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-foreground">Customer ID Reference</label>
+                {!isViewOnly && (
+                  watch('customerID') ? (
+                    <button
+                      type="button"
+                      onClick={() => setValue('customerID', '')}
+                      className="text-[11px] text-sky-600 dark:text-sky-400 hover:text-sky-700 font-semibold hover:underline flex items-center gap-1"
+                    >
+                      Detach / Clear ID
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-muted font-normal">(Optional / Blank)</span>
+                  )
+                )}
               </div>
+              <input
+                {...register('customerID')}
+                disabled={isViewOnly}
+                placeholder="e.g. CUST-3184 or leave blank"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+              />
+              {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
+            </div>
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
-                <input
-                  {...register('assignedAO')}
-                  disabled={isViewOnly}
-                  placeholder="e.g. Abegail Cebujano"
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
-                />
-                {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Business Unit (BU) *</label>
+              <select
+                {...register('bu')}
+                disabled={isViewOnly}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+              >
+                {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
+                  <option key={bu} value={bu}>
+                    {bu}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
+              <input
+                {...register('assignedAO')}
+                disabled={isViewOnly}
+                placeholder="e.g. Juan Dela Cruz (AO-104)"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+              />
             </div>
           </div>
         </AppCard>
 
         {/* Section 2: Deal Core Information */}
-        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+        <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center gap-2 border-b border-border/50 pb-3">
             <FileText className="w-4 h-4 text-emerald-600" />
             <h2 className="font-bold text-sm text-foreground">2. Deal Header & Validity Period</h2>
@@ -477,30 +435,38 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('dealRegID')}
                 disabled={isViewOnly}
                 placeholder="e.g. 31842219 or REGI-0005491402"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Brand Name *</label>
-              <BrandSelect
-                value={watchBrand || ''}
-                onChange={(brand) => setValue('brand', brand, { shouldValidate: true })}
-                error={errors.brand?.message}
+              <select
+                {...register('brand')}
                 disabled={isViewOnly}
-                placeholder="Select a brand..."
-              />
-              {errors.brand && <p className="text-[11px] text-rose-500 mt-1">{errors.brand.message}</p>}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+              >
+                <option value="Dell">Dell</option>
+                <option value="HPi">HPi</option>
+                <option value="HPe">HPe</option>
+                <option value="HP Poly">HP Poly</option>
+                <option value="Cisco">Cisco</option>
+                <option value="Microsoft">Microsoft</option>
+                <option value="Lenovo">Lenovo</option>
+                <option value="Fortinet">Fortinet</option>
+                <option value="VMware">VMware</option>
+                <option value="Palo Alto">Palo Alto</option>
+              </select>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Deal Status *</label>
               <select
                 value={watchStatus}
-                disabled={isViewOnly}
                 onChange={(e) => handleStatusChange(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                disabled={isViewOnly}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               >
                 {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
                   <option key={id} value={id}>
@@ -517,7 +483,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               {...register('projectName')}
               disabled={isViewOnly}
               placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
             />
             {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
@@ -528,36 +494,32 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <label className="block text-xs font-semibold text-foreground mb-1">Date Registered *</label>
               <input
                 type="date"
-                value={watchRegDate || ''}
+                {...register('dtRegistered')}
                 disabled={isViewOnly}
-                onChange={(e) => handleRegDateChange(e.target.value)}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
-              {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Validity (in Days) *</label>
               <input
                 type="number"
-                value={watchValidityDays || ''}
-                disabled={isViewOnly}
+                value={watchValidityDays}
                 onChange={(e) => handleValidityChange(Number(e.target.value))}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                disabled={isViewOnly}
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
-              {errors.validityDays && <p className="text-[11px] text-rose-500 mt-1">{errors.validityDays.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Expiration Date *</label>
               <input
                 type="date"
-                value={watch('expDt') || ''}
-                disabled={isViewOnly}
+                value={watch('expDt')}
                 onChange={(e) => handleExpDateChange(e.target.value)}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40"
+                disabled={isViewOnly}
+                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
-              {errors.expDt && <p className="text-[11px] text-rose-500 mt-1">{errors.expDt.message}</p>}
             </div>
           </div>
 
@@ -565,118 +527,133 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             <label className="block text-xs font-semibold text-foreground mb-1">Remarks & Partner Notes</label>
             <AppTextarea
               {...register('remarks')}
+              disabled={isViewOnly}
               placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
               rows={2}
             />
           </div>
 
-          <div className="flex items-center gap-2 pt-2">
-            <input
-              type="checkbox"
-              id="toEmail"
-              {...register('toEmail')}
-              className="h-4 w-4 text-primary rounded border-border focus:ring-primary/20"
-            />
-            <label htmlFor="toEmail" className="text-xs font-medium text-foreground cursor-pointer">
-              Send update email notification to sales operations team
-            </label>
-          </div>
+          {!isViewOnly && (
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                id="toEmail"
+                {...register('toEmail')}
+                className="h-4 w-4 text-primary rounded border-border focus:ring-primary/20"
+              />
+              <label htmlFor="toEmail" className="text-xs font-medium text-foreground cursor-pointer">
+                Send update email notification to sales operations team
+              </label>
+            </div>
+          )}
         </AppCard>
 
         {/* Section 3: Dynamic Deal Items */}
-        <AppCard className="p-5 bg-background border border-border/70 rounded-xl shadow-xs space-y-4">
+        <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-indigo-600" />
               <h2 className="font-bold text-sm text-foreground">3. Deal Products & Line Items</h2>
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                append({
-                  itemDesc: '',
-                  qty: 1,
-                  currency: 'PHP',
-                  totalAmt: 0,
-                })
-              }
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 transition shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Item</span>
-            </button>
+            {!isViewOnly && (
+              <button
+                type="button"
+                onClick={() =>
+                  append({
+                    itemDesc: '',
+                    qty: 1,
+                    currency: 'PHP',
+                    totalAmt: 0,
+                  })
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 transition shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Item</span>
+              </button>
+            )}
           </div>
 
           <div className="space-y-3">
             {fields.map((field, index) => (
               <div
                 key={field.id}
-                className="grid grid-cols-12 gap-3 items-center p-3 rounded-xl bg-neutral/30 border border-border/60 hover:border-border transition"
+                className="p-3.5 rounded-xl bg-neutral/40 border border-border/60 hover:border-border transition space-y-3 sm:space-y-0 sm:grid sm:grid-cols-12 sm:gap-3 sm:items-center"
               >
-                <div className="col-span-12 sm:col-span-5">
+                <div className="sm:col-span-5">
                   <label className="block text-[11px] font-semibold text-muted mb-1">
                     Item #{index + 1} Description *
                   </label>
                   <input
                     {...register(`items.${index}.itemDesc` as const)}
+                    disabled={isViewOnly}
                     placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
                   />
                 </div>
 
-                <div className="col-span-4 sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-muted mb-1">Qty *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    {...register(`items.${index}.qty` as const)}
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
+                <div className="grid grid-cols-2 gap-2 sm:contents">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-muted mb-1">Qty *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      {...register(`items.${index}.qty` as const)}
+                      disabled={isViewOnly}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-muted mb-1">Currency *</label>
+                    <select
+                      {...register(`items.${index}.currency` as const)}
+                      disabled={isViewOnly}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    >
+                      <option value="PHP">PHP</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                      <option value="SGD">SGD</option>
+                      <option value="JPY">JPY</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="col-span-3 sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-muted mb-1">Currency *</label>
-                  <select
-                    {...register(`items.${index}.currency` as const)}
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  >
-                    <option value="PHP">PHP</option>
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                    <option value="SGD">SGD</option>
-                    <option value="JPY">JPY</option>
-                  </select>
-                </div>
+                <div className="flex items-end gap-2 sm:contents">
+                  <div className="flex-1 sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-muted mb-1">Total Amount *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      {...register(`items.${index}.totalAmt` as const)}
+                      disabled={isViewOnly}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    />
+                  </div>
 
-                <div className="col-span-4 sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-muted mb-1">Total Amount *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register(`items.${index}.totalAmt` as const)}
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-
-                <div className="col-span-1 text-right sm:pt-5">
-                  <button
-                    type="button"
-                    onClick={() => remove(index)}
-                    disabled={fields.length === 1}
-                    className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-30"
-                    title="Delete Item"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {!isViewOnly && (
+                    <div className="sm:col-span-1 text-right sm:pt-5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => remove(index)}
+                        disabled={fields.length === 1}
+                        className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-30 flex items-center justify-center ml-auto"
+                        title="Delete Item"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
           </div>
 
           {/* Currency Summary Footer */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-neutral/80 border border-border/80">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 sm:p-4 rounded-xl bg-neutral/80 border border-border/80">
             <span className="text-xs font-bold text-foreground">Estimated Total Amount:</span>
-            <div className="flex items-center gap-3 font-mono font-bold text-sm text-primary">
+            <div className="flex flex-wrap items-center gap-2 font-mono font-bold text-sm text-sky-600 dark:text-sky-400">
               {Object.entries(currencyTotals).map(([curr, amt]) => (
                 <span key={curr} className="bg-background px-3 py-1 rounded-lg border border-border shadow-xs">
                   {curr} {amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -687,11 +664,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         </AppCard>
 
         {/* Section 4: Action Footer */}
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2">
           {isViewOnly ? (
             <Link
               href="/deals"
-              className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md"
+              className="flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back to Deals Registry</span>
@@ -700,17 +677,17 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
             <>
               <Link
                 href="/deals"
-                className="px-5 py-2.5 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl border border-border transition"
+                className="text-center px-5 py-2.5 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl border border-border transition"
               >
                 Cancel
               </Link>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:opacity-90 transition shadow-md disabled:opacity-50"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                <span>{loading ? 'Updating Deal Record...' : 'Update Deal Record'}</span>
+                <span>Update Deal Record</span>
               </button>
             </>
           )}
@@ -731,7 +708,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         currentWTN={currentWtnDate}
         isOpen={isWtnModalOpen}
         onClose={() => setIsWtnModalOpen(false)}
-        onSuccess={loadDeal}
+        onSuccess={() => setIsWtnModalOpen(false)}
       />
 
       {/* Lost Deal Modal */}
@@ -741,7 +718,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         isOpen={isLostModalOpen}
         onClose={() => setIsLostModalOpen(false)}
         onSuccess={() => {
-          loadDeal();
+          setIsLostModalOpen(false);
           router.push('/deals');
         }}
       />

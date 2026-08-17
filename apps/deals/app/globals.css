@@ -9,8 +9,280 @@ body {
   min-height: 100vh;
 }
 
+.dark,
+.dark *,
+.dark *::before,
+.dark *::after {
+  border-color: var(--border);
+}
+
 .glass-card {
   background: var(--card-bg, rgba(255, 255, 255, 0.9));
   backdrop-filter: blur(12px);
   border: 1px solid var(--border, rgba(226, 232, 240, 0.8));
 }
+
+@keyframes shimmer {
+  0% { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+.shimmer-skeleton, .shimmer-row {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.05) 25%, rgba(0, 0, 0, 0.12) 50%, rgba(0, 0, 0, 0.05) 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s infinite linear;
+}
+
+.dark .shimmer-skeleton, .dark .shimmer-row {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.14) 50%, rgba(255, 255, 255, 0.05) 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s infinite linear;
+}
+
+/* Ant Design Table Theme & Contrast Overrides */
+.ant-table-wrapper .ant-table-thead > tr > th {
+  color: var(--foreground) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.dark .ant-table-wrapper .ant-table-thead > tr > th {
+  background: var(--neutral) !important;
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.dark .ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.dark .ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Ant Design Pagination Global Alignment & Dark Mode Enhancements */
+.ant-table-wrapper .ant-table-pagination.ant-pagination {
+  margin: 16px 20px 16px auto !important;
+  padding-right: 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+}
+
+.dark .ant-pagination .ant-pagination-item {
+  background-color: var(--neutral) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  line-height: 30px !important;
+  text-align: center !important;
+}
+
+.dark .ant-pagination .ant-pagination-item a {
+  color: #f4f4f5 !important;
+  font-weight: 600 !important;
+}
+
+.dark .ant-pagination .ant-pagination-item-active {
+  background-color: var(--accent-1) !important;
+  border-color: var(--accent-1) !important;
+}
+
+.dark .ant-pagination .ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+.dark .ant-pagination .ant-pagination-prev .ant-pagination-item-link,
+.dark .ant-pagination .ant-pagination-next .ant-pagination-item-link {
+  background-color: var(--neutral) !important;
+  border: 1px solid var(--border) !important;
+  color: #f4f4f5 !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.dark .ant-pagination .ant-pagination-disabled .ant-pagination-item-link {
+  opacity: 0.35 !important;
+}
+
+/* Fix for Ellipsis & Quick Jump Icon (removes accidental borders & dangling >> icon) */
+.ant-pagination .ant-pagination-jump-prev,
+.ant-pagination .ant-pagination-jump-next,
+.dark .ant-pagination .ant-pagination-jump-prev,
+.dark .ant-pagination .ant-pagination-jump-next {
+  background-color: transparent !important;
+  border: none !important;
+  min-width: 24px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.ant-pagination .ant-pagination-jump-prev .ant-pagination-item-link,
+.ant-pagination .ant-pagination-jump-next .ant-pagination-item-link,
+.dark .ant-pagination .ant-pagination-jump-prev .ant-pagination-item-link,
+.dark .ant-pagination .ant-pagination-jump-next .ant-pagination-item-link {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.ant-pagination .ant-pagination-jump-prev .ant-pagination-item-container,
+.ant-pagination .ant-pagination-jump-next .ant-pagination-item-container,
+.dark .ant-pagination .ant-pagination-jump-prev .ant-pagination-item-container,
+.dark .ant-pagination .ant-pagination-jump-next .ant-pagination-item-container {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 32px !important;
+  width: 100% !important;
+}
+
+.ant-pagination .ant-pagination-item-ellipsis,
+.dark .ant-pagination .ant-pagination-item-ellipsis {
+  color: #a1a1aa !important;
+  line-height: 32px !important;
+}
+
+.ant-pagination-jump-prev .ant-pagination-item-link-icon,
+.ant-pagination-jump-next .ant-pagination-item-link-icon {
+  color: var(--accent-1) !important;
+  line-height: 32px !important;
+}
+
+.dark .ant-pagination .ant-pagination-options .ant-select .ant-select-selector {
+  background-color: var(--neutral) !important;
+  border: 1px solid var(--border) !important;
+  color: #f4f4f5 !important;
+  border-radius: 8px !important;
+  height: 32px !important;
+}
+
+.dark .ant-pagination .ant-pagination-options .ant-select .ant-select-selection-item {
+  color: #f4f4f5 !important;
+  font-weight: 500 !important;
+  line-height: 30px !important;
+}
+
+.dark .ant-pagination .ant-pagination-options .ant-select .ant-select-arrow {
+  color: #a1a1aa !important;
+}
+
+/* Ant Design Input, Textarea & Form Dark Mode Fixes */
+.dark .ant-input,
+.dark textarea.ant-input,
+.dark .ant-input-affix-wrapper,
+.dark .ant-input-number {
+  background-color: var(--neutral) !important;
+  border-color: var(--border) !important;
+  color: #f4f4f5 !important;
+}
+
+.dark .ant-input::placeholder,
+.dark textarea.ant-input::placeholder,
+.dark .ant-input-affix-wrapper input::placeholder {
+  color: #a1a1aa !important;
+}
+
+.dark .ant-input:focus,
+.dark .ant-input-focused,
+.dark textarea.ant-input:focus,
+.dark .ant-input-affix-wrapper:focus,
+.dark .ant-input-affix-wrapper-focused {
+  border-color: var(--accent-1) !important;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.25) !important;
+}
+
+.dark .ant-picker {
+  background-color: var(--neutral) !important;
+  border-color: var(--border) !important;
+}
+
+.dark .ant-picker .ant-picker-input > input {
+  color: #f4f4f5 !important;
+}
+
+.dark .ant-picker .ant-picker-input > input::placeholder {
+  color: #a1a1aa !important;
+}
+
+.dark .ant-picker .ant-picker-suffix,
+.dark .ant-picker .ant-picker-clear {
+  color: #a1a1aa !important;
+}
+
+.dark .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  background-color: var(--neutral) !important;
+  border-color: var(--border) !important;
+  color: #f4f4f5 !important;
+}
+
+.dark .ant-select-dropdown {
+  background-color: var(--neutral) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.dark .ant-select-item {
+  color: #f4f4f5 !important;
+}
+
+.dark .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background-color: rgba(22, 119, 255, 0.2) !important;
+  color: #60a5fa !important;
+}
+
+/* Ant Design Modal Theme & Dark Mode Consistency */
+.ant-modal .ant-modal-content,
+.ant-modal-content,
+div.ant-modal-content,
+.dark .ant-modal .ant-modal-content,
+.dark .ant-modal-content {
+  background-color: var(--card-bg) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 20px !important;
+}
+
+.ant-modal .ant-modal-header,
+.ant-modal-header {
+  background-color: transparent !important;
+}
+
+.ant-modal .ant-modal-title,
+.ant-modal-title {
+  color: var(--foreground) !important;
+}
+
+.ant-modal .ant-modal-close,
+.ant-modal-close {
+  color: var(--muted) !important;
+}
+
+.ant-modal .ant-modal-close:hover,
+.ant-modal-close:hover {
+  color: var(--foreground) !important;
+  background-color: var(--neutral) !important;
+}
+
+

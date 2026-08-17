@@ -24,14 +24,14 @@ export const AppCard = React.forwardRef<HTMLElement, AppCardProps>(
         },
         ref
     ) => {
-        const baseClasses = 'rounded-2xl border transition-all duration-200';
+        const baseClasses = 'rounded-2xl border border-border transition-all duration-200';
 
         const variants = {
-            default: 'bg-neutral/20 border-border',
-            interactive: 'bg-neutral/20 border-border hover:border-accent-1/25 hover:bg-neutral/40 hover:-translate-y-[1px] hover:shadow-sm cursor-pointer',
-            glass: 'bg-background/60 backdrop-blur-md border-border/80 shadow-md',
-            bordered: 'bg-transparent border-border',
-            nested: 'bg-neutral/10 border-border/50'
+            default: 'bg-card-bg shadow-xs',
+            interactive: 'bg-card-bg hover:border-accent-1/40 hover:bg-neutral/40 hover:-translate-y-[1px] hover:shadow-md cursor-pointer',
+            glass: 'bg-card-bg/90 backdrop-blur-md shadow-md',
+            bordered: 'bg-card-bg',
+            nested: 'bg-neutral/50'
         };
 
         const paddings = {

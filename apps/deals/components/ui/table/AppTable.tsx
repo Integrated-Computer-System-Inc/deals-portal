@@ -14,6 +14,8 @@ export interface AppTableColumnType<RecordType> {
   render?: (value: any, record: RecordType, index: number) => React.ReactNode;
   width?: string | number;
   align?: 'left' | 'right' | 'center';
+  fixed?: 'left' | 'right' | boolean;
+  ellipsis?: boolean;
   className?: string;
   sorter?: boolean | ((a: RecordType, b: RecordType) => number);
   defaultSortOrder?: 'ascend' | 'descend';
@@ -58,21 +60,45 @@ export function AppTable<RecordType extends object>({
         components: {
           Table: {
             headerBg: 'var(--neutral)',
-            headerColor: 'var(--text-info)',
+            headerColor: 'var(--foreground)',
             rowHoverBg: 'var(--hover-bg)',
             colorBgContainer: 'transparent',
             headerSplitColor: 'transparent',
-            cellPaddingBlock: 12,
-            cellPaddingInline: 14,
+            cellPaddingBlock: 10,
+            cellPaddingInline: 10,
+          },
+          Pagination: {
+            colorBgContainer: 'var(--neutral)',
+            colorText: 'var(--foreground)',
+            colorPrimary: 'var(--accent-1)',
+            colorBorder: 'var(--border)',
+            colorBgTextHover: 'var(--hover-bg)',
+            itemSize: 32,
+          },
+          Select: {
+            colorBgContainer: 'var(--neutral)',
+            colorText: 'var(--foreground)',
+            colorBorder: 'var(--border)',
+            controlItemBgHover: 'var(--hover-bg)',
+            controlItemBgActive: 'var(--accent-1)',
+          },
+          Dropdown: {
+            colorBgElevated: 'var(--card-bg)',
+            colorText: 'var(--foreground)',
+            colorTextDescription: 'var(--muted)',
+            controlItemBgHover: 'var(--neutral)',
+            paddingBlock: 6,
+            borderRadiusLG: 10,
           },
         },
       }}
     >
-      <div className={cn("app-table-wrapper border border-border/60 rounded-2xl overflow-x-auto max-w-full bg-card-bg shadow-sm", className)}>
+      <div className={cn("app-table-wrapper border border-border/60 rounded-2xl overflow-hidden max-w-full bg-card-bg shadow-sm", className)}>
         <Table
           dataSource={dataSource}
           columns={resolvedColumns as any}
           pagination={resolvedPagination as any}
+          scroll={{ x: 'max-content', ...props.scroll }}
           className="app-table"
           locale={{
             emptyText: (

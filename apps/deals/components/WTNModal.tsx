@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Calendar, BellRing, Loader2, Clock } from 'lucide-react';
-import { updateWTN } from '../app/actions/deals';
+import { useUpdateWTNMutation } from '@/hooks/useDealsQuery';
 import {
   AppModal,
   AppModalHeader,
@@ -35,30 +35,34 @@ export default function WTNModal({
     : new Date().toISOString().split('T')[0];
 
   const [wtnDate, setWtnDate] = useState(defaultDateStr);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const updateMutation = useUpdateWTNMutation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
 
-    const res = await updateWTN({
-      dealID,
-      wtn_dealID: dealID,
-      whenToNotify: new Date(wtnDate),
-      dtwtn: new Date(wtnDate),
-    });
+    try {
+      const res = await updateMutation.mutateAsync({
+        dealID,
+        wtn_dealID: dealID,
+        whenToNotify: new Date(wtnDate),
+        dtwtn: new Date(wtnDate),
+      });
 
-    setLoading(false);
-
-    if (res.success) {
-      onSuccess();
-      onClose();
-    } else {
-      setError(res.error || 'Failed to update When to Notify date.');
+      if (res && res.success) {
+        onSuccess();
+        onClose();
+      } else {
+        setError(res?.error || 'Failed to update When to Notify date.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update When to Notify date.');
     }
   };
+
+  const loading = updateMutation.isPending;
 
   return (
     <AppModal open={isOpen} onClose={onClose} width={480}>

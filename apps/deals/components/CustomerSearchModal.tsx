@@ -13,7 +13,7 @@ import {
 } from './ui';
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { CustomerLookupResult } from '@my-app/types';
-import { getCachedSearchResults, setCachedSearchResults } from '@/lib/customerSearchCache';
+import { searchCustomers } from '../app/actions/deals';
 
 interface CustomerSearchModalProps {
   isOpen: boolean;
@@ -30,9 +30,10 @@ export default function CustomerSearchModal({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CustomerLookupResult[]>([]);
   const [isManualEntry, setIsManualEntry] = useState(false);
-
+  
   // Step 2 State
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerLookupResult | null>(null);
+  const [attachCustomerID, setAttachCustomerID] = useState(true);
 
   // Manual Entry Form State
   const [manualName, setManualName] = useState('');
@@ -42,18 +43,18 @@ export default function CustomerSearchModal({
   // Track whether we've done at least one completed search for the current term
   const hasSearchedRef = useRef(false);
 
-  // Track latest request ID to prevent race conditions & out-of-order overwrites
-  const latestRequestIdRef = useRef(0);
+  // In-memory search cache for fast responsiveness
+  const cacheRef = useRef<Record<string, CustomerLookupResult[]>>({});
 
-  // Live ICE CREAM customer search with 250ms debounce, persistent client cache & AbortController
+  // Live ICE CREAM customer search with 350ms debounce
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
       setSelectedCustomer(null);
+      setAttachCustomerID(true);
       setIsManualEntry(false);
       setResults([]);
       hasSearchedRef.current = false;
-      latestRequestIdRef.current++;
       return;
     }
 
@@ -62,82 +63,54 @@ export default function CustomerSearchModal({
       setResults([]);
       setLoading(false);
       hasSearchedRef.current = false;
-      latestRequestIdRef.current++;
       return;
     }
 
-    // Instant Tier-1/Tier-2 Cache Hit (0ms latency, no spinner flicker)
-    const cached = getCachedSearchResults(trimmed);
-    if (cached) {
-      latestRequestIdRef.current++;
-      setResults(cached);
+    if (cacheRef.current[trimmed]) {
+      setResults(cacheRef.current[trimmed]);
       setLoading(false);
       hasSearchedRef.current = true;
       return;
     }
 
+    // Mark as loading and debounce API search by 350ms
     setLoading(true);
-
-    const abortController = new AbortController();
-    const currentRequestId = ++latestRequestIdRef.current;
-
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(trimmed)}`, {
-          signal: abortController.signal,
-          headers: {
-            'Accept': 'application/json',
-          },
-        });
-
-        if (!res.ok) {
-          throw new Error(`Search API returned status ${res.status}`);
-        }
-
-        const data = await res.json();
-
-        // Only apply results if this request is still the newest one
-        if (currentRequestId === latestRequestIdRef.current) {
-          if (data.success && Array.isArray(data.data)) {
-            if (data.data.length > 0) {
-              setCachedSearchResults(trimmed, data.data);
-            }
-            setResults(data.data);
-          } else {
-            setResults([]);
+        const res = await searchCustomers(trimmed);
+        if (res.success && res.data) {
+          // Strictly ensure only active accounts are displayed
+          const activeOnly = res.data.filter((r) => r.isActive !== false);
+          if (activeOnly.length > 0) {
+            cacheRef.current[trimmed] = activeOnly;
           }
-          hasSearchedRef.current = true;
-        }
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          // Request was aborted cleanly due to newer input; do nothing
-          return;
-        }
-        if (currentRequestId === latestRequestIdRef.current) {
-          console.error('Error searching live customers:', err);
+          setResults(activeOnly);
+        } else {
           setResults([]);
-          hasSearchedRef.current = true;
         }
+      } catch (err) {
+        console.error('Error searching live customers:', err);
+        setResults([]);
       } finally {
-        if (currentRequestId === latestRequestIdRef.current) {
-          setLoading(false);
-        }
+        setLoading(false);
+        hasSearchedRef.current = true;
       }
-    }, 250);
+    }, 350);
 
-    return () => {
-      clearTimeout(timer);
-      abortController.abort();
-    };
+    return () => clearTimeout(timer);
   }, [searchTerm, isOpen]);
 
   const handleSelectCustomerForVerification = (customer: CustomerLookupResult) => {
     setSelectedCustomer(customer);
+    setAttachCustomerID(true);
   };
 
   const handleConfirmSelection = () => {
     if (selectedCustomer) {
-      onSelectCustomer(selectedCustomer);
+      onSelectCustomer({
+        ...selectedCustomer,
+        customerID: attachCustomerID ? selectedCustomer.customerID : '',
+      });
       onClose();
     }
   };
@@ -145,10 +118,11 @@ export default function CustomerSearchModal({
   const handleSaveManual = () => {
     if (!manualName.trim()) return;
     const newCustomer: CustomerLookupResult = {
-      customerID: `CUST-PROSPECT-${Math.floor(1000 + Math.random() * 9000)}`,
+      customerID: '',
       custName: manualName.trim(),
-      bu: manualBU,
-      assignedAO: manualAO.trim() || 'Assigned AO',
+      bu: manualBU || 'BU5',
+      assignedAO: manualAO.trim() || '',
+      isActive: true,
     };
     onSelectCustomer(newCustomer);
     setIsManualEntry(false);
@@ -176,9 +150,9 @@ export default function CustomerSearchModal({
           </AppModalTitle>
         </div>
         <AppModalDescription>
-          {selectedCustomer
-            ? 'Please verify the account details before attaching to this deal.'
-            : isManualEntry
+          {selectedCustomer 
+            ? 'Please verify the account details before attaching to this deal.' 
+            : isManualEntry 
               ? 'Fill out the details below to attach a new client not yet registered in CRM.'
               : 'Search company accounts via ICE CREAM liveSearch API by Company Name.'}
         </AppModalDescription>
@@ -193,18 +167,25 @@ export default function CustomerSearchModal({
                 <p className="text-xs text-muted mb-1">Company / Customer Name</p>
                 <p className="font-semibold text-lg text-foreground">{selectedCustomer.custName}</p>
               </div>
-
+              
               <div>
-                <p className="text-xs text-muted mb-1">Status</p>
-                {selectedCustomer.isActive !== undefined ? (
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${selectedCustomer.isActive ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/30' : 'bg-red-500/15 text-red-600 border border-red-500/30'}`}>
-                    {selectedCustomer.isActive ? 'Active' : 'Inactive'}
-                  </span>
+                <p className="text-xs text-muted mb-1">Customer ID Reference</p>
+                {attachCustomerID && selectedCustomer.customerID ? (
+                  <p className="font-mono text-sm text-foreground bg-background px-2 py-1 rounded inline-block border border-border/50 font-semibold">
+                    {selectedCustomer.customerID}
+                  </p>
                 ) : (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-neutral text-muted border border-border/50">
-                    Unknown
+                  <span className="text-xs italic text-muted px-2 py-1 rounded bg-neutral/60 border border-border/40 inline-block">
+                    (Will not attach ID - left blank)
                   </span>
                 )}
+              </div>
+
+              <div>
+                <p className="text-xs text-muted mb-1">Account Status</p>
+                <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
+                  Active
+                </span>
               </div>
 
               <div>
@@ -218,10 +199,10 @@ export default function CustomerSearchModal({
                 <p className="text-xs text-muted mb-1">Assigned Account Officer</p>
                 <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                   <User className="w-4 h-4 text-sky-500" />
-                  {selectedCustomer.assignedAO}
+                  {selectedCustomer.assignedAO || 'Unassigned'}
                 </div>
               </div>
-
+              
               {selectedCustomer.createdDate && (
                 <div>
                   <p className="text-xs text-muted mb-1">Created Date</p>
@@ -230,7 +211,7 @@ export default function CustomerSearchModal({
                   </p>
                 </div>
               )}
-
+              
               {selectedCustomer.createdBy && (
                 <div>
                   <p className="text-xs text-muted mb-1">Created By</p>
@@ -238,6 +219,40 @@ export default function CustomerSearchModal({
                 </div>
               )}
             </div>
+
+            {/* Clickable Option to Attach / Detach Customer ID */}
+            {selectedCustomer.customerID && (
+              <div 
+                onClick={() => setAttachCustomerID(!attachCustomerID)}
+                className="p-3 bg-neutral/40 hover:bg-neutral/60 rounded-xl border border-border/70 flex items-center justify-between cursor-pointer transition select-none"
+              >
+                <div className="flex flex-col pr-4">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    Attach Customer ID Reference ({selectedCustomer.customerID})
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    {attachCustomerID
+                      ? 'Customer ID will be saved and linked to this deal.'
+                      : 'Customer ID will be excluded (deal will be registered with company name only).'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAttachCustomerID(!attachCustomerID);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                    attachCustomerID
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'bg-neutral text-muted hover:text-foreground border border-border'
+                  }`}
+                >
+                  {attachCustomerID ? <Check className="w-3.5 h-3.5" /> : null}
+                  <span>{attachCustomerID ? 'Attached' : 'Do Not Attach'}</span>
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -259,31 +274,17 @@ export default function CustomerSearchModal({
         ) : !isManualEntry ? (
           /* Step 1: Search View */
           <>
-            {/* Shimmer keyframe injection */}
-            <style>{`
-              @keyframes shimmer {
-                0% { background-position: -400px 0; }
-                100% { background-position: 400px 0; }
-              }
-              .shimmer-row {
-                background: linear-gradient(90deg, var(--color-neutral, #f0f0f0) 25%, rgba(255,255,255,0.15) 50%, var(--color-neutral, #f0f0f0) 75%);
-                background-size: 800px 100%;
-                animation: shimmer 1.4s infinite linear;
-              }
-            `}</style>
-
             {/* Search Input Bar */}
             <div className="relative">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Type company name to search accounts..."
+                placeholder="Type company name to search active accounts (e.g. APPSDEV, BANK)..."
                 value={searchTerm}
                 onChange={(e: any) => {
                   const val = e.target.value;
                   setSearchTerm(val);
                   if (!val || !val.trim() || val.trim().length < 2) {
                     setLoading(false);
-                    setResults([]);
                     hasSearchedRef.current = false;
                   } else {
                     setLoading(true);
@@ -294,94 +295,76 @@ export default function CustomerSearchModal({
                 size="lg"
               />
               {loading && (
-                <div className="absolute right-3 top-3 pointer-events-none flex items-center gap-1.5 text-xs text-sky-600 font-medium bg-background/80 pl-2">
+                <div className="absolute right-3 top-3">
                   <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
-                  <span className="hidden sm:inline text-[11px] text-muted">Searching...</span>
                 </div>
               )}
             </div>
 
             {/* Results Indicator Summary Bar */}
-            {results.length > 0 && (
+            {!loading && results.length > 0 && (
               <div className="flex items-center justify-between px-3 py-2 bg-neutral/40 rounded-xl text-xs border border-border/50">
                 <span className="font-semibold text-foreground flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-sky-600" />
-                  Found <span className="text-sky-600 font-bold">{results.length}</span> company match{results.length === 1 ? '' : 'es'}
+                  Found <span className="text-sky-600 font-bold">{results.length}</span> active company match{results.length === 1 ? '' : 'es'}
                 </span>
                 <div className="flex items-center gap-2 text-[11px] font-medium">
                   <span className="bg-emerald-500/15 text-emerald-600 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-bold">
-                    {results.filter((r) => r.isActive).length} Active
+                    {results.length} Active Accounts
                   </span>
-                  {results.filter((r) => !r.isActive).length > 0 && (
-                    <span className="bg-red-500/15 text-red-600 px-2.5 py-0.5 rounded-full border border-red-500/30 font-bold">
-                      {results.filter((r) => !r.isActive).length} Inactive
-                    </span>
-                  )}
                 </div>
               </div>
             )}
 
-            {/* Results List */}
+            {/* Results List / Skeleton State */}
             <div className="border border-border/70 rounded-xl overflow-hidden max-h-[360px] overflow-y-auto divide-y divide-border/50 bg-neutral/20">
-              {loading && results.length === 0 ? (
-                /* Skeleton loading rows — shown on initial search when no results exist yet */
-                <div className="divide-y divide-border/50">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="p-3.5 flex items-center justify-between">
-                      <div className="flex flex-col gap-2 w-full">
+              {loading ? (
+                /* Premium Skeleton Loading Cards */
+                <div className="divide-y divide-border/50 animate-pulse">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="p-3.5 flex items-center justify-between gap-4">
+                      <div className="flex flex-col gap-2 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <div className="shimmer-row h-4 w-24 rounded" />
-                          <div className="shimmer-row h-4 rounded" style={{ width: `${180 + i * 40}px` }} />
+                          <div className="h-4 w-20 bg-sky-500/20 rounded" />
+                          <div
+                            className="h-4.5 bg-neutral-300 dark:bg-zinc-700 rounded"
+                            style={{ width: `${50 + (i * 12)}%` }}
+                          />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="shimmer-row h-3 w-20 rounded" />
-                          <div className="shimmer-row h-3 w-28 rounded" />
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-3.5 w-20 bg-neutral-200 dark:bg-zinc-800 rounded" />
+                          <div className="h-3 w-1 bg-border/60 rounded-full" />
+                          <div className="h-3.5 w-32 bg-neutral-200 dark:bg-zinc-800 rounded" />
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-3">
-                        <div className="shimmer-row h-4 w-12 rounded-full" />
-                        <div className="shimmer-row h-4 w-10 rounded-full" />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="h-5 w-14 bg-emerald-500/20 rounded-full" />
+                        <div className="h-5 w-12 bg-sky-500/20 rounded-full" />
                       </div>
                     </div>
                   ))}
                 </div>
               ) : results.length > 0 ? (
-                results.map((c, index) => (
+                results.map((c) => (
                   <div
-                    key={`${c.customerID}-${c.bu}-${c.assignedAO}-${c.custName}-${index}`}
+                    key={`${c.customerID}-${c.custName}`}
                     onClick={() => handleSelectCustomerForVerification(c)}
                     className="p-3.5 hover:bg-neutral flex items-center justify-between cursor-pointer transition group"
                   >
                     <div className="flex flex-col">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
                           CustomerName
                         </span>
-                        {c.matchTier === 'exact' && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
-                            Exact Match
-                          </span>
-                        )}
-                        {c.matchTier === 'fuzzy' && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/30">
-                            Close Match
-                          </span>
-                        )}
-                        {c.matchTier === 'synonym' && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-600 border border-purple-500/30">
-                            Acronym / Alias
-                          </span>
-                        )}
-                        {c.matchTier === 'token' && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 border border-blue-500/30">
-                            Related
-                          </span>
-                        )}
                         <span className="font-semibold text-sm text-foreground group-hover:text-sky-600 transition">
                           {c.custName}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted">
+                        <span className="font-mono bg-neutral px-1.5 py-0.5 rounded border border-border/60">
+                          {c.customerID}
+                        </span>
+                        <span>•</span>
                         <span className="flex items-center gap-1">
                           <User className="w-3 h-3 text-sky-500" /> {c.assignedAO}
                         </span>
@@ -389,11 +372,9 @@ export default function CustomerSearchModal({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {c.isActive !== undefined && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${c.isActive ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/30' : 'bg-red-500/15 text-red-600 border border-red-500/30'}`}>
-                          {c.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      )}
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
+                        Active
+                      </span>
                       <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-600 border border-sky-500/30">
                         {c.bu}
                       </span>
@@ -417,7 +398,7 @@ export default function CustomerSearchModal({
                       </>
                     )}
                   </div>
-                  {searchTerm.trim().length >= 2 && !loading && (
+                  {searchTerm.trim().length >= 2 && (
                     <button
                       type="button"
                       onClick={() => {

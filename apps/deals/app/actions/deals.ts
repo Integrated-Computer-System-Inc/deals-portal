@@ -55,7 +55,7 @@ export async function getScopedDeals(
     const accountGroup = filter.accountGroup || (session?.user as any)?.AccountGroup;
 
     const page = Math.max(1, filter.page || 1);
-    const pageSize = filter.pageSize !== undefined ? filter.pageSize : 25;
+    const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
     const searchQuery = (filter.searchQuery || '').trim();
     const statusFilter = filter.statusFilter || 'ALL';
     const buFilter = filter.buFilter || 'ALL';
@@ -757,11 +757,26 @@ export async function searchCustomers(
     const candidateMap = new Map<string, any>();
 
     for (const item of list) {
+      // Filter ONLY active accounts as pushed by backend specs
+      const isExplicitlyInactive =
+        item.is_active === '0' ||
+        item.is_active === 0 ||
+        item.isActive === false ||
+        item.status === '0' ||
+        item.status === 0 ||
+        String(item.is_active || '').toLowerCase() === 'inactive' ||
+        String(item.status || '').toLowerCase() === 'inactive' ||
+        String(item.Status || '').toLowerCase() === 'inactive';
+
+      if (isExplicitlyInactive) {
+        continue;
+      }
+
       const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
       const custName = item.CustomerName || 'Unknown Account';
       const bu = item.BU || item.bu || item.BusinessUnit || item.AccountGroup || 'BU5';
       const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
-      const isActive = item.is_active === '1' || item.is_active === 1 || item.isActive === true || item.is_active === null;
+      const isActive = true;
       const createdDate = item.DateCreated;
       const createdBy = item.CreatedBy;
 

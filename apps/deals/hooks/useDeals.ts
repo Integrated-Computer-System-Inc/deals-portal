@@ -40,7 +40,7 @@ export function getDealsCacheKey(
  */
 export async function invalidateDealsCache() {
   return globalMutate(
-    (key) => typeof key === 'string' && key.startsWith(DEALS_CACHE_KEY_PREFIX),
+    (key: unknown) => typeof key === 'string' && key.startsWith(DEALS_CACHE_KEY_PREFIX),
     undefined,
     { revalidate: true }
   );

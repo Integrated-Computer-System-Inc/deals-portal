@@ -35,15 +35,26 @@ async function fetchIceCreamQuery(term: string): Promise<any[]> {
  */
 function ingestRawItems(items: any[], candidateMap: Map<string, CustomerLookupResult>) {
   for (const item of items) {
+    // Exclude inactive records
+    const isExplicitlyInactive =
+      item.is_active === '0' ||
+      item.is_active === 0 ||
+      item.isActive === false ||
+      item.status === '0' ||
+      item.status === 0 ||
+      String(item.is_active || '').toLowerCase() === 'inactive' ||
+      String(item.status || '').toLowerCase() === 'inactive' ||
+      String(item.Status || '').toLowerCase() === 'inactive';
+
+    if (isExplicitlyInactive) {
+      continue;
+    }
+
     const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
     const custName = item.CustomerName || 'Unknown Account';
     const bu = item.BU || item.bu || item.BusinessUnit || item.AccountGroup || 'BU5';
     const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
-    const isActive =
-      item.is_active === '1' ||
-      item.is_active === 1 ||
-      item.isActive === true ||
-      item.is_active === null;
+    const isActive = true;
     const createdDate = item.DateCreated;
     const createdBy = item.CreatedBy;
 
