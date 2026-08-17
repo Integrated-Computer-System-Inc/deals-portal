@@ -1,15 +1,17 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { cn } from '../../utils/cn';
 import { useSidebar } from './AppSidebarProvider';
 import { Tooltip } from 'antd';
-import { AppLabel } from '../labels';
 
 export interface AppSidebarItemProps {
+    href?: string;
     icon?: React.ReactNode;
     active?: boolean;
-    onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    onClick?: (e: React.MouseEvent<HTMLElement>) => void;
     actions?: React.ReactNode;
     children?: React.ReactNode; // label
     className?: string;
@@ -18,6 +20,7 @@ export interface AppSidebarItemProps {
 }
 
 export default function AppSidebarItem({
+    href,
     icon,
     active = false,
     onClick,
@@ -28,31 +31,28 @@ export default function AppSidebarItem({
     disabled = false,
 }: AppSidebarItemProps) {
     const { collapsed } = useSidebar();
+    const router = useRouter();
 
     const baseItemStyles = cn(
-        "flex items-center text-sm transition-all duration-200 group relative my-0.5 disabled:opacity-50 disabled:pointer-events-none cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+        "flex items-center text-sm transition-colors duration-150 group relative my-0.5 disabled:opacity-50 disabled:pointer-events-none cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 no-underline",
         collapsed
             ? cn(
                 "justify-center h-10 w-10 mx-auto rounded-full p-0 gap-0 text-center",
                 active
-                    ? "bg-sidebar-active text-white shadow-xs"
+                    ? "bg-sidebar-active text-white shadow-xs font-semibold"
                     : "text-muted hover:bg-neutral hover:text-foreground"
             )
             : cn(
                 "gap-2.5 text-left w-full",
                 active
-                    ? "bg-sidebar-active text-white rounded-full px-4 py-2 font-medium shadow-xs"
+                    ? "bg-sidebar-active text-white rounded-full px-4 py-2 font-semibold shadow-xs"
                     : "px-4 py-2 rounded-full text-foreground hover:bg-neutral"
             ),
         className
     );
 
-    const buttonContent = (
-        <button
-            onClick={onClick}
-            disabled={disabled}
-            className={baseItemStyles}
-        >
+    const innerContent = (
+        <>
             {icon && (
                 <span className={cn("shrink-0 flex items-center justify-center", active ? "!text-white" : "text-inherit")}>
                     {icon}
@@ -71,16 +71,46 @@ export default function AppSidebarItem({
                     )}
                 </>
             )}
-        </button>
+        </>
     );
+
+    let element: React.ReactNode;
+
+    if (href && !disabled) {
+        element = (
+            <Link
+                href={href}
+                prefetch={true}
+                onClick={onClick}
+                onMouseEnter={() => router.prefetch(href)}
+                onPointerDown={() => router.prefetch(href)}
+                className={baseItemStyles}
+            >
+                {innerContent}
+            </Link>
+        );
+    } else {
+        element = (
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={disabled}
+                className={baseItemStyles}
+            >
+                {innerContent}
+            </button>
+        );
+    }
 
     if (collapsed && children) {
         return (
-            <Tooltip title={children} placement={tooltipPlacement} mouseEnterDelay={0.3}>
-                {buttonContent}
+            <Tooltip title={children} placement={tooltipPlacement} mouseEnterDelay={0.2}>
+                <div className="flex justify-center w-full">
+                    {element}
+                </div>
             </Tooltip>
         );
     }
 
-    return buttonContent;
+    return element;
 }

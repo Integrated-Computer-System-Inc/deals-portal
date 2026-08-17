@@ -829,6 +829,7 @@ export async function exportDealsCSVData(
 
     const andConditions: any[] = [];
 
+    // Role-based scoping
     if (userRole === 'ao' && accountName) {
       andConditions.push({ AssignedAO: accountName });
     } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {

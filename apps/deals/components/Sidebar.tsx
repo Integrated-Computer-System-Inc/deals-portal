@@ -5,17 +5,15 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { Tooltip } from 'antd';
-import {
-  AppSidebar,
-  AppAvatar,
-  AppButton,
-  AppModal,
-  useSidebar,
-} from './ui';
+import { AppSidebar, useSidebar } from './ui/sidebar';
+import { AppAvatar } from './ui/avatar';
+import { AppButton } from './ui/buttons';
+import { AppModal } from './ui/modal';
 import {
   Home,
   FileSpreadsheet,
   PlusCircle,
+  BarChart2,
   LogOut,
   PanelLeftClose,
   PanelLeft,
@@ -31,10 +29,11 @@ export default function Sidebar() {
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
   const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
 
-  const userRole: UserRole = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName || session?.user?.name || 'Demo User';
-  const accountEmail = session?.user?.email || 'user@ics.com.ph';
-  const accountImage = session?.user?.image || undefined;
+  const userRole: UserRole = (session?.user as any)?.role || 'ao';
+  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || 'Account User';
+  const accountEmail = (session?.user as any)?.Email || session?.user?.email || '';
+  const accountImage = (session?.user as any)?.GAvatar || session?.user?.image || undefined;
+  const userBU = (session?.user as any)?.AccountGroup || 'HQ';
 
   const getRoleLabel = () => {
     if (userRole === 'admin') return 'Administrator';
@@ -55,6 +54,11 @@ export default function Sidebar() {
       title: 'Deals Registry',
       href: '/deals',
       icon: <FileSpreadsheet size={18} />,
+    },
+    {
+      title: 'Reports',
+      href: '/reports',
+      icon: <BarChart2 size={18} />,
     },
     ...(!isViewOnly
       ? [
@@ -152,20 +156,17 @@ export default function Sidebar() {
             {menuItems.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex justify-center w-full no-underline"
-                >
+                <div key={item.href} className="w-full flex justify-center">
                   <AppSidebar.Item
+                    href={item.href}
                     icon={item.icon}
                     active={isActive}
+                    onClick={() => setMobileOpen(false)}
                     tooltipPlacement="right"
                   >
                     {item.title}
                   </AppSidebar.Item>
-                </Link>
+                </div>
               );
             })}
           </AppSidebar.Group>

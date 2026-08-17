@@ -248,3 +248,18 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ─── App Skeleton Animation ──────────────────────────────────────────────── */
+.app-skeleton {
+  background-color: var(--skeleton-bg, var(--neutral));
+  animation: app-pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes app-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}

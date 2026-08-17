@@ -4,7 +4,7 @@ import React from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
-import { AppSidebarProvider } from './ui';
+import { AppSidebarProvider } from './ui/sidebar';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

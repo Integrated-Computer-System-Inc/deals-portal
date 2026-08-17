@@ -48,6 +48,7 @@ export const AppBreadcrumbs: React.FC<AppBreadcrumbsProps> = ({
               {item.href && !isActive ? (
                 <Link
                   href={item.href}
+                  prefetch={true}
                   className="flex items-center gap-1.5 text-muted hover:text-foreground hover:underline transition-colors px-1 py-0.5 rounded-md hover:bg-neutral/60"
                 >
                   {index === 0 && showHomeIcon && !item.icon && (

@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import { AppBreadcrumbs, BreadcrumbItem } from './ui';
-import { LayoutDashboard, FileSpreadsheet, PlusCircle, Edit3, FileText } from 'lucide-react';
+import { AppBreadcrumbs, BreadcrumbItem } from './ui/breadcrumbs';
+import { LayoutDashboard, FileSpreadsheet, PlusCircle, Edit3, FileText, BarChart2 } from 'lucide-react';
 
 export default function Breadcrumbs() {
   const pathname = usePathname();
@@ -25,7 +25,13 @@ export default function Breadcrumbs() {
     },
   ];
 
-  if (!isDashboard && segments[0] === 'deals') {
+  if (!isDashboard && segments[0] === 'reports') {
+    items.push({
+      label: 'Reports & Analytics',
+      icon: <BarChart2 className="w-3.5 h-3.5" />,
+      active: true,
+    });
+  } else if (!isDashboard && segments[0] === 'deals') {
     if (segments.length === 1) {
       items.push({
         label: 'Deals Registry',

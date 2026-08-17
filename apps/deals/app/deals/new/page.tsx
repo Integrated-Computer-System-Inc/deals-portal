@@ -12,6 +12,7 @@ import { useCreateDealMutation } from '@/hooks/useDealsQuery';
 import { normalizeBusinessUnit } from '@/lib/searchUtils';
 import {
   ACTIVE_BUSINESS_UNITS,
+  ALL_BUSINESS_UNITS,
   DEAL_STATUS_MAP,
   CustomerLookupResult,
   UserRole,
@@ -80,6 +81,9 @@ export default function NewDealPage() {
     }
   }, [session, userRole, router]);
 
+  const defaultRegDate = new Date().toISOString().split('T')[0];
+  const defaultExpDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   const {
     register,
     control,
@@ -91,9 +95,9 @@ export default function NewDealPage() {
     resolver: zodResolver(createDealSchema as any),
     defaultValues: {
       dealRegID: '',
-      dtRegistered: '',
-      validityDays: undefined,
-      expDt: '',
+      dtRegistered: defaultRegDate,
+      validityDays: 90,
+      expDt: defaultExpDate,
       brand: '',
       customerID: '',
       custName: '',
@@ -124,41 +128,63 @@ export default function NewDealPage() {
   const watchItems = watch('items') || [];
   const watchBu = watch('bu');
 
-  const buOptions = useMemo(() => {
-    const base = [...ACTIVE_BUSINESS_UNITS] as string[];
-    if (watchBu && !base.includes(watchBu)) {
-      base.push(watchBu);
+  const dynamicBuOptions = useMemo(() => {
+    const set = new Set<string>([...ALL_BUSINESS_UNITS]);
+    if (watchBu && watchBu.trim()) {
+      set.add(watchBu.trim());
     }
-    return base;
+    return Array.from(set);
   }, [watchBu]);
 
-  const handleRegDateChange = (dateStr: string) => {
-    setValue('dtRegistered', dateStr, { shouldValidate: true, shouldDirty: true });
-    if (!dateStr) {
-      setValue('expDt', '', { shouldValidate: true, shouldDirty: true });
-      setValue('validityDays', undefined, { shouldValidate: true, shouldDirty: true });
-      return;
+  const handleRegDateChange = (regDateStr: string) => {
+    setValue('dtRegistered', regDateStr, { shouldValidate: true });
+    if (regDateStr && watchValidityDays && watchValidityDays > 0) {
+      const reg = new Date(regDateStr);
+      if (!isNaN(reg.getTime())) {
+        const newExp = new Date(reg.getTime() + watchValidityDays * 24 * 60 * 60 * 1000);
+        setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
+      }
+    } else if (regDateStr && watch('expDt')) {
+      const reg = new Date(regDateStr).getTime();
+      const exp = new Date(watch('expDt')).getTime();
+      if (!isNaN(reg) && !isNaN(exp) && exp > reg) {
+        const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+        setValue('validityDays', diffDays);
+      }
     }
-    const days = watchValidityDays && watchValidityDays > 0 ? watchValidityDays : 90;
-    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
-    const computedExp = addDaysToDateString(dateStr, days);
-    setValue('expDt', computedExp, { shouldValidate: true, shouldDirty: true });
   };
 
   const handleValidityChange = (days?: number) => {
-    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
-    if (watchRegDate && days && days > 0) {
-      const newExp = addDaysToDateString(watchRegDate, days);
-      setValue('expDt', newExp, { shouldValidate: true, shouldDirty: true });
+    setValue('validityDays', days, { shouldValidate: true });
+    if (days === undefined || days === null || isNaN(days) || days <= 0) {
+      setValue('expDt', '', { shouldValidate: true });
+      return;
+    }
+    if (watchRegDate) {
+      const reg = new Date(watchRegDate);
+      if (!isNaN(reg.getTime())) {
+        const newExp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
+        setValue('expDt', newExp.toISOString().split('T')[0], { shouldValidate: true });
+      }
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr, { shouldValidate: true, shouldDirty: true });
-    if (watchRegDate && expDateStr) {
-      const diffDays = getDaysDifference(watchRegDate, expDateStr);
-      if (diffDays > 0) {
-        setValue('validityDays', diffDays, { shouldValidate: true, shouldDirty: true });
+    setValue('expDt', expDateStr, { shouldValidate: true });
+    if (!expDateStr) {
+      setValue('validityDays', undefined, { shouldValidate: true });
+      return;
+    }
+    if (watchRegDate) {
+      const reg = new Date(watchRegDate).getTime();
+      const exp = new Date(expDateStr).getTime();
+      if (!isNaN(reg) && !isNaN(exp)) {
+        const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+        if (diffDays > 0) {
+          setValue('validityDays', diffDays, { shouldValidate: true });
+        } else {
+          setValue('validityDays', undefined, { shouldValidate: true });
+        }
       }
     }
   };
@@ -171,12 +197,11 @@ export default function NewDealPage() {
   };
 
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
-    setValue('customerID', customer.customerID);
-    setValue('custName', customer.custName);
-    const normalizedBU = normalizeBusinessUnit(customer.bu);
-    setValue('bu', normalizedBU, { shouldValidate: true, shouldDirty: true });
+    setValue('customerID', customer.customerID || '', { shouldValidate: true, shouldDirty: true });
+    setValue('custName', customer.custName || '', { shouldValidate: true, shouldDirty: true });
+    setValue('bu', customer.bu || 'BU5', { shouldValidate: true, shouldDirty: true });
     if (customer.assignedAO) {
-      setValue('assignedAO', customer.assignedAO);
+      setValue('assignedAO', customer.assignedAO, { shouldValidate: true, shouldDirty: true });
     }
     setIsCustomerFromIceCream(!customer.isManual && Boolean(customer.customerID || customer.custName));
   };
@@ -297,7 +322,7 @@ export default function NewDealPage() {
               <input
                 {...register('custName')}
                 placeholder="e.g. HEALTHPROOF (MANILA) INC."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
@@ -329,7 +354,7 @@ export default function NewDealPage() {
                   }
                 }}
                 placeholder="e.g. CUST-3184 or leave blank"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
               />
               {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
             </div>
@@ -357,17 +382,11 @@ export default function NewDealPage() {
               <select
                 {...register('bu')}
                 value={watchBu || ''}
-                onChange={(e) => {
-                  register('bu').onChange(e);
-                  setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true });
-                }}
-                disabled={isCustomerFromIceCream}
-                className={`w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition ${
-                  isCustomerFromIceCream ? 'opacity-85 bg-neutral/50 cursor-not-allowed border-sky-500/30' : ''
-                }`}
+                onChange={(e) => setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="">Select Business Unit...</option>
-                {buOptions.map((bu: string) => (
+                {dynamicBuOptions.map((bu: string) => (
                   <option key={bu} value={bu}>
                     {bu}
                   </option>
@@ -381,7 +400,7 @@ export default function NewDealPage() {
               <input
                 {...register('assignedAO')}
                 placeholder="e.g. Juan Dela Cruz (AO-104)"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
               />
               {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
             </div>
@@ -401,7 +420,7 @@ export default function NewDealPage() {
               <input
                 {...register('dealRegID')}
                 placeholder="e.g. 31842219 or REGI-0005491402"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
               />
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
@@ -448,7 +467,7 @@ export default function NewDealPage() {
             <input
               {...register('projectName')}
               placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
             />
             {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
@@ -459,11 +478,8 @@ export default function NewDealPage() {
               <label className="block text-xs font-semibold text-foreground mb-1">Date Registered *</label>
               <input
                 type="date"
-                {...register('dtRegistered')}
-                onChange={(e) => {
-                  register('dtRegistered').onChange(e);
-                  handleRegDateChange(e.target.value);
-                }}
+                value={watch('dtRegistered') || ''}
+                onChange={(e) => handleRegDateChange(e.target.value)}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}

@@ -12,6 +12,7 @@ import {
   UserRole,
   DEAL_STATUS_MAP,
   ACTIVE_BUSINESS_UNITS,
+  ALL_BUSINESS_UNITS,
   MOCK_DEALS,
 } from '@my-app/types';
 import {
@@ -19,6 +20,8 @@ import {
   AppChip,
   AppInput,
   AppCard,
+  AppModal,
+  AppButton,
 } from '../../components/ui';
 import WTNModal from '../../components/WTNModal';
 import LostDealModal from '../../components/LostDealModal';
@@ -40,69 +43,39 @@ import {
   Download,
   Eye,
   MoreVertical,
+  Building2,
+  X,
+  ExternalLink,
 } from 'lucide-react';
+
+import {
+  DateRangeFilterPopover,
+  DateRangeValue,
+  filterDealByDateRange,
+} from '@/components/DateRangeFilterPopover';
+import DealsFilterPopover from '@/components/DealsFilterPopover';
+import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 
 function DealsContent() {
   const router = useRouter();
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const canExport = role === 'admin';
   const canCreate = role === 'admin' || role === 'aa';
   const canEdit = role === 'admin' || role === 'aa';
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [buFilter, setBuFilter] = useState<string>('ALL');
-
-  const handleExportCSV = () => {
-    if (!filteredDeals || filteredDeals.length === 0) return;
-
-    const headers = [
-      'Deal Reg ID',
-      'Date Registered',
-      'Expiration Date',
-      'Customer Name',
-      'Project Name',
-      'Brand',
-      'BU',
-      'Assigned AO',
-      'Status',
-      'Total Amount',
-    ];
-
-    const rows = filteredDeals.map((deal) => {
-      const projName = deal.ProjectName || deal.projectName || '';
-      const ao = deal.AssignedAO || deal.assignedAO || '';
-      const bu = deal.BU || deal.bu || '';
-      const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
-      const statusMeta = DEAL_STATUS_MAP[statusNum] || { label: `Status ${deal.dealStatus}` };
-      const expDate = deal.expDt || deal.expiration;
-
-      return [
-        `"${deal.dealRegID || ''}"`,
-        `"${deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : ''}"`,
-        `"${expDate ? new Date(expDate).toLocaleDateString() : ''}"`,
-        `"${(deal.custName || '').replace(/"/g, '""')}"`,
-        `"${projName.replace(/"/g, '""')}"`,
-        `"${deal.brand || ''}"`,
-        `"${bu}"`,
-        `"${ao.replace(/"/g, '""')}"`,
-        `"${statusMeta.label}"`,
-        `"${formatAmounts(deal)}"`,
-      ].join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Deals_Registry_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [buFilters, setBuFilters] = useState<string[]>([]);
+  const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({
+    preset: 'ALL',
+    label: 'All Time',
+  });
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    field: 'dtRegistered',
+    order: 'desc',
+  });
 
   // Modals
   const [viewTarget, setViewTarget] = useState<number | null>(null);
@@ -140,15 +113,65 @@ function DealsContent() {
       setSearchQuery(brandParam);
     }
 
+    const buParam = searchParams.get('bu');
+    if (buParam) {
+      setBuFilters([buParam]);
+    }
+
     const qParam = searchParams.get('search') || searchParams.get('q');
     if (qParam) {
       setSearchQuery(qParam);
     }
   }, [searchParams]);
 
-  // Filter deals
+  // Official 6 Business Units
+  const OFFICIAL_BUS = useMemo(() => ['BU1', 'BU2', 'BU5', 'BU8', 'BU10', 'BU12'], []);
+
+  // Non-standard / other BUs aggregated map
+  const otherBUsMap = useMemo(() => {
+    const map: Record<string, { count: number; totalValue: number }> = {};
+    deals.forEach((deal) => {
+      const bu = (deal.BU || deal.bu || '').trim();
+      if (!bu || OFFICIAL_BUS.includes(bu)) return;
+      if (!map[bu]) {
+        map[bu] = { count: 0, totalValue: 0 };
+      }
+      map[bu].count += 1;
+      const amt = deal.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
+      map[bu].totalValue += amt;
+    });
+    return map;
+  }, [deals, OFFICIAL_BUS]);
+
+  const dealsCountByBU = useMemo(() => {
+    const map: Record<string, number> = {};
+    deals.forEach((d) => {
+      const bu = (d.BU || d.bu || '').trim();
+      if (bu) map[bu] = (map[bu] || 0) + 1;
+    });
+    return map;
+  }, [deals]);
+
+  const dealsCountByStatus = useMemo(() => {
+    const map: Record<string, number> = {};
+    deals.forEach((d) => {
+      const st = String(d.dealStatus);
+      map[st] = (map[st] || 0) + 1;
+    });
+    return map;
+  }, [deals]);
+
+  const getDaysUntilExp = (expDt: Date | string | null | undefined) => {
+    if (!expDt) return null;
+    const now = new Date().getTime();
+    const exp = new Date(expDt).getTime();
+    if (isNaN(exp)) return null;
+    return Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  };
+
+  // Filter and sort deals
   const filteredDeals = useMemo(() => {
-    return deals.filter((deal) => {
+    const result = deals.filter((deal) => {
       const projName = deal.ProjectName || deal.projectName || '';
       const custName = deal.custName || '';
       const regID = deal.dealRegID || '';
@@ -164,14 +187,74 @@ function DealsContent() {
         brand.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesStatus =
-        statusFilter === 'ALL' || String(deal.dealStatus) === statusFilter;
+        statusFilters.length === 0 || statusFilters.includes(String(deal.dealStatus));
 
       const matchesBU =
-        buFilter === 'ALL' || bu === buFilter;
+        buFilters.length === 0 || buFilters.includes(bu);
 
-      return matchesSearch && matchesStatus && matchesBU;
+      const matchesDateRange = filterDealByDateRange(
+        deal.dtRegistered || deal.dtCreated,
+        dateRange
+      );
+
+      // Expiry filter logic (multi-select)
+      let matchesExpiry = true;
+      if (expiryFilters.length > 0) {
+        const days = getDaysUntilExp(deal.expDt || deal.expiration);
+        matchesExpiry = expiryFilters.some((f) => {
+          if (f === 'EXPIRED') return days !== null && days <= 0;
+          if (f === 'CRITICAL_3') return days !== null && days > 0 && days <= 3;
+          if (f === 'URGENT_7') return days !== null && days > 0 && days <= 7;
+          if (f === 'WARNING_15') return days !== null && days > 0 && days <= 15;
+          if (f === 'NOTICE_30') return days !== null && days > 0 && days <= 30;
+          if (f === 'ACTIVE') return days !== null && days > 30;
+          return false;
+        });
+      }
+
+      return matchesSearch && matchesStatus && matchesBU && matchesDateRange && matchesExpiry;
     });
-  }, [deals, searchQuery, statusFilter, buFilter]);
+
+    return result.sort((a, b) => {
+      let valA: any = '';
+      let valB: any = '';
+
+      switch (sortConfig.field) {
+        case 'dtRegistered':
+          valA = a.dtRegistered ? new Date(a.dtRegistered).getTime() : 0;
+          valB = b.dtRegistered ? new Date(b.dtRegistered).getTime() : 0;
+          break;
+        case 'expDt':
+          valA = (a.expDt || a.expiration) ? new Date(a.expDt || a.expiration!).getTime() : 0;
+          valB = (b.expDt || b.expiration) ? new Date(b.expDt || b.expiration!).getTime() : 0;
+          break;
+        case 'dealRegID':
+          valA = (a.dealRegID || '').toLowerCase();
+          valB = (b.dealRegID || '').toLowerCase();
+          break;
+        case 'custName':
+          valA = (a.custName || '').toLowerCase();
+          valB = (b.custName || '').toLowerCase();
+          break;
+        case 'projectName':
+          valA = (a.ProjectName || a.projectName || '').toLowerCase();
+          valB = (b.ProjectName || b.projectName || '').toLowerCase();
+          break;
+        case 'brand':
+          valA = (a.brand || '').toLowerCase();
+          valB = (b.brand || '').toLowerCase();
+          break;
+        case 'totalAmt':
+          valA = a.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
+          valB = b.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
+          break;
+      }
+
+      if (valA < valB) return sortConfig.order === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.order === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [deals, searchQuery, statusFilters, buFilters, dateRange, expiryFilters, sortConfig]);
 
   // Metrics summary
   const metrics = useMemo(() => {
@@ -199,45 +282,81 @@ function DealsContent() {
         .join(' | ');
     }
     if (deal.items && deal.items.length > 0) {
-      const total = deal.items.reduce((acc: number, item: any) => acc + (item.totalAmt || 0), 0);
+      const total = deal.items.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0);
       const curr = deal.items[0]?.currency || 'PHP';
       return `${curr} ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return 'PHP 0.00';
   };
 
-  const getDaysUntilExp = (expDt: Date | string | null | undefined) => {
-    if (!expDt) return 0;
-    const now = new Date().getTime();
-    const exp = new Date(expDt).getTime();
-    return Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  const renderExpiryBadge = (expDate: Date | string | null | undefined) => {
+    const days = getDaysUntilExp(expDate);
+    if (days === null) return null;
+
+    if (days <= 0) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+          Expired ({Math.abs(days)}d ago)
+        </span>
+      );
+    }
+    if (days <= 3) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 animate-pulse">
+          Critical: {days}d left
+        </span>
+      );
+    }
+    if (days <= 7) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30">
+          Urgent: {days}d left
+        </span>
+      );
+    }
+    if (days <= 15) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+          Warning: {days}d left
+        </span>
+      );
+    }
+    if (days <= 30) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border border-yellow-500/30">
+          Notice: {days}d left
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+        {days}d left
+      </span>
+    );
   };
 
   const columns = [
     {
       title: 'Registration & Validity',
       key: 'dates',
-      width: 140,
+      width: 150,
       render: (_: any, record: DealHeaderRecord) => {
         const expDate = record.expDt || record.expiration;
-        const daysRemaining = getDaysUntilExp(expDate);
         const wtnDateStr = record.wtn?.whenToNotify
           ? new Date(record.wtn.whenToNotify).toLocaleDateString()
           : null;
 
         return (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground whitespace-nowrap">
               <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
               <span>{record.dtRegistered ? new Date(record.dtRegistered).toLocaleDateString() : 'N/A'}</span>
             </div>
             <div className="text-[11px] text-muted dark:text-zinc-300 flex items-center gap-1 whitespace-nowrap">
               <span>Exp: {expDate ? new Date(expDate).toLocaleDateString() : 'N/A'}</span>
-              {daysRemaining > 0 && (
-                <span className="text-amber-600 dark:text-amber-400 font-semibold font-mono text-[10px]">
-                  ({daysRemaining}d)
-                </span>
-              )}
+            </div>
+            <div>
+              {renderExpiryBadge(expDate)}
             </div>
             {wtnDateStr && (
               <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 text-[10px] font-semibold border border-sky-500/20 whitespace-nowrap">
@@ -421,6 +540,8 @@ function DealsContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <DateRangeFilterPopover value={dateRange} onChange={setDateRange} />
+
           <button
             type="button"
             onClick={() => fetchDeals()}
@@ -429,18 +550,6 @@ function DealsContent() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-
-          {canExport && (
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-neutral bg-neutral/80 border border-border/70 rounded-xl transition shadow-xs"
-              title="Export Filtered Deals to CSV"
-            >
-              <Download className="w-4 h-4 text-sky-600" />
-              <span>Export CSV</span>
-            </button>
-          )}
 
           {canCreate && (
             <Link
@@ -537,10 +646,11 @@ function DealsContent() {
         </AppCard>
       </div>
 
-      {/* Filter and Search Bar */}
-      <AppCard className="p-4 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex-1 max-w-md">
+      {/* Search, Filter Popover and Sort Popover Bar */}
+      <AppCard className="p-3.5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-2.5">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          {/* Search Input */}
+          <div className="flex-1 min-w-0">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search Project, Customer, Deal Reg ID, AO, Brand..."
@@ -551,72 +661,117 @@ function DealsContent() {
             />
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-muted mr-1">BU:</span>
-            <button
-              type="button"
-              onClick={() => setBuFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
-                buFilter === 'ALL'
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-              }`}
-            >
-              All
-            </button>
-            {ACTIVE_BUSINESS_UNITS.map((bu: string) => (
-              <button
-                key={bu}
-                type="button"
-                onClick={() => setBuFilter(bu)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
-                  buFilter === bu
-                    ? 'bg-sky-600 text-white border-sky-600'
-                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-                }`}
-              >
-                {bu}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Filter Popover (Multi-select BU, Expiry, Status) */}
+            <DealsFilterPopover
+              buFilters={buFilters}
+              onBuFiltersChange={setBuFilters}
+              expiryFilters={expiryFilters}
+              onExpiryFiltersChange={setExpiryFilters}
+              statusFilters={statusFilters}
+              onStatusFiltersChange={setStatusFilters}
+              officialBUs={OFFICIAL_BUS}
+              otherBUsMap={otherBUsMap}
+              dealsCountByBU={dealsCountByBU}
+              dealsCountByStatus={dealsCountByStatus}
+              totalDealsCount={deals.length}
+            />
+
+            {/* Sort Popover beside search bar */}
+            <DealsSortPopover
+              value={sortConfig}
+              onChange={setSortConfig}
+            />
           </div>
         </div>
 
-        {/* Status Filter Chips */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/50 text-xs">
-          <span className="font-semibold text-muted mr-1">Status:</span>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('ALL')}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition ${
-              statusFilter === 'ALL'
-                ? 'bg-primary/15 text-primary font-bold border border-primary/30'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            All ({deals.length})
-          </button>
-          {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => {
-            const count = deals.filter((d) => String(d.dealStatus) === id).length;
-            const isSelected = statusFilter === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setStatusFilter(id)}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 ${
-                  isSelected
-                    ? 'bg-neutral text-foreground font-bold border border-border shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
+        {/* Active Filter Indicator Chips (Visible only when filters are active) */}
+        {(buFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40 text-xs">
+            <span className="text-[11px] font-semibold text-muted mr-1">Active Filters:</span>
+
+            {searchQuery.trim() && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral text-foreground border border-border/60 text-[11px] font-medium">
+                Search: &quot;{searchQuery}&quot;
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {/* BU Active Chips */}
+            {buFilters.map((bu) => (
+              <span
+                key={bu}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 text-[11px] font-semibold"
               >
-                <span>{meta.label}</span>
-                <span className="text-[10px] px-1 rounded-full bg-neutral font-mono">
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                BU: {bu}
+                <button
+                  type="button"
+                  onClick={() => setBuFilters(buFilters.filter((b) => b !== bu))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${bu} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {/* Expiry Active Chips */}
+            {expiryFilters.map((exp) => (
+              <span
+                key={exp}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[11px] font-semibold"
+              >
+                Expiry: {exp.replace('_', ' ')}
+                <button
+                  type="button"
+                  onClick={() => setExpiryFilters(expiryFilters.filter((e) => e !== exp))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${exp} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {/* Status Active Chips */}
+            {statusFilters.map((st) => (
+              <span
+                key={st}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold"
+              >
+                Status: {DEAL_STATUS_MAP[Number(st)]?.label || st}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilters(statusFilters.filter((s) => s !== st))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${st} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setBuFilters([]);
+                setExpiryFilters([]);
+                setStatusFilters([]);
+              }}
+              className="text-[11px] font-semibold text-rose-500 hover:underline ml-1 cursor-pointer"
+            >
+              Clear all filters
+            </button>
+          </div>
+        )}
       </AppCard>
 
       {/* Upgraded Data Table with Shimmer Skeleton */}
@@ -696,6 +851,9 @@ function DealsContent() {
                   return;
                 }
                 router.push(`/deals/${record.dealID}`);
+              },
+              onMouseEnter: () => {
+                router.prefetch(`/deals/${record.dealID}`);
               },
               className: 'cursor-pointer hover:bg-neutral/40 transition-colors',
             })}

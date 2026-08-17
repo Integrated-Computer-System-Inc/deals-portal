@@ -160,7 +160,8 @@ export const ACTIVE_BUSINESS_UNITS = [
   'BU11',
   'BU12',
 ] as const;
-export type BusinessUnitCode = typeof ACTIVE_BUSINESS_UNITS[number];
+export const ALL_BUSINESS_UNITS = [...ACTIVE_BUSINESS_UNITS];
+export type BusinessUnitCode = (typeof ACTIVE_BUSINESS_UNITS)[number];
 
 export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'muted' | 'accent' }> = {
   1: { label: 'Registered', variant: 'success' },

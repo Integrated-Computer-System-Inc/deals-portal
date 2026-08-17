@@ -39,7 +39,8 @@ export function useDealsQuery(filter?: ScopedDealsFilter) {
       }
       throw new Error(res?.error || 'Failed to fetch deals');
     },
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 60 * 5, // Fresh for 5 minutes (instant page switching)
+    gcTime: 1000 * 60 * 30, // Retained in memory for 30 minutes
   });
 }
 
@@ -61,7 +62,8 @@ export function useDealQuery(dealID: number | null, enabled = true) {
       return null;
     },
     enabled: !!dealID && enabled,
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 30,
   });
 }
 

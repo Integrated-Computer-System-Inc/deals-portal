@@ -23,6 +23,8 @@ AppMenuPanel.Description = Description;
 AppMenuPanel.Action = Action;
 
 export { AppPopover, AppMenuPanel };
+export { AppFilterPopover, FilterGroup } from './AppFilterPopover';
+export type { AppFilterPopoverProps, FilterGroupProps } from './AppFilterPopover';
 export type { AppPopoverProps } from './AppPopover';
 export type { AppMenuPanelProps, MenuPanelCategory, MenuPanelItem } from './AppMenuPanel';
 export type { CategoryProps } from './AppMenuCategory';

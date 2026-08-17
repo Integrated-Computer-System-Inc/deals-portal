@@ -12,7 +12,7 @@ import {
   AppChip,
 } from './ui';
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
-import { CustomerLookupResult } from '@my-app/types';
+import { CustomerLookupResult, ALL_BUSINESS_UNITS } from '@my-app/types';
 import { searchCustomers } from '../app/actions/deals';
 
 interface CustomerSearchModalProps {
@@ -40,13 +40,63 @@ export default function CustomerSearchModal({
   const [manualBU, setManualBU] = useState('BU5');
   const [manualAO, setManualAO] = useState('');
 
-  // Track whether we've done at least one completed search for the current term
-  const hasSearchedRef = useRef(false);
+  // Race condition counter: guarantees only the latest query updates state
+  const queryIdRef = useRef(0);
 
-  // In-memory search cache for fast responsiveness
-  const cacheRef = useRef<Record<string, CustomerLookupResult[]>>({});
+  // Dedicated execute search function
+  const executeSearch = async (term: string) => {
+    const trimmed = term.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
 
-  // Live ICE CREAM customer search with 350ms debounce
+    const currentId = ++queryIdRef.current;
+    setLoading(true);
+
+    try {
+      let resultsList: CustomerLookupResult[] = [];
+
+      // 1. Primary API fetch with multi-token search
+      try {
+        const apiRes = await fetch(`/api/customers/search?q=${encodeURIComponent(trimmed)}`);
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          if (json.success && Array.isArray(json.data)) {
+            resultsList = json.data;
+          }
+        }
+      } catch (e) {
+        console.warn('Direct search endpoint failed, falling back to server action:', e);
+      }
+
+      // 2. Fallback to Server Action if endpoint returned empty or failed
+      if (resultsList.length === 0) {
+        const res = await searchCustomers(trimmed);
+        if (res && res.success && Array.isArray(res.data)) {
+          resultsList = res.data;
+        }
+      }
+
+      // Only update state if this is still the active search query
+      if (currentId === queryIdRef.current) {
+        const activeOnly = resultsList.filter((r) => r.isActive !== false);
+        setResults(activeOnly);
+      }
+    } catch (err) {
+      console.error('Error executing customer live search:', err);
+      if (currentId === queryIdRef.current) {
+        setResults([]);
+      }
+    } finally {
+      if (currentId === queryIdRef.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Debounced auto-search when typing
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
@@ -54,7 +104,8 @@ export default function CustomerSearchModal({
       setAttachCustomerID(true);
       setIsManualEntry(false);
       setResults([]);
-      hasSearchedRef.current = false;
+      setLoading(false);
+      queryIdRef.current++;
       return;
     }
 
@@ -62,40 +113,12 @@ export default function CustomerSearchModal({
     if (trimmed.length < 2) {
       setResults([]);
       setLoading(false);
-      hasSearchedRef.current = false;
       return;
     }
 
-    if (cacheRef.current[trimmed]) {
-      setResults(cacheRef.current[trimmed]);
-      setLoading(false);
-      hasSearchedRef.current = true;
-      return;
-    }
-
-    // Mark as loading and debounce API search by 350ms
-    setLoading(true);
-    const timer = setTimeout(async () => {
-      try {
-        const res = await searchCustomers(trimmed);
-        if (res.success && res.data) {
-          // Strictly ensure only active accounts are displayed
-          const activeOnly = res.data.filter((r) => r.isActive !== false);
-          if (activeOnly.length > 0) {
-            cacheRef.current[trimmed] = activeOnly;
-          }
-          setResults(activeOnly);
-        } else {
-          setResults([]);
-        }
-      } catch (err) {
-        console.error('Error searching live customers:', err);
-        setResults([]);
-      } finally {
-        setLoading(false);
-        hasSearchedRef.current = true;
-      }
-    }, 350);
+    const timer = setTimeout(() => {
+      executeSearch(trimmed);
+    }, 280);
 
     return () => clearTimeout(timer);
   }, [searchTerm, isOpen]);
@@ -283,13 +306,13 @@ export default function CustomerSearchModal({
                 placeholder="Type company name to search active accounts (e.g. APPSDEV, BANK)..."
                 value={searchTerm}
                 onChange={(e: any) => {
-                  const val = e.target.value;
+                  const val = e.target.value ?? '';
                   setSearchTerm(val);
-                  if (!val || !val.trim() || val.trim().length < 2) {
-                    setLoading(false);
-                    hasSearchedRef.current = false;
-                  } else {
-                    setLoading(true);
+                }}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    executeSearch(searchTerm);
                   }
                 }}
                 allowClear
@@ -347,9 +370,9 @@ export default function CustomerSearchModal({
                   ))}
                 </div>
               ) : results.length > 0 ? (
-                results.map((c) => (
+                results.slice(0, 60).map((c) => (
                   <div
-                    key={`${c.customerID}-${c.custName}`}
+                    key={`${c.customerID}-${c.bu}-${c.assignedAO}-${c.custName}`}
                     onClick={() => handleSelectCustomerForVerification(c)}
                     className="p-3.5 hover:bg-neutral flex items-center justify-between cursor-pointer transition group"
                   >
@@ -419,7 +442,7 @@ export default function CustomerSearchModal({
             {/* Bottom Option */}
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-muted">
-                Showing {results.length} account{results.length === 1 ? '' : 's'}
+                Showing {Math.min(results.length, 60)} of {results.length} account{results.length === 1 ? '' : 's'}
               </span>
               <button
                 type="button"
@@ -452,12 +475,11 @@ export default function CustomerSearchModal({
                     value={manualBU}
                     onChange={(e) => setManualBU(e.target.value)}
                   >
-                    <option value="BU1">BU1</option>
-                    <option value="BU2">BU2</option>
-                    <option value="BU5">BU5</option>
-                    <option value="BU8">BU8</option>
-                    <option value="BU10">BU10</option>
-                    <option value="BU12">BU12</option>
+                    {ALL_BUSINESS_UNITS.map((bu) => (
+                      <option key={bu} value={bu}>
+                        {bu}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

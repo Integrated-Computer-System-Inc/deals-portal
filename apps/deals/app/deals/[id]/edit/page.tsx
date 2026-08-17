@@ -11,6 +11,7 @@ import { z } from 'zod';
 import Link from 'next/link';
 import {
   ACTIVE_BUSINESS_UNITS,
+  ALL_BUSINESS_UNITS,
   DEAL_STATUS_MAP,
   MOCK_DEALS,
   CustomerLookupResult,
@@ -140,12 +141,12 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const watchStatus = watch('dealStatus');
   const watchBu = watch('bu');
 
-  const buOptions = useMemo(() => {
-    const base = [...ACTIVE_BUSINESS_UNITS] as string[];
-    if (watchBu && !base.includes(watchBu)) {
-      base.push(watchBu);
+  const dynamicBuOptions = useMemo(() => {
+    const set = new Set<string>([...ALL_BUSINESS_UNITS]);
+    if (watchBu && watchBu.trim()) {
+      set.add(watchBu.trim());
     }
-    return base;
+    return Array.from(set);
   }, [watchBu]);
 
   useEffect(() => {
@@ -196,33 +197,55 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     }
   }, [deal, reset]);
 
-  const handleRegDateChange = (dateStr: string) => {
-    setValue('dtRegistered', dateStr, { shouldValidate: true, shouldDirty: true });
-    if (!dateStr) {
-      setValue('expDt', '', { shouldValidate: true, shouldDirty: true });
-      setValue('validityDays', undefined, { shouldValidate: true, shouldDirty: true });
-      return;
+  const handleRegDateChange = (regDateStr: string) => {
+    setValue('dtRegistered', regDateStr, { shouldValidate: true });
+    if (regDateStr && watchValidityDays && watchValidityDays > 0) {
+      const reg = new Date(regDateStr);
+      if (!isNaN(reg.getTime())) {
+        const exp = new Date(reg.getTime() + watchValidityDays * 24 * 60 * 60 * 1000);
+        setValue('expDt', exp.toISOString().split('T')[0], { shouldValidate: true });
+      }
+    } else if (regDateStr && watch('expDt')) {
+      const reg = new Date(regDateStr).getTime();
+      const exp = new Date(watch('expDt')).getTime();
+      if (!isNaN(reg) && !isNaN(exp) && exp > reg) {
+        const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+        setValue('validityDays', diffDays);
+      }
     }
-    const days = watchValidityDays && watchValidityDays > 0 ? watchValidityDays : 90;
-    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
-    const computedExp = addDaysToDateString(dateStr, days);
-    setValue('expDt', computedExp, { shouldValidate: true, shouldDirty: true });
   };
 
-  const handleValidityChange = (days: number) => {
-    setValue('validityDays', days, { shouldValidate: true, shouldDirty: true });
-    if (watchRegDate && days && days > 0) {
-      const newExp = addDaysToDateString(watchRegDate, days);
-      setValue('expDt', newExp, { shouldValidate: true, shouldDirty: true });
+  const handleValidityChange = (days?: number) => {
+    setValue('validityDays', days, { shouldValidate: true });
+    if (days === undefined || days === null || isNaN(days) || days <= 0) {
+      setValue('expDt', '', { shouldValidate: true });
+      return;
+    }
+    if (watchRegDate) {
+      const reg = new Date(watchRegDate);
+      if (!isNaN(reg.getTime())) {
+        const exp = new Date(reg.getTime() + days * 24 * 60 * 60 * 1000);
+        setValue('expDt', exp.toISOString().split('T')[0], { shouldValidate: true });
+      }
     }
   };
 
   const handleExpDateChange = (expDateStr: string) => {
-    setValue('expDt', expDateStr, { shouldValidate: true, shouldDirty: true });
-    if (watchRegDate && expDateStr) {
-      const diffDays = getDaysDifference(watchRegDate, expDateStr);
-      if (diffDays > 0) {
-        setValue('validityDays', diffDays, { shouldValidate: true, shouldDirty: true });
+    setValue('expDt', expDateStr, { shouldValidate: true });
+    if (!expDateStr) {
+      setValue('validityDays', undefined, { shouldValidate: true });
+      return;
+    }
+    if (watchRegDate) {
+      const reg = new Date(watchRegDate).getTime();
+      const exp = new Date(expDateStr).getTime();
+      if (!isNaN(reg) && !isNaN(exp)) {
+        const diffDays = Math.ceil((exp - reg) / (1000 * 60 * 60 * 24));
+        if (diffDays > 0) {
+          setValue('validityDays', diffDays, { shouldValidate: true });
+        } else {
+          setValue('validityDays', undefined, { shouldValidate: true });
+        }
       }
     }
   };
@@ -235,12 +258,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   };
 
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
-    setValue('customerID', customer.customerID);
-    setValue('custName', customer.custName);
-    const normalizedBU = normalizeBusinessUnit(customer.bu);
-    setValue('bu', normalizedBU, { shouldValidate: true, shouldDirty: true });
+    setValue('customerID', customer.customerID || '', { shouldValidate: true, shouldDirty: true });
+    setValue('custName', customer.custName || '', { shouldValidate: true, shouldDirty: true });
+    setValue('bu', customer.bu || 'BU5', { shouldValidate: true, shouldDirty: true });
     if (customer.assignedAO) {
-      setValue('assignedAO', customer.assignedAO);
+      setValue('assignedAO', customer.assignedAO, { shouldValidate: true, shouldDirty: true });
     }
     setIsCustomerFromIceCream(!customer.isManual && Boolean(customer.customerID || customer.custName));
   };
@@ -393,7 +415,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('custName')}
                 disabled={isViewOnly}
                 placeholder="e.g. HEALTHPROOF (MANILA) INC."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
@@ -428,7 +450,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 }}
                 disabled={isViewOnly}
                 placeholder="e.g. CUST-3184 or leave blank"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
               />
               {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
             </div>
@@ -456,17 +478,12 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <select
                 {...register('bu')}
                 value={watchBu || ''}
-                onChange={(e) => {
-                  register('bu').onChange(e);
-                  setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true });
-                }}
-                disabled={isViewOnly || isCustomerFromIceCream}
-                className={`w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 transition ${
-                  isCustomerFromIceCream && !isViewOnly ? 'opacity-85 bg-neutral/50 cursor-not-allowed border-sky-500/30' : ''
-                }`}
+                onChange={(e) => setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                disabled={isViewOnly}
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               >
                 <option value="">Select Business Unit...</option>
-                {buOptions.map((bu: string) => (
+                {dynamicBuOptions.map((bu: string) => (
                   <option key={bu} value={bu}>
                     {bu}
                   </option>
@@ -481,7 +498,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('assignedAO')}
                 disabled={isViewOnly}
                 placeholder="e.g. Juan Dela Cruz (AO-104)"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
               />
             </div>
           </div>
@@ -501,7 +518,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('dealRegID')}
                 disabled={isViewOnly}
                 placeholder="e.g. 31842219 or REGI-0005491402"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
               />
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
@@ -549,7 +566,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               {...register('projectName')}
               disabled={isViewOnly}
               placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
             />
             {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
@@ -560,22 +577,21 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <label className="block text-xs font-semibold text-foreground mb-1">Date Registered *</label>
               <input
                 type="date"
-                {...register('dtRegistered')}
-                onChange={(e) => {
-                  register('dtRegistered').onChange(e);
-                  handleRegDateChange(e.target.value);
-                }}
+                value={watch('dtRegistered') || ''}
+                onChange={(e) => handleRegDateChange(e.target.value)}
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
+              {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Validity (in Days) *</label>
               <input
                 type="number"
-                value={watchValidityDays}
-                onChange={(e) => handleValidityChange(Number(e.target.value))}
+                value={watchValidityDays !== undefined && watchValidityDays !== null && !isNaN(watchValidityDays) ? watchValidityDays : ''}
+                placeholder="e.g. 90"
+                onChange={(e) => handleValidityChange(e.target.value ? Number(e.target.value) : undefined)}
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
@@ -585,7 +601,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               <label className="block text-xs font-semibold text-foreground mb-1">Expiration Date *</label>
               <input
                 type="date"
-                value={watch('expDt')}
+                value={watch('expDt') || ''}
                 onChange={(e) => handleExpDateChange(e.target.value)}
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
