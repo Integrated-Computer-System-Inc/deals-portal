@@ -15,6 +15,8 @@ import {
   ALL_BUSINESS_UNITS,
   MOCK_DEALS,
 } from '@my-app/types';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { formatDateLong } from '@/components/utils/time';
 import {
   AppTable,
   AppChip,
@@ -40,7 +42,6 @@ import {
   Calendar,
   Layers,
   User,
-  Download,
   Eye,
   MoreVertical,
   Building2,
@@ -124,15 +125,15 @@ function DealsContent() {
     }
   }, [searchParams]);
 
-  // Official 6 Business Units
-  const OFFICIAL_BUS = useMemo(() => ['BU1', 'BU2', 'BU5', 'BU8', 'BU10', 'BU12'], []);
+  // Official Registered Business Units
+  const OFFICIAL_BUS = useMemo(() => [...OFFICIAL_REGISTERED_BUS], []);
 
   // Non-standard / other BUs aggregated map
   const otherBUsMap = useMemo(() => {
     const map: Record<string, { count: number; totalValue: number }> = {};
     deals.forEach((deal) => {
-      const bu = (deal.BU || deal.bu || '').trim();
-      if (!bu || OFFICIAL_BUS.includes(bu)) return;
+      const bu = normalizeBU(deal.BU || deal.bu || '');
+      if (!bu || (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(bu)) return;
       if (!map[bu]) {
         map[bu] = { count: 0, totalValue: 0 };
       }
@@ -141,12 +142,12 @@ function DealsContent() {
       map[bu].totalValue += amt;
     });
     return map;
-  }, [deals, OFFICIAL_BUS]);
+  }, [deals]);
 
   const dealsCountByBU = useMemo(() => {
     const map: Record<string, number> = {};
     deals.forEach((d) => {
-      const bu = (d.BU || d.bu || '').trim();
+      const bu = normalizeBU(d.BU || d.bu || '');
       if (bu) map[bu] = (map[bu] || 0) + 1;
     });
     return map;
@@ -177,7 +178,7 @@ function DealsContent() {
       const regID = deal.dealRegID || '';
       const ao = deal.AssignedAO || deal.assignedAO || '';
       const brand = deal.brand || '';
-      const bu = deal.BU || deal.bu || '';
+      const bu = normalizeBU(deal.BU || deal.bu || '');
 
       const matchesSearch =
         projName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -261,7 +262,7 @@ function DealsContent() {
     const totalCount = deals.length;
     const registeredCount = deals.filter((d) => String(d.dealStatus) === '1' || d.dealStatus === 1).length;
     const pendingCount = deals.filter((d) => String(d.dealStatus) === '4' || String(d.dealStatus) === '3' || d.dealStatus === 4).length;
-    const lostCount = deals.filter((d) => String(d.dealStatus) === '7' || String(d.dealStatus) === '8' || d.dealStatus === 7 || d.dealStatus === 8).length;
+    const lostCount = deals.filter((d) => String(d.dealStatus) === '7' || d.dealStatus === 7).length;
 
     const now = new Date().getTime();
     const expiringSoon = deals.filter((d) => {
@@ -343,17 +344,17 @@ function DealsContent() {
       render: (_: any, record: DealHeaderRecord) => {
         const expDate = record.expDt || record.expiration;
         const wtnDateStr = record.wtn?.whenToNotify
-          ? new Date(record.wtn.whenToNotify).toLocaleDateString()
+          ? formatDateLong(record.wtn.whenToNotify)
           : null;
 
         return (
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground whitespace-nowrap">
               <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-              <span>{record.dtRegistered ? new Date(record.dtRegistered).toLocaleDateString() : 'N/A'}</span>
+              <span>{formatDateLong(record.dtRegistered)}</span>
             </div>
             <div className="text-[11px] text-muted dark:text-zinc-300 flex items-center gap-1 whitespace-nowrap">
-              <span>Exp: {expDate ? new Date(expDate).toLocaleDateString() : 'N/A'}</span>
+              <span>Exp: {formatDateLong(expDate)}</span>
             </div>
             <div>
               {renderExpiryBadge(expDate)}

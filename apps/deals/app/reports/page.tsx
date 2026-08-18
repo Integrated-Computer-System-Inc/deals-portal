@@ -46,6 +46,9 @@ import {
   DateRangeValue,
   filterDealByDateRange,
 } from '@/components/DateRangeFilterPopover';
+import { normalizeBrandName } from '@/lib/brandUtils';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { formatDateLong } from '@/components/utils/time';
 
 type ActiveReportType = 'EXPIRY_RISK' | 'BRAND_ANALYTICS' | 'BU_MATRIX' | null;
 
@@ -129,24 +132,7 @@ export default function ReportsPage() {
     );
   }, [allDeals, globalDateRange]);
 
-  // Brand Name Normalization (merging capital / non-capital brands)
-  const normalizeBrandName = (rawBrand: string) => {
-    const trimmed = (rawBrand || '').trim();
-    if (!trimmed) return 'Unspecified';
-    const upper = trimmed.toUpperCase();
-    if (upper === 'HPE' || upper === 'HEWLETT PACKARD ENTERPRISE') return 'HPE';
-    if (upper === 'DELL' || upper === 'DELL TECHNOLOGIES' || upper === 'DELL EMC') return 'Dell';
-    if (upper === 'CISCO') return 'Cisco';
-    if (upper === 'LENOVO') return 'Lenovo';
-    if (upper === 'MICROSOFT' || upper === 'MS') return 'Microsoft';
-    if (upper === 'VMWARE') return 'VMware';
-    if (upper === 'FORTINET') return 'Fortinet';
-    if (upper === 'PALO ALTO') return 'Palo Alto';
-    if (upper === 'SOPHOS') return 'Sophos';
-    if (upper === 'NUTANIX') return 'Nutanix';
-    if (upper === 'ARUBA') return 'Aruba';
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  };
+
 
   const formatAmounts = (deal: DealHeaderRecord) => {
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
@@ -366,7 +352,7 @@ export default function ReportsPage() {
     let othersValue = 0;
 
     deals.forEach((d) => {
-      const rawBu = (d.BU || d.bu || '').trim() || 'Unassigned';
+      const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
       const amt = getDealTotalNumeric(d);
       const isWon = String(d.dealStatus) === '1' || d.dealStatus === 1;
 
@@ -377,7 +363,7 @@ export default function ReportsPage() {
       buMap[rawBu].totalValue += amt;
       if (isWon) buMap[rawBu].wonCount++;
 
-      if (!(OFFICIAL_BUS as readonly string[]).includes(rawBu)) {
+      if (!(OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         othersCount++;
         othersValue += amt;
       }
@@ -417,7 +403,7 @@ export default function ReportsPage() {
         return false;
       }
 
-      const rawBu = (d.BU || d.bu || '').trim();
+      const rawBu = normalizeBU(d.BU || d.bu || '');
       if (modalBuFilter !== 'ALL' && rawBu !== modalBuFilter) {
         return false;
       }
@@ -904,7 +890,7 @@ export default function ReportsPage() {
                           {formatAmounts(deal)}
                         </div>
                         <div className="text-[10px] text-rose-500">
-                          Expired {deal.expDt ? new Date(deal.expDt).toLocaleDateString() : 'N/A'}
+                          Expired {formatDateLong(deal.expDt)}
                         </div>
                       </div>
                       <Link
@@ -1467,7 +1453,7 @@ export default function ReportsPage() {
                             {formatAmounts(deal)}
                           </div>
                           <div className="text-[10px] text-muted">
-                            Exp: {deal.expDt ? new Date(deal.expDt).toLocaleDateString() : 'N/A'}
+                            Exp: {formatDateLong(deal.expDt)}
                           </div>
                         </div>
 

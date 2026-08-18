@@ -25,7 +25,7 @@ import {
   AppCard,
   AppChip,
 } from '../../../../components/ui';
-import { addDaysToDateString, getDaysDifference } from '../../../../components/utils/time';
+import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../../../components/utils/time';
 import CustomerSearchModal from '../../../../components/CustomerSearchModal';
 import WTNModal from '../../../../components/WTNModal';
 import LostDealModal from '../../../../components/LostDealModal';
@@ -582,6 +582,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
+              {watch('dtRegistered') && (
+                <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
+                  {formatDateLong(watch('dtRegistered'))}
+                </p>
+              )}
               {errors.dtRegistered && <p className="text-[11px] text-rose-500 mt-1">{errors.dtRegistered.message}</p>}
             </div>
 
@@ -606,6 +611,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 disabled={isViewOnly}
                 className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
               />
+              {watch('expDt') && (
+                <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
+                  {formatDateLong(watch('expDt'))}
+                </p>
+              )}
             </div>
           </div>
 

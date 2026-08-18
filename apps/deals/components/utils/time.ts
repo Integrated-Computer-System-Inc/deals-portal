@@ -1,3 +1,56 @@
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/**
+ * Formats a date into "MMMM DD, YYYY" (e.g. "August 18, 2026")
+ */
+export function formatDateLong(
+  dateInput: string | Date | null | undefined,
+  fallback: string = 'N/A'
+): string {
+  if (!dateInput) return fallback;
+
+  try {
+    // If it's a YYYY-MM-DD or YYYY-MM-DDTHH... string, parse directly to avoid timezone drift
+    if (typeof dateInput === 'string') {
+      const trimmed = dateInput.trim();
+      if (!trimmed) return fallback;
+      const clean = trimmed.split('T')[0];
+      const parts = clean.split('-').map(Number);
+      if (parts.length === 3 && !parts.some(isNaN)) {
+        const [year, month, day] = parts;
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          const monthName = MONTH_NAMES[month - 1];
+          return `${monthName} ${day}, ${year}`;
+        }
+      }
+    }
+
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return fallback;
+
+    return d.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch (err) {
+    return fallback;
+  }
+}
+
 export function timeAgo(dateStr: string): string {
   const now = new Date().getTime();
   const date = new Date(dateStr).getTime();
@@ -13,11 +66,7 @@ export function timeAgo(dateStr: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
 
-  const d = new Date(dateStr);
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${month}/${day}/${year}`;
+  return formatDateLong(dateStr);
 }
 
 export function fullDate(dateStr: string): string {

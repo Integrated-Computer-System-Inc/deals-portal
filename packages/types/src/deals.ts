@@ -52,8 +52,8 @@ export interface SaveLostDealPayload {
   dealID: number;
   competitorVendor: string;
   competitorBrand: string;
-  icsOffer: number;
-  competitorOffer: number;
+  icsOffer: string | number;
+  competitorOffer: string | number;
   reason: string;
   otherInformation?: string;
 }
@@ -79,12 +79,11 @@ export interface ScopedDealsFilter {
   brandFilter?: string;
 }
 
-export interface PaginatedDealsResult {
+export interface ScopedDealsResult {
   deals: DealHeaderRecord[];
   totalCount: number;
-  page: number;
-  pageSize: number;
   totalPages: number;
+  currentPage: number;
 }
 
 export interface CurrencyTotals {
@@ -113,8 +112,8 @@ export interface DealLostRecord {
   dealID: number;
   competitorVendor: string;
   competitorBrand: string;
-  icsOffer: number;
-  competitorOffer: number;
+  icsOffer: string | number;
+  competitorOffer: string | number;
   reason: string;
   otherInformation?: string;
 }
@@ -159,6 +158,7 @@ export const ACTIVE_BUSINESS_UNITS = [
   'BU10',
   'BU11',
   'BU12',
+  'CE01',
 ] as const;
 export const ALL_BUSINESS_UNITS = [...ACTIVE_BUSINESS_UNITS];
 export type BusinessUnitCode = (typeof ACTIVE_BUSINESS_UNITS)[number];
@@ -171,7 +171,6 @@ export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success'
   5: { label: 'Expired', variant: 'muted' },
   6: { label: 'Won', variant: 'accent' },
   7: { label: 'Lost', variant: 'danger' },
-  8: { label: 'Lost', variant: 'danger' },
 };
 
 export interface LiveSearchCustomerItem {

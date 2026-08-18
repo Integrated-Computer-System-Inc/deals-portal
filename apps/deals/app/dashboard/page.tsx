@@ -38,6 +38,7 @@ import {
   Eye,
   Edit,
   MoreVertical,
+  ShieldAlert,
 } from 'lucide-react';
 
 import { useDealsQuery } from '@/hooks/useDealsQuery';
@@ -46,6 +47,14 @@ import {
   DateRangeValue,
   filterDealByDateRange,
 } from '@/components/DateRangeFilterPopover';
+import {
+  normalizeBrandName,
+  calculateBrandDistribution,
+  BrandDistributionItem,
+} from '@/lib/brandUtils';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { formatDateLong } from '@/components/utils/time';
+import DealLostListModal from '@/components/DealLostListModal';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -58,6 +67,7 @@ export default function DashboardPage() {
   });
 
   // Modal States
+  const [isLostModalOpen, setIsLostModalOpen] = useState(false);
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
   const [registeredSearchInput, setRegisteredSearchInput] = useState('');
 
@@ -122,24 +132,13 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [otherBUSearchInput]);
 
-  // Brand Name Normalization (merging capital / non-capital brands)
-  const normalizeBrandName = (rawBrand: string) => {
-    const trimmed = (rawBrand || '').trim();
-    if (!trimmed) return 'Unspecified';
-    const upper = trimmed.toUpperCase();
-    if (upper === 'HPE' || upper === 'HEWLETT PACKARD ENTERPRISE') return 'HPE';
-    if (upper === 'DELL' || upper === 'DELL TECHNOLOGIES' || upper === 'DELL EMC') return 'Dell';
-    if (upper === 'CISCO') return 'Cisco';
-    if (upper === 'LENOVO') return 'Lenovo';
-    if (upper === 'MICROSOFT' || upper === 'MS') return 'Microsoft';
-    if (upper === 'VMWARE') return 'VMware';
-    if (upper === 'FORTINET') return 'Fortinet';
-    if (upper === 'PALO ALTO') return 'Palo Alto';
-    if (upper === 'SOPHOS') return 'Sophos';
-    if (upper === 'NUTANIX') return 'Nutanix';
-    if (upper === 'ARUBA') return 'Aruba';
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  };
+  // Deals per Brand breakdown with Active / Approved / Waiting status breakdown
+  const brandDistributionList = useMemo(() => {
+    return calculateBrandDistribution(deals);
+  }, [deals]);
+
+  // Backward-compatible alias for other components if needed
+  const dealsPerBrandMap = brandDistributionList;
 
   // Metric Computations
   const now = new Date();
@@ -170,22 +169,11 @@ export default function DashboardPage() {
     }).length;
   }, [deals, currentMonth, currentYear]);
 
-  // Deals per Brand breakdown (normalized)
-  const dealsPerBrandMap = useMemo(() => {
-    const map: Record<string, { count: number; totalValue: number; currencies: Set<string> }> = {};
-    deals.forEach((d: DealHeaderRecord) => {
-      const brand = normalizeBrandName(d.brand || '');
-      if (!map[brand]) {
-        map[brand] = { count: 0, totalValue: 0, currencies: new Set<string>() };
-      }
-      map[brand].count += 1;
-      const amt = d.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-      map[brand].totalValue += amt;
-      d.items?.forEach((i: any) => {
-        if (i.currency) map[brand].currencies.add(i.currency);
-      });
+  const lostDealsList = useMemo(() => {
+    return deals.filter((d: DealHeaderRecord) => {
+      const statusStr = String(d.dealStatus ?? '');
+      return statusStr === '7' || d.dealStatus === 7 || Boolean(d.lostInfo && d.lostInfo.reason);
     });
-    return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
   }, [deals]);
 
   const grandTotalPipelineValue = useMemo(() => {
@@ -196,17 +184,15 @@ export default function DashboardPage() {
   }, [deals]);
 
   const filteredBrandsInModal = useMemo(() => {
-    if (!debouncedBrandSearch.trim()) return dealsPerBrandMap;
+    if (!debouncedBrandSearch.trim()) return brandDistributionList;
     const q = debouncedBrandSearch.toLowerCase().trim();
-    return dealsPerBrandMap.filter(([brand]) => brand.toLowerCase().includes(q));
-  }, [dealsPerBrandMap, debouncedBrandSearch]);
+    return brandDistributionList.filter((item) => item.brand.toLowerCase().includes(q));
+  }, [brandDistributionList, debouncedBrandSearch]);
 
-  const OFFICIAL_BUS = ['BU1', 'BU2', 'BU5', 'BU8', 'BU10', 'BU12'] as const;
-
-  // Calculate official BUs & others breakdown
+  // Calculate official BUs & others breakdown (with CE01 and Cebu Sales normalization)
   const { officialBUsList, otherBUsMap, totalOthersCount, totalOthersValue } = useMemo(() => {
     const officialCounts: Record<string, number> = {};
-    OFFICIAL_BUS.forEach((bu) => {
+    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
       officialCounts[bu] = 0;
     });
 
@@ -215,10 +201,10 @@ export default function DashboardPage() {
     let othersValue = 0;
 
     deals.forEach((d: DealHeaderRecord) => {
-      const rawBu = (d.BU || d.bu || '').toString().trim();
+      const rawBu = normalizeBU(d.BU || d.bu || '');
       const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
 
-      if ((OFFICIAL_BUS as readonly string[]).includes(rawBu)) {
+      if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
       } else {
         const buKey = rawBu || 'Unassigned';
@@ -232,7 +218,7 @@ export default function DashboardPage() {
       }
     });
 
-    const officialList = OFFICIAL_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
+    const officialList = OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
 
     return {
       officialBUsList: officialList,
@@ -338,8 +324,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 4 Core Clickable KPI Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+      {/* 5 Core Clickable KPI Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
         {/* KPI 1: Total Registered Deals (Clickable) */}
         <AppCard
           onClick={() => setIsRegisteredModalOpen(true)}
@@ -362,9 +348,9 @@ export default function DashboardPage() {
               <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center justify-between truncate">
                 <div className="flex items-center gap-1">
                   <TrendingUp className="w-3 h-3 shrink-0" />
-                  <span className="truncate">Active registered pipelines</span>
+                  <span className="truncate">Active registered</span>
                 </div>
-                <span className="text-[10px] text-muted group-hover:text-emerald-600 transition font-medium">Click to view &rarr;</span>
+                <span className="text-[10px] text-muted group-hover:text-emerald-600 transition font-medium">Click &rarr;</span>
               </div>
             </>
           )}
@@ -376,7 +362,7 @@ export default function DashboardPage() {
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate group-hover:text-rose-500 transition">Expired Deals this Month</span>
+            <span className="truncate group-hover:text-rose-500 transition">Expired this Month</span>
             <Clock className="w-4 h-4 text-rose-500 shrink-0" />
           </div>
           {loading ? (
@@ -390,8 +376,8 @@ export default function DashboardPage() {
                 {expiredThisMonth}
               </div>
               <div className="text-[11px] text-muted mt-1 truncate flex items-center justify-between">
-                <span>Requires re-registration / WTN</span>
-                <span className="text-[10px] text-rose-500 font-bold group-hover:underline transition">Click to view &rarr;</span>
+                <span>Requires WTN</span>
+                <span className="text-[10px] text-rose-500 font-bold group-hover:underline transition">Click &rarr;</span>
               </div>
             </>
           )}
@@ -403,7 +389,7 @@ export default function DashboardPage() {
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-sky-500/50 hover:shadow-md transition-all group"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate group-hover:text-sky-500 transition">Active Brands Represented</span>
+            <span className="truncate group-hover:text-sky-500 transition">Active Brands</span>
             <Layers className="w-4 h-4 text-sky-500 shrink-0" />
           </div>
           {loading ? (
@@ -414,11 +400,11 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate group-hover:text-sky-600 dark:group-hover:text-sky-400 transition">
-                {dealsPerBrandMap.length}
+                {brandDistributionList.length}
               </div>
               <div className="text-[11px] text-sky-600 font-semibold mt-1 truncate flex items-center justify-between">
-                <span>Top: {dealsPerBrandMap[0]?.[0] || 'Dell'}</span>
-                <span className="text-[10px] text-muted group-hover:text-sky-600 transition font-medium">Click to view &rarr;</span>
+                <span>Top: {brandDistributionList[0]?.brand || 'DELL'}</span>
+                <span className="text-[10px] text-muted group-hover:text-sky-600 transition font-medium">Click &rarr;</span>
               </div>
             </>
           )}
@@ -430,7 +416,7 @@ export default function DashboardPage() {
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate group-hover:text-indigo-500 transition">Business Units Covered</span>
+            <span className="truncate group-hover:text-indigo-500 transition">Business Units</span>
             <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
           </div>
           {loading ? (
@@ -441,12 +427,41 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition">
-                6 <span className="text-xs text-muted font-sans font-normal">Official BUs</span>
+                7 <span className="text-xs text-muted font-sans font-normal">Registered</span>
               </div>
               <div className="text-[11px] text-indigo-600 font-semibold mt-1 truncate flex items-center justify-between">
-                <span>BU1, BU2, BU5, BU8, BU10, BU12</span>
+                <span>+{totalOthersCount} Others</span>
                 <span className="text-[10px] text-indigo-500 font-bold group-hover:underline transition">
-                  +{totalOthersCount} Others &rarr;
+                  Click &rarr;
+                </span>
+              </div>
+            </>
+          )}
+        </AppCard>
+
+        {/* KPI 5: Lost Deals Review (Clickable) */}
+        <AppCard
+          onClick={() => setIsLostModalOpen(true)}
+          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
+            <span className="truncate group-hover:text-rose-500 transition">Lost Deals Review</span>
+            <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
+          </div>
+          {loading ? (
+            <div className="space-y-2 mt-2">
+              <div className="shimmer-skeleton h-8 w-16 rounded-md" />
+              <div className="shimmer-skeleton h-3.5 w-44 rounded" />
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl sm:text-3xl font-bold text-rose-600 mt-2 font-mono truncate">
+                {lostDealsList.length}
+              </div>
+              <div className="text-[11px] text-rose-500 font-semibold mt-1 truncate flex items-center justify-between">
+                <span>Competitor Intel</span>
+                <span className="text-[10px] text-rose-500 font-bold group-hover:underline transition">
+                  Click to view &rarr;
                 </span>
               </div>
             </>
@@ -467,11 +482,11 @@ export default function DashboardPage() {
               {loading ? (
                 <div className="shimmer-skeleton h-4 w-24 rounded" />
               ) : (
-                <span className="text-xs text-muted font-medium">{dealsPerBrandMap.length} Brands • {deals.length} deals</span>
+                <span className="text-xs text-muted font-medium">{brandDistributionList.length} Brands • {deals.length} deals</span>
               )}
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               {loading ? (
                 [85, 65, 45, 30, 25, 15].map((w, i) => (
                   <div key={i} className="space-y-1.5">
@@ -485,24 +500,38 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : (
-                dealsPerBrandMap.slice(0, 10).map(([brand, data], idx) => {
-                  const percentage = deals.length > 0 ? Math.round((data.count / deals.length) * 100) : 0;
+                brandDistributionList.slice(0, 10).map((item, idx) => {
+                  const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
                   return (
-                    <div key={brand} className="space-y-1.5 group">
+                    <div key={item.brand} className="space-y-1.5 group">
                       <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-mono font-bold text-muted w-4">#{idx + 1}</span>
-                          <span className="font-semibold text-foreground group-hover:text-sky-600 transition">{brand}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
+                          <span className="font-bold text-foreground group-hover:text-sky-600 transition truncate">{item.brand}</span>
                         </div>
-                        <div className="flex items-center gap-2 font-mono text-muted">
+                        <div className="flex items-center gap-2 font-mono text-muted shrink-0">
                           <span className="text-foreground/90 font-medium">
-                            PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
                           <span className="text-[11px] text-muted">
-                            ({data.count} • {percentage}%)
+                            ({item.count} • {percentage}%)
                           </span>
                         </div>
                       </div>
+
+                      {/* Status Badges: Active, Approved, Waiting */}
+                      <div className="flex items-center gap-1.5 text-[10px] font-medium flex-wrap">
+                        <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                          Active: <strong className="font-bold">{item.activeCount}</strong>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          Approved: <strong className="font-bold">{item.approvedCount}</strong>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          Waiting: <strong className="font-bold">{item.waitingCount}</strong>
+                        </span>
+                      </div>
+
                       <div className="w-full h-2 bg-neutral rounded-full overflow-hidden border border-border/40">
                         <div
                           className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full transition-all duration-500"
@@ -517,17 +546,17 @@ export default function DashboardPage() {
           </div>
 
           {/* See All Brands Button */}
-          {!loading && dealsPerBrandMap.length > 0 && (
+          {!loading && brandDistributionList.length > 0 && (
             <div className="pt-3 border-t border-border/40 flex items-center justify-between">
               <span className="text-[11px] text-muted font-medium">
-                Showing top 10 of {dealsPerBrandMap.length} brands
+                Showing top 10 of {brandDistributionList.length} brands
               </span>
               <button
                 type="button"
                 onClick={() => setIsBrandModalOpen(true)}
                 className="text-xs font-bold text-sky-600 hover:text-sky-700 dark:text-sky-400 flex items-center gap-1 hover:underline transition"
               >
-                <span>See All in Modal ({dealsPerBrandMap.length})</span>
+                <span>See All in Modal ({brandDistributionList.length})</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -542,12 +571,12 @@ export default function DashboardPage() {
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 <h2 className="font-bold text-sm text-foreground">Deals Distribution by Business Unit (BU)</h2>
               </div>
-              <span className="text-xs text-muted font-medium">6 Official BUs + Others</span>
+              <span className="text-xs text-muted font-medium">7 Registered BUs + Others</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {loading ? (
-                [1, 2, 3, 4, 5, 6, 7].map((i) => (
+                [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                   <div
                     key={i}
                     className="p-3 rounded-xl bg-neutral/50 border border-border/40 flex flex-col justify-between space-y-3"
@@ -634,16 +663,21 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="divide-y divide-border/50">
+        <div className="divide-y divide-border/50 max-h-[580px] overflow-y-auto pr-1">
           {loading ? (
-            [1, 2, 3, 4, 5].map((i) => (
+            [1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-2">
                 <div className="space-y-2 w-full max-w-md">
                   <div className="flex items-center gap-2">
                     <div className="shimmer-skeleton h-4 rounded" style={{ width: `${140 + (i % 3) * 50}px` }} />
+                    <div className="shimmer-skeleton h-4 w-16 rounded" />
                     <div className="shimmer-skeleton h-4 w-12 rounded" />
                   </div>
-                  <div className="shimmer-skeleton h-3 w-64 rounded" />
+                  <div className="flex items-center gap-2">
+                    <div className="shimmer-skeleton h-3 w-48 rounded" />
+                    <div className="shimmer-skeleton h-3 w-16 rounded" />
+                    <div className="shimmer-skeleton h-3 w-24 rounded" />
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="shimmer-skeleton h-4 w-16 rounded" />
@@ -652,8 +686,12 @@ export default function DashboardPage() {
                 </div>
               </div>
             ))
+          ) : deals.length === 0 ? (
+            <div className="py-8 text-center text-muted text-xs">
+              No recent deals found for the selected filter range.
+            </div>
           ) : (
-            deals.slice(0, 5).map((deal) => {
+            deals.slice(0, 10).map((deal) => {
               const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus) || 1;
               const statusMeta = DEAL_STATUS_MAP[statusNum] || {
                 label: `Status ${deal.dealStatus}`,
@@ -678,33 +716,58 @@ export default function DashboardPage() {
                   onMouseEnter={() => router.prefetch(`/deals/${deal.dealID}`)}
                   className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-neutral/50 px-3 rounded-xl transition cursor-pointer border border-transparent hover:border-border/50 group"
                 >
-                  <div className="space-y-1 min-w-0 flex-1">
+                  {/* Left Column: Customer as primary title, Project + Brand + Amount as subtitle */}
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    {/* Primary Line: Customer Name + Deal Reg ID + BU */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 text-xs font-mono shrink-0">
-                        {deal.brand || 'Unspecified'}
-                      </span>
                       <span
-                        className="font-bold text-xs text-foreground group-hover:text-sky-600 transition truncate max-w-[200px]"
+                        className="font-bold text-sm text-foreground group-hover:text-primary transition truncate max-w-[240px] sm:max-w-md"
                         title={deal.custName || ''}
                       >
-                        {deal.custName}
+                        {deal.custName || 'Unknown Customer'}
                       </span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral text-muted border border-border/50 shrink-0">
-                        {deal.BU || deal.bu}
-                      </span>
+                      {deal.dealRegID && (
+                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-neutral text-foreground dark:text-zinc-300 border border-border/60 shrink-0">
+                          {deal.dealRegID}
+                        </span>
+                      )}
+                      {(deal.BU || deal.bu) && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral text-muted border border-border/50 shrink-0">
+                          {deal.BU || deal.bu}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-xs text-muted dark:text-zinc-300 truncate max-w-md">
-                      {deal.ProjectName || deal.projectName}
+
+                    {/* Secondary Line: Project Name + Brand pill + Amount highlight */}
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <span
+                        className="text-muted dark:text-zinc-300 truncate max-w-[200px] sm:max-w-xs"
+                        title={deal.ProjectName || deal.projectName || ''}
+                      >
+                        {deal.ProjectName || deal.projectName || 'Untitled Project'}
+                      </span>
+
+                      <span className="text-muted/40">•</span>
+
+                      {/* Brand Pill */}
+                      <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 text-[11px] font-mono shrink-0">
+                        {deal.brand || 'Unspecified'}
+                      </span>
+
+                      <span className="text-muted/40">•</span>
+
+                      {/* Amount Highlight */}
+                      <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 shrink-0">
+                        {formatAmounts(deal)}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  {/* Right Column: Date + Status Chip + Actions */}
+                  <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
                     <div className="text-right">
-                      <div className="text-xs font-mono font-bold text-foreground">
-                        {formatAmounts(deal)}
-                      </div>
-                      <div className="text-[10px] text-muted">
-                        {deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : ''}
+                      <div className="text-[11px] text-muted font-medium">
+                        {deal.dtRegistered ? formatDateLong(deal.dtRegistered) : ''}
                       </div>
                     </div>
 
@@ -712,31 +775,39 @@ export default function DashboardPage() {
                       {statusMeta.label}
                     </AppChip>
 
-                    {!isViewOnly && (
-                      <Dropdown
-                        menu={{
-                          items: [
-                            {
-                              key: 'edit',
-                              icon: <Edit className="w-4 h-4 text-zinc-400" />,
-                              label: 'Edit Deal',
-                              onClick: () => router.push(`/deals/${deal.dealID}/edit`),
-                            },
-                          ],
-                        }}
-                        trigger={['click']}
-                        placement="bottomRight"
+                    <Dropdown
+                      menu={{
+                        items: [
+                          {
+                            key: 'view',
+                            icon: <Eye className="w-4 h-4 text-zinc-400" />,
+                            label: 'View Details',
+                            onClick: () => router.push(`/deals/${deal.dealID}`),
+                          },
+                          ...(!isViewOnly
+                            ? [
+                                {
+                                  key: 'edit',
+                                  icon: <Edit className="w-4 h-4 text-zinc-400" />,
+                                  label: 'Edit Deal',
+                                  onClick: () => router.push(`/deals/${deal.dealID}/edit`),
+                                },
+                              ]
+                            : []),
+                        ],
+                      }}
+                      trigger={['click']}
+                      placement="bottomRight"
+                    >
+                      <button
+                        type="button"
+                        className="h-8 w-8 rounded-lg bg-neutral/80 hover:bg-neutral text-foreground dark:text-zinc-200 hover:text-foreground border border-border/70 hover:border-border transition-all flex items-center justify-center cursor-pointer shadow-xs active:scale-95"
+                        title="Deal Actions"
+                        aria-label="Deal Actions"
                       >
-                        <button
-                          type="button"
-                          className="h-8 w-8 rounded-lg bg-neutral/80 hover:bg-neutral text-foreground dark:text-zinc-200 hover:text-foreground border border-border/70 hover:border-border transition-all flex items-center justify-center cursor-pointer shadow-xs active:scale-95"
-                          title="Deal Actions"
-                          aria-label="Deal Actions"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                      </Dropdown>
-                    )}
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </Dropdown>
                   </div>
                 </div>
               );
@@ -745,7 +816,7 @@ export default function DashboardPage() {
         </div>
       </AppCard>
 
-      {/* Complete Brands Distribution Modal - Compact width & height */}
+      {/* Complete Brands Distribution Modal - Table with Status Breakdown */}
       <AppModal
         open={isBrandModalOpen}
         onClose={() => {
@@ -753,7 +824,7 @@ export default function DashboardPage() {
           setBrandSearchInput('');
           setDebouncedBrandSearch('');
         }}
-        width={620}
+        width={780}
       >
         <AppModal.Header>
           <div className="flex items-center gap-3">
@@ -761,9 +832,9 @@ export default function DashboardPage() {
               <BarChart3 className="w-4 h-4" />
             </div>
             <div>
-              <AppModal.Title>Partner Brands Distribution</AppModal.Title>
+              <AppModal.Title>Partner Brands Distribution & Status Breakdown</AppModal.Title>
               <AppModal.Description>
-                Breakdown of all partner brands registered across active deals.
+                Breakdown of active partner brands with Active, Approved, and Waiting pipeline metrics.
               </AppModal.Description>
             </div>
           </div>
@@ -774,7 +845,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-3 gap-2.5">
             <div className="p-2.5 rounded-xl bg-neutral/50 border border-border/70 text-center">
               <div className="text-[10px] text-muted font-semibold uppercase tracking-wider">Total Brands</div>
-              <div className="text-lg font-bold font-mono text-foreground mt-0.5">{dealsPerBrandMap.length}</div>
+              <div className="text-lg font-bold font-mono text-foreground mt-0.5">{brandDistributionList.length}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-neutral/50 border border-border/70 text-center">
               <div className="text-[10px] text-muted font-semibold uppercase tracking-wider">Total Deals</div>
@@ -792,7 +863,7 @@ export default function DashboardPage() {
           <div className="relative">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search brands (e.g. Dell, Cisco, HPE)..."
+              placeholder="Search brands (e.g. HPI, HPE, DELL, CISCO)..."
               value={brandSearchInput}
               onChange={(e: any) => setBrandSearchInput(e.target.value)}
               allowClear
@@ -800,87 +871,102 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Scrollable Brands Table/List */}
+          {/* Scrollable Brands Structured Table */}
           <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
-            <div className="max-h-[320px] overflow-y-auto divide-y divide-border/50">
-              {isSearchingBrand ? (
-                /* Shimmer Skeleton rows during search debounce */
-                <div className="divide-y divide-border/50">
-                  {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className="p-3 flex items-center justify-between">
-                      <div className="space-y-2 w-48">
-                        <div className="shimmer-skeleton h-3.5 w-28 rounded" />
-                        <div className="shimmer-skeleton h-2 w-36 rounded-full" />
-                      </div>
-                      <div className="space-y-1.5 text-right w-24">
-                        <div className="shimmer-skeleton h-3.5 w-20 rounded ml-auto" />
-                        <div className="shimmer-skeleton h-2.5 w-12 rounded ml-auto" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : filteredBrandsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <Tag className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No matching brands found</p>
-                  <p className="text-[11px]">Try searching for a different partner brand.</p>
-                </div>
-              ) : (
-                filteredBrandsInModal.map(([brand, data], idx) => {
-                  const percentage = deals.length > 0 ? ((data.count / deals.length) * 100).toFixed(1) : '0';
-                  const percentNum = parseFloat(percentage);
+            <div className="max-h-[380px] overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-10 bg-neutral/90 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3">Brand</th>
+                    <th className="py-2.5 px-2 text-center text-sky-600 dark:text-sky-400">Active</th>
+                    <th className="py-2.5 px-2 text-center text-emerald-600 dark:text-emerald-400">Approved</th>
+                    <th className="py-2.5 px-2 text-center text-amber-600 dark:text-amber-400">Waiting</th>
+                    <th className="py-2.5 px-3 text-center">Total Deals</th>
+                    <th className="py-2.5 px-3 text-right">Pipeline Value</th>
+                    <th className="py-2.5 px-2 text-center w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {isSearchingBrand ? (
+                    [0, 1, 2, 3, 4].map((i) => (
+                      <tr key={i} className="animate-pulse">
+                        <td className="p-3"><div className="shimmer-skeleton h-3.5 w-24 rounded" /></td>
+                        <td className="p-3 text-center"><div className="shimmer-skeleton h-3.5 w-8 rounded mx-auto" /></td>
+                        <td className="p-3 text-center"><div className="shimmer-skeleton h-3.5 w-8 rounded mx-auto" /></td>
+                        <td className="p-3 text-center"><div className="shimmer-skeleton h-3.5 w-8 rounded mx-auto" /></td>
+                        <td className="p-3 text-center"><div className="shimmer-skeleton h-3.5 w-12 rounded mx-auto" /></td>
+                        <td className="p-3 text-right"><div className="shimmer-skeleton h-3.5 w-20 rounded ml-auto" /></td>
+                        <td className="p-3"></td>
+                      </tr>
+                    ))
+                  ) : filteredBrandsInModal.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-muted text-xs">
+                        <Tag className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
+                        <p className="font-semibold text-foreground">No matching brands found</p>
+                        <p className="text-[11px] text-muted">Try searching for a different partner brand.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBrandsInModal.map((item, idx) => {
+                      const percentage = deals.length > 0 ? ((item.count / deals.length) * 100).toFixed(1) : '0';
 
-                  return (
-                    <div
-                      key={brand}
-                      className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                    >
-                      <div className="space-y-1 flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-mono font-bold text-muted w-4">#{idx + 1}</span>
-                          <span className="font-bold text-foreground truncate">{brand}</span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20 shrink-0">
-                            {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="w-28 h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40 shrink-0">
-                            <div
-                              className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full"
-                              style={{ width: `${Math.max(percentNum, 4)}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-mono text-muted">{percentage}%</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 shrink-0 text-right">
-                        <div>
-                          <div className="font-mono font-bold text-foreground text-xs">
-                            PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </div>
-                        </div>
-
-                        <Link
-                          href={`/deals?brand=${encodeURIComponent(brand)}`}
-                          onClick={() => setIsBrandModalOpen(false)}
-                          className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition"
-                          title={`View ${brand} deals in Registry`}
+                      return (
+                        <tr
+                          key={item.brand}
+                          className="hover:bg-neutral/40 transition group"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                          <td className="py-2.5 px-3 font-semibold text-foreground">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-mono font-bold text-muted w-4">#{idx + 1}</span>
+                              <span className="font-bold text-foreground group-hover:text-primary transition">{item.brand}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 font-mono text-[11px]">
+                              {item.activeCount}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 font-mono text-[11px]">
+                              {item.approvedCount}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20 font-mono text-[11px]">
+                              {item.waitingCount}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono">
+                            <span className="font-semibold text-foreground">{item.count}</span>
+                            <span className="text-[10px] text-muted ml-1">({percentage}%)</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-foreground">
+                            PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <Link
+                              href={`/deals?brand=${encodeURIComponent(item.brand)}`}
+                              onClick={() => setIsBrandModalOpen(false)}
+                              className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition inline-flex items-center"
+                              title={`View ${item.brand} deals in Registry`}
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredBrandsInModal.length} of {dealsPerBrandMap.length} brands
+            Showing {filteredBrandsInModal.length} of {brandDistributionList.length} brands
           </span>
           <AppButton
             variant="neutral"
@@ -1182,7 +1268,7 @@ export default function DashboardPage() {
                         </span>
                         <span className="font-bold text-foreground truncate">{deal.custName}</span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
-                          Expired: {deal.expDt ? new Date(deal.expDt).toLocaleDateString() : 'N/A'}
+                          Expired: {formatDateLong(deal.expDt)}
                         </span>
                       </div>
                       <div className="text-xs text-muted truncate">{deal.ProjectName || deal.projectName}</div>
@@ -1227,6 +1313,14 @@ export default function DashboardPage() {
           </AppButton>
         </AppModal.Footer>
       </AppModal>
+
+      {/* Lost Deals Competitor Intel Modal */}
+      <DealLostListModal
+        isOpen={isLostModalOpen}
+        onClose={() => setIsLostModalOpen(false)}
+        deals={deals}
+        loading={loading}
+      />
     </div>
   );
 }

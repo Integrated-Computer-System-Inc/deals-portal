@@ -20,7 +20,7 @@ export interface DealsFilterPopoverProps {
   onExpiryFiltersChange: (exps: string[]) => void;
   statusFilters: string[];
   onStatusFiltersChange: (statuses: string[]) => void;
-  officialBUs: string[];
+  officialBUs: readonly string[] | string[];
   otherBUsMap?: Record<string, { count: number; totalValue: number }>;
   dealsCountByBU?: Record<string, number>;
   dealsCountByStatus?: Record<string, number>;

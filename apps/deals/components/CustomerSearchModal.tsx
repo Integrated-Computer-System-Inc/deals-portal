@@ -14,6 +14,7 @@ import {
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { CustomerLookupResult, ALL_BUSINESS_UNITS } from '@my-app/types';
 import { searchCustomers } from '../app/actions/deals';
+import { formatDateLong } from './utils/time';
 
 interface CustomerSearchModalProps {
   isOpen: boolean;
@@ -232,7 +233,7 @@ export default function CustomerSearchModal({
                 <div>
                   <p className="text-xs text-muted mb-1">Created Date</p>
                   <p className="text-sm text-foreground">
-                    {new Date(selectedCustomer.createdDate).toLocaleDateString()}
+                    {formatDateLong(selectedCustomer.createdDate)}
                   </p>
                 </div>
               )}

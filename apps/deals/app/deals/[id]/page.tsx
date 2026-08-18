@@ -30,6 +30,7 @@ import {
   AppButton,
   AppTable,
 } from '../../../components/ui';
+import { formatDateLong } from '@/components/utils/time';
 import WTNModal from '../../../components/WTNModal';
 import LostDealModal from '../../../components/LostDealModal';
 
@@ -274,7 +275,7 @@ export default function DealDetailsPage() {
               <Calendar className="w-3 h-3 text-sky-500" /> Date Registered
             </span>
             <p className="font-mono font-bold text-sm text-foreground">
-              {deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : 'N/A'}
+              {formatDateLong(deal.dtRegistered)}
             </p>
           </div>
 
@@ -284,7 +285,7 @@ export default function DealDetailsPage() {
             </span>
             <div className="flex items-center gap-2">
               <p className="font-mono font-bold text-sm text-foreground">
-                {expDate ? new Date(expDate).toLocaleDateString() : 'N/A'}
+                {formatDateLong(expDate)}
               </p>
               {daysRemaining > 0 && (
                 <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
@@ -299,7 +300,7 @@ export default function DealDetailsPage() {
               <BellRing className="w-3 h-3 text-sky-500" /> When-To-Notify (WTN)
             </span>
             <p className="font-mono font-bold text-sm text-sky-600 dark:text-sky-400">
-              {currentWtnDate ? new Date(currentWtnDate).toLocaleDateString() : 'Not Scheduled'}
+              {formatDateLong(currentWtnDate, 'Not Scheduled')}
             </p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShieldAlert, Loader2, DollarSign, HelpCircle } from 'lucide-react';
+import { ShieldAlert, Loader2, DollarSign } from 'lucide-react';
 import { useLostDealMutation } from '@/hooks/useDealsQuery';
 import {
   AppModal,
@@ -11,7 +11,7 @@ import {
   AppModalBody,
   AppModalFooter,
   AppInput,
-  AppTextarea,
+  AppButton,
 } from './ui';
 
 interface LostDealModalProps {
@@ -31,9 +31,9 @@ export default function LostDealModal({
 }: LostDealModalProps) {
   const [competitorVendor, setCompetitorVendor] = useState('');
   const [competitorBrand, setCompetitorBrand] = useState('');
-  const [icsOffer, setIcsOffer] = useState<number | ''>('');
-  const [competitorOffer, setCompetitorOffer] = useState<number | ''>('');
-  const [reason, setReason] = useState('Price Difference');
+  const [icsOffer, setIcsOffer] = useState('');
+  const [competitorOffer, setCompetitorOffer] = useState('');
+  const [reason, setReason] = useState('');
   const [otherInformation, setOtherInformation] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -43,15 +43,27 @@ export default function LostDealModal({
     e.preventDefault();
     setError(null);
 
+    const vVendor = competitorVendor.trim();
+    const vBrand = competitorBrand.trim();
+    const vIcsOffer = icsOffer.trim();
+    const vCompOffer = competitorOffer.trim();
+    const vReason = reason.trim();
+    const vOtherInfo = otherInformation.trim();
+
+    if (!vVendor || !vBrand || !vIcsOffer || !vCompOffer || !vReason || !vOtherInfo) {
+      setError('Please fill in all required fields (you may enter N/A if specific details are unavailable).');
+      return;
+    }
+
     try {
       const res = await lostMutation.mutateAsync({
         dealID,
-        competitorVendor,
-        competitorBrand,
-        icsOffer: Number(icsOffer) || 0,
-        competitorOffer: Number(competitorOffer) || 0,
-        reason,
-        otherInformation,
+        competitorVendor: vVendor,
+        competitorBrand: vBrand,
+        icsOffer: vIcsOffer,
+        competitorOffer: vCompOffer,
+        reason: vReason,
+        otherInformation: vOtherInfo,
       });
 
       if (res && res.success) {
@@ -66,16 +78,23 @@ export default function LostDealModal({
   };
 
   const loading = lostMutation.isPending;
+  const isFormValid =
+    competitorVendor.trim() !== '' &&
+    competitorBrand.trim() !== '' &&
+    icsOffer.trim() !== '' &&
+    competitorOffer.trim() !== '' &&
+    reason.trim() !== '' &&
+    otherInformation.trim() !== '';
 
   return (
-    <AppModal open={isOpen} onClose={onClose} width={580}>
+    <AppModal open={isOpen} onClose={onClose} width={600}>
       <AppModalHeader>
         <div className="flex items-center gap-2 text-rose-600">
           <ShieldAlert className="w-5 h-5" />
           <AppModalTitle>Record Lost Deal Information</AppModalTitle>
         </div>
         <AppModalDescription>
-          Document competitor analytics and pricing details for lost deal: <span className="font-bold text-foreground">{dealRegID}</span>
+          Document competitor intelligence and pricing details for lost deal: <span className="font-bold text-foreground">{dealRegID}</span>. All fields are required (type &quot;N/A&quot; if data is unknown).
         </AppModalDescription>
       </AppModalHeader>
 
@@ -87,7 +106,7 @@ export default function LostDealModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">
                 Competitor Vendor *
@@ -96,7 +115,7 @@ export default function LostDealModal({
                 required
                 value={competitorVendor}
                 onChange={(e: any) => setCompetitorVendor(e.target.value)}
-                placeholder="e.g. Trend Micro / Dell Direct"
+                placeholder="e.g. Trend Micro, Dell Direct, or N/A"
                 size="md"
               />
             </div>
@@ -109,37 +128,39 @@ export default function LostDealModal({
                 required
                 value={competitorBrand}
                 onChange={(e: any) => setCompetitorBrand(e.target.value)}
-                placeholder="e.g. Cisco / Lenovo"
+                placeholder="e.g. Cisco, Lenovo, or N/A"
                 size="md"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">
-                ICS Offered Price
+                ICS Offered Price *
               </label>
               <AppInput
-                type="number"
+                required
+                type="text"
                 prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={icsOffer}
-                onChange={(e: any) => setIcsOffer(e.target.value ? Number(e.target.value) : '')}
-                placeholder="0.00"
+                onChange={(e: any) => setIcsOffer(e.target.value)}
+                placeholder="e.g. 150,000.00 or N/A"
                 size="md"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">
-                Competitor Offered Price
+                Competitor Offered Price *
               </label>
               <AppInput
-                type="number"
+                required
+                type="text"
                 prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                 value={competitorOffer}
-                onChange={(e: any) => setCompetitorOffer(e.target.value ? Number(e.target.value) : '')}
-                placeholder="0.00"
+                onChange={(e: any) => setCompetitorOffer(e.target.value)}
+                placeholder="e.g. 135,000.00 or N/A"
                 size="md"
               />
             </div>
@@ -149,45 +170,42 @@ export default function LostDealModal({
             <label className="block text-xs font-semibold text-foreground mb-1">
               Primary Reason Lost *
             </label>
-            <select
+            <AppInput
+              required
               value={reason}
               onChange={(e: any) => setReason(e.target.value)}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-            >
-              <option value="Price Difference">Price Difference / Lower Competitor Bid</option>
-              <option value="Lead Time / Stock Availability">Lead Time / Stock Availability</option>
-              <option value="Client Preference">Client / Technical Requirement Preference</option>
-              <option value="Budget Cancellation">Project / Budget Cancelled by Client</option>
-              <option value="Non-Compliance">Specifications Non-Compliance</option>
-              <option value="Other">Other Reasons</option>
-            </select>
+              placeholder="e.g. Price difference, Lead time issue, Client budget cancelled, or N/A"
+              size="md"
+            />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-foreground mb-1">
-              Additional Intelligence & Notes
+              Additional Intelligence & Notes *
             </label>
             <textarea
+              required
               value={otherInformation}
               onChange={(e: any) => setOtherInformation(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-              placeholder="Provide context regarding partner discounts, competitor bundles, or follow-up opportunities..."
+              className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+              placeholder="Provide context regarding competitor bundles, partner discounts, client feedback, or type N/A..."
             />
           </div>
         </AppModalBody>
 
         <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-          <button
+          <AppButton
             type="button"
+            variant="neutral"
+            size="sm"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
           >
             Cancel
-          </button>
+          </AppButton>
           <button
             type="submit"
-            disabled={loading || !competitorVendor || !competitorBrand}
+            disabled={loading || !isFormValid}
             className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-sm transition disabled:opacity-50"
           >
             {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

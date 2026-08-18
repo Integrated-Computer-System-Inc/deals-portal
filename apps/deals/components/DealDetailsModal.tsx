@@ -27,6 +27,7 @@ import {
   AppButton,
   AppTable,
 } from './ui';
+import { formatDateLong } from './utils/time';
 
 interface DealDetailsModalProps {
   dealID: number | null;
@@ -192,8 +193,8 @@ export default function DealDetailsModal({
                   <Calendar className="w-3 h-3 text-rose-500" /> Validity & Expiration
                 </span>
                 <p className="font-medium text-foreground">
-                  {deal.dtRegistered ? new Date(deal.dtRegistered).toLocaleDateString() : 'N/A'} →{' '}
-                  <span className="font-bold">{expDate ? new Date(expDate).toLocaleDateString() : 'N/A'}</span>
+                  {formatDateLong(deal.dtRegistered)} →{' '}
+                  <span className="font-bold">{formatDateLong(expDate)}</span>
                 </p>
                 {daysRemaining > 0 ? (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold font-mono">
@@ -212,7 +213,7 @@ export default function DealDetailsModal({
                   <BellRing className="w-4 h-4 shrink-0" />
                   <div>
                     <span className="font-bold">When-To-Notify Alert Scheduled: </span>
-                    <span>{new Date(deal.wtn.whenToNotify).toLocaleDateString()}</span>
+                    <span>{formatDateLong(deal.wtn.whenToNotify)}</span>
                   </div>
                 </div>
                 <span className="text-[11px] font-semibold text-sky-600">Auto-Dispatcher Active</span>

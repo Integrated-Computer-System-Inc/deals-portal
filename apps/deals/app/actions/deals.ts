@@ -179,8 +179,8 @@ export async function getScopedDeals(
               dealID: deal.DealLost.dealID,
               competitorVendor: deal.DealLost.competitorVendor || '',
               competitorBrand: deal.DealLost.competitorBrand || '',
-              icsOffer: parseSafeNumber(deal.DealLost.icsOffer),
-              competitorOffer: parseSafeNumber(deal.DealLost.competitorOffer),
+              icsOffer: deal.DealLost.icsOffer || '',
+              competitorOffer: deal.DealLost.competitorOffer || '',
               reason: deal.DealLost.reason || '',
               otherInformation: deal.DealLost.otherInformation || undefined,
             }
@@ -281,8 +281,8 @@ export async function getDealById(
             dealID: deal.DealLost.dealID,
             competitorVendor: deal.DealLost.competitorVendor || '',
             competitorBrand: deal.DealLost.competitorBrand || '',
-            icsOffer: parseSafeNumber(deal.DealLost.icsOffer),
-            competitorOffer: parseSafeNumber(deal.DealLost.competitorOffer),
+            icsOffer: deal.DealLost.icsOffer || '',
+            competitorOffer: deal.DealLost.competitorOffer || '',
             reason: deal.DealLost.reason || '',
             otherInformation: deal.DealLost.otherInformation || undefined,
           }
@@ -695,10 +695,10 @@ export async function saveLostDeal(
     const dealID = Number(payload.dealID);
 
     await prisma.$transaction(async (tx) => {
-      // Update DealHeader status to '8' (Lost)
+      // Update DealHeader status to '7' (Lost)
       await tx.dealHeader.update({
         where: { dealID: dealID },
-        data: { dealStatus: '8' },
+        data: { dealStatus: '7' },
       });
 
       // Target Table: DealLost
@@ -706,12 +706,12 @@ export async function saveLostDeal(
       await tx.dealLost.create({
         data: {
           dealID: dealID,
-          competitorVendor: payload.competitorVendor,
-          competitorBrand: payload.competitorBrand,
-          icsOffer: String(payload.icsOffer),
-          competitorOffer: String(payload.competitorOffer),
-          reason: payload.reason,
-          otherInformation: payload.otherInformation || null,
+          competitorVendor: (payload.competitorVendor || '').trim(),
+          competitorBrand: (payload.competitorBrand || '').trim(),
+          icsOffer: String(payload.icsOffer || 'N/A').trim(),
+          competitorOffer: String(payload.competitorOffer || 'N/A').trim(),
+          reason: (payload.reason || '').trim(),
+          otherInformation: payload.otherInformation ? payload.otherInformation.trim() : null,
         },
       });
     });
@@ -805,114 +805,6 @@ export async function searchCustomers(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[Action: searchCustomers] Error:', message);
-    return { success: false, error: message };
-  }
-}
-
-/**
- * 8. exportDealsCSVData (Server Action)
- * High-performance, lean query specifically designed for streaming / downloading all matching deals to CSV.
- */
-export async function exportDealsCSVData(
-  filter: ScopedDealsFilter
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
-  try {
-    const session = await getServerSession(authOptions);
-    const userRole = filter.userRole || (session?.user as any)?.role || 'admin';
-    const accountName = filter.accountName || (session?.user as any)?.AccountName;
-    const accountGroup = filter.accountGroup || (session?.user as any)?.AccountGroup;
-
-    const searchQuery = (filter.searchQuery || '').trim();
-    const statusFilter = filter.statusFilter || 'ALL';
-    const buFilter = filter.buFilter || 'ALL';
-    const brandFilter = filter.brandFilter || 'ALL';
-
-    const andConditions: any[] = [];
-
-    // Role-based scoping
-    if (userRole === 'ao' && accountName) {
-      andConditions.push({ AssignedAO: accountName });
-    } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      andConditions.push({ BU: accountGroup });
-    }
-
-    if (statusFilter !== 'ALL') {
-      andConditions.push({ dealStatus: String(statusFilter) });
-    }
-
-    if (buFilter !== 'ALL') {
-      andConditions.push({ BU: String(buFilter) });
-    }
-
-    if (brandFilter !== 'ALL' && brandFilter !== '') {
-      andConditions.push({ brand: String(brandFilter) });
-    }
-
-    if (searchQuery) {
-      andConditions.push({
-        OR: [
-          { dealRegID: { contains: searchQuery } },
-          { ProjectName: { contains: searchQuery } },
-          { custName: { contains: searchQuery } },
-          { AssignedAO: { contains: searchQuery } },
-          { brand: { contains: searchQuery } },
-        ],
-      });
-    }
-
-    const whereClause = andConditions.length > 0 ? { AND: andConditions } : {};
-
-    const rawDeals = await prisma.dealHeader.findMany({
-      where: whereClause,
-      select: {
-        dealRegID: true,
-        dtRegistered: true,
-        expDt: true,
-        expiration: true,
-        custName: true,
-        ProjectName: true,
-        brand: true,
-        BU: true,
-        AssignedAO: true,
-        dealStatus: true,
-        DealItems: {
-          select: {
-            currency: true,
-            totalAmt: true,
-          },
-        },
-      },
-      orderBy: {
-        dtCreated: 'desc',
-      },
-    });
-
-    const rows = rawDeals.map((deal) => {
-      const totalsByCurrency: Record<string, number> = {};
-      deal.DealItems.forEach((item) => {
-        const curr = item.currency || 'USD';
-        const amt = parseSafeNumber(item.totalAmt);
-        totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
-      });
-
-      return {
-        dealRegID: deal.dealRegID || '',
-        dtRegistered: deal.dtRegistered,
-        expDt: deal.expDt || deal.expiration,
-        custName: deal.custName || '',
-        projectName: deal.ProjectName || '',
-        brand: deal.brand || '',
-        bu: deal.BU || '',
-        assignedAO: deal.AssignedAO || '',
-        dealStatus: deal.dealStatus || '1',
-        aggregatedTotals: totalsByCurrency,
-      };
-    });
-
-    return { success: true, data: rows };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[Action: exportDealsCSVData] Error:', message);
     return { success: false, error: message };
   }
 }

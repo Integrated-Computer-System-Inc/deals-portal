@@ -12,6 +12,7 @@ import {
   AppModalFooter,
   AppInput,
 } from './ui';
+import { formatDateLong } from './utils/time';
 
 interface WTNModalProps {
   dealID: number;
@@ -95,6 +96,11 @@ export default function WTNModal({
               required
               className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            {wtnDate && (
+              <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium">
+                {formatDateLong(wtnDate)}
+              </p>
+            )}
             <p className="text-[11px] text-muted flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-muted" />
               Automated SMTP dispatcher checks this date to notify Assigned AO & BU Head.
