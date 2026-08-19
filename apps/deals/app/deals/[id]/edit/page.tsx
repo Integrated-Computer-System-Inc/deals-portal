@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
@@ -29,6 +29,7 @@ import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../..
 import CustomerSearchModal from '../../../../components/CustomerSearchModal';
 import WTNModal from '../../../../components/WTNModal';
 import LostDealModal from '../../../../components/LostDealModal';
+import BrandSelect from '../../../../components/BrandSelect';
 import {
   ArrowLeft,
   Search,
@@ -45,7 +46,9 @@ import {
   BellRing,
   Lock,
   Unlock,
+  RefreshCw,
 } from 'lucide-react';
+import RenewalModal from '../../../../components/RenewalModal';
 
 const dealItemSchema = z.object({
   dealItemID: z.number().optional(),
@@ -87,6 +90,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isWtnModalOpen, setIsWtnModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [isCustomerFromIceCream, setIsCustomerFromIceCream] = useState(false);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
@@ -109,7 +113,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
       dtRegistered: defaultRegDate,
       validityDays: 90,
       expDt: defaultExpDate,
-      brand: 'Dell',
+      brand: 'DELL',
       customerID: '',
       custName: '',
       dealRegID: '',
@@ -330,6 +334,12 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     variant: 'default' as const,
   };
 
+  const watchExp = watch('expDt');
+  const daysRemaining = watchExp
+    ? Math.ceil((new Date(watchExp).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+  const canRenew = !isViewOnly && (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       {/* Header Bar */}
@@ -358,6 +368,18 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
         {!isViewOnly && (
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {canRenew && (
+              <button
+                type="button"
+                onClick={() => setIsRenewalModalOpen(true)}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition shadow-xs flex-1 sm:flex-initial cursor-pointer"
+                title="Renew this deal registration (<= 90 days remaining)"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Renewal</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setIsWtnModalOpen(true)}
@@ -525,22 +547,20 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Brand Name *</label>
-              <select
-                {...register('brand')}
-                disabled={isViewOnly}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
-              >
-                <option value="Dell">Dell</option>
-                <option value="HPi">HPi</option>
-                <option value="HPe">HPe</option>
-                <option value="HP Poly">HP Poly</option>
-                <option value="Cisco">Cisco</option>
-                <option value="Microsoft">Microsoft</option>
-                <option value="Lenovo">Lenovo</option>
-                <option value="Fortinet">Fortinet</option>
-                <option value="VMware">VMware</option>
-                <option value="Palo Alto">Palo Alto</option>
-              </select>
+              <Controller
+                control={control}
+                name="brand"
+                render={({ field }) => (
+                  <BrandSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={isViewOnly}
+                    error={errors.brand?.message}
+                    placeholder="Select Brand..."
+                  />
+                )}
+              />
+              {errors.brand && <p className="text-[11px] text-rose-500 mt-1">{errors.brand.message}</p>}
             </div>
 
             <div>
@@ -816,6 +836,21 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         onSuccess={() => {
           setIsLostModalOpen(false);
           router.push('/deals');
+        }}
+      />
+
+      {/* Renewal Modal */}
+      <RenewalModal
+        dealID={dealID}
+        dealRegID={watch('dealRegID') || String(dealID)}
+        custName={watch('custName')}
+        brand={watch('brand')}
+        currentExpDate={watch('expDt')}
+        isOpen={isRenewalModalOpen}
+        onClose={() => setIsRenewalModalOpen(false)}
+        onSuccess={() => {
+          setIsRenewalModalOpen(false);
+          router.push(`/deals/${dealID}`);
         }}
       />
     </div>

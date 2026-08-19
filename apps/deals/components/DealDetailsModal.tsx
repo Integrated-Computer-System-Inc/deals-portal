@@ -13,9 +13,11 @@ import {
   ShieldAlert,
   Loader2,
   Layers,
+  RefreshCw,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
+import RenewalModal from './RenewalModal';
 import {
   AppModal,
   AppModalHeader,
@@ -40,6 +42,7 @@ export default function DealDetailsModal({
   isOpen,
   onClose,
 }: DealDetailsModalProps) {
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const { data: deal = null, isLoading: loading } = useDealQuery(dealID, isOpen);
 
   if (!isOpen) return null;
@@ -54,6 +57,10 @@ export default function DealDetailsModal({
   const daysRemaining = expDate
     ? Math.ceil((new Date(expDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
     : 0;
+
+  const hasRenewals = Boolean(deal?.renewals && deal.renewals.length > 0);
+  const latestRenewal = deal?.latestRenewal || (hasRenewals ? deal?.renewals![0] : null);
+  const canRenew = (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
 
   const totalCalculated = deal?.items?.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0) || 0;
   const mainCurrency = deal?.items?.[0]?.currency || 'PHP';
@@ -123,6 +130,12 @@ export default function DealDetailsModal({
                   {statusMeta.label}
                 </AppChip>
               )}
+              {hasRenewals && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Renewed {deal!.renewals!.length > 1 ? `(${deal!.renewals!.length}x)` : ''}</span>
+                </span>
+              )}
             </div>
             <AppModalDescription>
               Complete registration parameters, SLA scheduling, and line item breakdown.
@@ -190,12 +203,17 @@ export default function DealDetailsModal({
 
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-rose-500" /> Validity & Expiration
+                  <Calendar className="w-3 h-3 text-rose-500" /> {hasRenewals ? 'Effective Renewal & Expiration' : 'Validity & Expiration'}
                 </span>
                 <p className="font-medium text-foreground">
-                  {formatDateLong(deal.dtRegistered)} →{' '}
-                  <span className="font-bold">{formatDateLong(expDate)}</span>
+                  {formatDateLong(latestRenewal ? latestRenewal.dtRenewal : deal.dtRegistered)} →{' '}
+                  <span className="font-bold">{formatDateLong(latestRenewal ? latestRenewal.rexpDt : expDate)}</span>
                 </p>
+                {hasRenewals && (
+                  <p className="text-[10px] text-muted">
+                    Orig Reg: {formatDateLong(deal.dtRegistered)}
+                  </p>
+                )}
                 {daysRemaining > 0 ? (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold font-mono">
                     {daysRemaining} days remaining
@@ -284,14 +302,40 @@ export default function DealDetailsModal({
           Close
         </AppButton>
 
-        {deal && (
-          <Link href={`/deals/${deal.dealID}/edit`}>
-            <AppButton variant="primary" size="sm" leftIcon={<Edit className="w-3.5 h-3.5" />}>
-              Edit Deal
-            </AppButton>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {deal && canRenew && (
+            <button
+              type="button"
+              onClick={() => setIsRenewalModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition shadow-xs cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Renew Deal</span>
+            </button>
+          )}
+
+          {deal && (
+            <Link href={`/deals/${deal.dealID}/edit`}>
+              <AppButton variant="primary" size="sm" leftIcon={<Edit className="w-3.5 h-3.5" />}>
+                Edit Deal
+              </AppButton>
+            </Link>
+          )}
+        </div>
       </AppModalFooter>
+
+      {deal && (
+        <RenewalModal
+          dealID={deal.dealID}
+          dealRegID={deal.dealRegID || String(deal.dealID)}
+          custName={deal.custName}
+          brand={deal.brand}
+          currentExpDate={expDate}
+          isOpen={isRenewalModalOpen}
+          onClose={() => setIsRenewalModalOpen(false)}
+          onSuccess={() => setIsRenewalModalOpen(false)}
+        />
+      )}
     </AppModal>
   );
 }

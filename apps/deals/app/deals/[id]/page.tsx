@@ -21,6 +21,8 @@ import {
   TrendingUp,
   AlertTriangle,
   FileSpreadsheet,
+  RefreshCw,
+  History,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP, UserRole } from '@my-app/types';
@@ -33,6 +35,7 @@ import {
 import { formatDateLong } from '@/components/utils/time';
 import WTNModal from '../../../components/WTNModal';
 import LostDealModal from '../../../components/LostDealModal';
+import RenewalModal from '../../../components/RenewalModal';
 
 export default function DealDetailsPage() {
   const params = useParams();
@@ -44,6 +47,7 @@ export default function DealDetailsPage() {
 
   const [isWtnModalOpen, setIsWtnModalOpen] = useState(false);
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
 
   const role: UserRole = (session?.user as any)?.role || 'admin';
   const canEdit = role === 'admin' || role === 'aa';
@@ -88,6 +92,11 @@ export default function DealDetailsPage() {
   const daysRemaining = expDate
     ? Math.ceil((new Date(expDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
     : 0;
+
+  const hasRenewals = Boolean(deal.renewals && deal.renewals.length > 0);
+  const latestRenewal = deal.latestRenewal || (hasRenewals ? deal.renewals![0] : null);
+
+  const canRenew = canEdit && (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
 
   const currentWtnDate = deal.wtn?.whenToNotify || deal.expDt || deal.expiration || '';
 
@@ -161,6 +170,12 @@ export default function DealDetailsPage() {
                 Deal Details #{deal.dealRegID || deal.dealID}
               </h1>
               <AppChip variant={statusMeta.variant as any}>{statusMeta.label}</AppChip>
+              {hasRenewals && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                  <RefreshCw className="w-3 h-3 animate-spin-reverse" />
+                  <span>Renewed {deal.renewals!.length > 1 ? `(${deal.renewals!.length}x)` : ''}</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-muted truncate">
               Registered record parameters, timeline milestones, and products.
@@ -172,6 +187,18 @@ export default function DealDetailsPage() {
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {canEdit && (
             <>
+              {canRenew && (
+                <button
+                  type="button"
+                  onClick={() => setIsRenewalModalOpen(true)}
+                  className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition shadow-xs active:scale-95"
+                  title="Renew this deal registration (<= 90 days remaining)"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Renewal</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setIsWtnModalOpen(true)}
@@ -272,27 +299,41 @@ export default function DealDetailsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/60 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
-              <Calendar className="w-3 h-3 text-sky-500" /> Date Registered
+              <Calendar className="w-3 h-3 text-sky-500" /> {hasRenewals ? 'Effective Renewal Date' : 'Date Registered'}
             </span>
             <p className="font-mono font-bold text-sm text-foreground">
-              {formatDateLong(deal.dtRegistered)}
+              {formatDateLong(latestRenewal ? latestRenewal.dtRenewal : deal.dtRegistered)}
             </p>
+            {hasRenewals && (
+              <p className="text-[10px] text-muted">
+                Orig: {formatDateLong(deal.dtRegistered)}
+              </p>
+            )}
           </div>
 
           <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/60 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
-              <Clock className="w-3 h-3 text-amber-500" /> Expiration Date
+              <Clock className="w-3 h-3 text-amber-500" /> {hasRenewals ? 'Renewal Expiration' : 'Expiration Date'}
             </span>
             <div className="flex items-center gap-2">
               <p className="font-mono font-bold text-sm text-foreground">
-                {formatDateLong(expDate)}
+                {formatDateLong(latestRenewal ? latestRenewal.rexpDt : expDate)}
               </p>
-              {daysRemaining > 0 && (
+              {daysRemaining > 0 ? (
                 <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                   {daysRemaining}d left
                 </span>
+              ) : (
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  Expired
+                </span>
               )}
             </div>
+            {hasRenewals && deal.expiration && (
+              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                {String(deal.expiration).includes('-') ? `Extended to ${formatDateLong(deal.expiration)}` : `+${deal.expiration} days validity`}
+              </p>
+            )}
           </div>
 
           <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/60 space-y-1">
@@ -381,6 +422,98 @@ export default function DealDetailsPage() {
           </div>
         </div>
       </AppCard>
+
+      {/* Section 4: Renewal History & Timeline */}
+      {hasRenewals && (
+        <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-emerald-600" />
+              <h2 className="font-bold text-sm text-foreground">4. Renewal History & Extensions ({deal.renewals!.length})</h2>
+            </div>
+            {canRenew && (
+              <button
+                type="button"
+                onClick={() => setIsRenewalModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-lg border border-emerald-500/30 transition shadow-xs"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Renew Again</span>
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {deal.renewals!.map((renewal, idx) => {
+              const isLatest = idx === 0;
+              return (
+                <div
+                  key={renewal.renewalID || idx}
+                  className={`p-4 rounded-xl border transition ${
+                    isLatest
+                      ? 'bg-emerald-500/5 border-emerald-500/30 shadow-xs'
+                      : 'bg-neutral/40 border-border/60'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/40 pb-2.5 mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-foreground">
+                        Renewal #{deal.renewals!.length - idx}
+                      </span>
+                      {isLatest && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                          Active Renewal
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted flex items-center gap-2">
+                      <span>Logged: {renewal.dtCreated ? formatDateLong(renewal.dtCreated) : 'N/A'}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-muted block">Renewal Date</span>
+                      <span className="font-mono font-semibold text-foreground">
+                        {formatDateLong(renewal.dtRenewal)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-muted block">New Expiration Date</span>
+                      <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                        {formatDateLong(renewal.rexpDt)}
+                      </span>
+                      {renewal.dtRenewal && renewal.rexpDt && (
+                        <span className="text-[10px] text-muted ml-1.5">
+                          ({Math.max(1, Math.ceil((new Date(renewal.rexpDt).getTime() - new Date(renewal.dtRenewal).getTime()) / (1000 * 60 * 60 * 24)))} days)
+                        </span>
+                      )}
+                    </div>
+                    <div className="sm:col-span-1">
+                      <span className="text-[10px] font-bold uppercase text-muted block">Remarks</span>
+                      <p className="text-foreground text-xs leading-relaxed italic">
+                        {renewal.remarks || 'No remarks provided.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </AppCard>
+      )}
+
+      {/* Renewal Modal */}
+      <RenewalModal
+        dealID={deal.dealID}
+        dealRegID={deal.dealRegID || String(deal.dealID)}
+        custName={deal.custName}
+        brand={deal.brand}
+        currentExpDate={expDate}
+        isOpen={isRenewalModalOpen}
+        onClose={() => setIsRenewalModalOpen(false)}
+        onSuccess={() => setIsRenewalModalOpen(false)}
+      />
 
       {/* WTN Modal */}
       <WTNModal

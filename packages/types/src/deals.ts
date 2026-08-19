@@ -48,6 +48,15 @@ export interface UpdateDealPayload {
   items: DealItemInput[];
 }
 
+export interface SaveDealRenewalPayload {
+  dealID: number;
+  dtRenewal: string | Date;
+  validityDays: number;
+  rexpDt: string | Date;
+  remarks?: string;
+  toEmail?: boolean;
+}
+
 export interface SaveLostDealPayload {
   dealID: number;
   competitorVendor: string;
@@ -93,6 +102,15 @@ export interface CurrencyTotals {
 export interface DealItemRecord extends DealItemInput {
   itemID: number;
   dealID: number;
+}
+
+export interface DealRenewalRecord {
+  renewalID: number;
+  dealID: number;
+  dtRenewal: Date | string;
+  rexpDt: Date | string;
+  remarks?: string | null;
+  dtCreated?: Date | string;
 }
 
 export interface DealWTNRecord {
@@ -142,6 +160,8 @@ export interface DealHeaderRecord {
   wtn?: DealWTNRecord | null;
   response?: DealResponseRecord | null;
   lostInfo?: DealLostRecord | null;
+  renewals?: DealRenewalRecord[];
+  latestRenewal?: DealRenewalRecord | null;
   aggregatedTotals?: CurrencyTotals;
 }
 

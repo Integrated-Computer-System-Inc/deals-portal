@@ -2,19 +2,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
+import { CANONICAL_PRESET_BRANDS } from '@/lib/brandUtils';
 
-export const PRESET_BRANDS = [
-  'Dell',
-  'HPi',
-  'HPe',
-  'HP Poly',
-  'Cisco',
-  'Microsoft',
-  'Lenovo',
-  'Fortinet',
-  'VMware',
-  'Palo Alto',
-] as const;
+export const PRESET_BRANDS = CANONICAL_PRESET_BRANDS;
 
 interface MultiSelectBrandProps {
   value: string[];
@@ -79,7 +69,7 @@ export default function MultiSelectBrand({
   };
 
   const handleAddCustomBrand = () => {
-    const trimmed = searchTerm.trim();
+    const trimmed = searchTerm.trim().toUpperCase();
     if (!trimmed) return;
     if (!value.includes(trimmed)) {
       onChange([...value, trimmed]);

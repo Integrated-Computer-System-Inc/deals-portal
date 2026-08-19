@@ -8,6 +8,7 @@ import {
   updateDeal,
   saveLostDeal,
   updateWTN,
+  saveDealRenewal,
 } from '../app/actions/deals';
 import {
   DealHeaderRecord,
@@ -15,6 +16,7 @@ import {
   CreateDealPayload,
   UpdateDealPayload,
   SaveLostDealPayload,
+  SaveDealRenewalPayload,
   UpdateWTNPayload,
 } from '@my-app/types';
 
@@ -131,3 +133,21 @@ export function useUpdateDealMutation() {
     },
   });
 }
+
+/**
+ * Mutation hook to record a deal renewal with automated cache invalidation
+ */
+export function useRenewDealMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: SaveDealRenewalPayload) => saveDealRenewal(payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      if (variables.dealID) {
+        queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.detail(Number(variables.dealID)) });
+      }
+    },
+  });
+}
+

@@ -6,15 +6,18 @@ import { prisma } from '@my-app/database';
 import {
   CreateDealPayload,
   UpdateDealPayload,
+  SaveDealRenewalPayload,
   SaveLostDealPayload,
   UpdateWTNPayload,
   ScopedDealsFilter,
   DealHeaderRecord,
+  DealRenewalRecord,
   CurrencyTotals,
 } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveDealEmailRecipients } from '@/lib/notifications';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
+import { normalizeBrandName } from '@/lib/brandUtils';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -113,6 +116,9 @@ export async function getScopedDeals(
         DealWTN: true,
         DealResponse: true,
         DealLost: true,
+        Renewals: {
+          orderBy: { dtCreated: 'desc' },
+        },
       },
       orderBy: {
         dtCreated: 'desc',
@@ -125,14 +131,23 @@ export async function getScopedDeals(
         : {}),
     });
 
-    const formattedDeals: DealHeaderRecord[] = rawDeals.map((deal) => {
+    const formattedDeals: DealHeaderRecord[] = rawDeals.map((deal: any) => {
       const totalsByCurrency: CurrencyTotals = {};
 
-      deal.DealItems.forEach((item) => {
+      deal.DealItems.forEach((item: any) => {
         const curr = item.currency || 'USD';
         const amt = parseSafeNumber(item.totalAmt);
         totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
       });
+
+      const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || []).map((r: any) => ({
+        renewalID: r.renewalID,
+        dealID: r.dealID,
+        dtRenewal: r.dtRenewal,
+        rexpDt: r.rexpDt,
+        remarks: r.remarks,
+        dtCreated: r.dtCreated,
+      }));
 
       return {
         dealID: deal.dealID,
@@ -151,7 +166,7 @@ export async function getScopedDeals(
         remarks: deal.remarks || null,
         dtCreated: deal.dtCreated || new Date(),
         dtValidTo: deal.dtValidTo || null,
-        items: deal.DealItems.map((i) => ({
+        items: deal.DealItems.map((i: any) => ({
           itemID: i.dealItemID,
           dealID: i.dealID || deal.dealID,
           itemDesc: i.itemDesc || '',
@@ -185,6 +200,8 @@ export async function getScopedDeals(
               otherInformation: deal.DealLost.otherInformation || undefined,
             }
           : null,
+        renewals: sortedRenewals,
+        latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
         aggregatedTotals: totalsByCurrency,
       };
     });
@@ -215,26 +232,39 @@ export async function getDealById(
   _token?: string
 ): Promise<{ success: boolean; data?: DealHeaderRecord | null; error?: string }> {
   try {
-    const deal = await prisma.dealHeader.findUnique({
+    const rawDeal = await prisma.dealHeader.findUnique({
       where: { dealID: Number(dealID) },
       include: {
         DealItems: true,
         DealWTN: true,
         DealResponse: true,
         DealLost: true,
+        Renewals: {
+          orderBy: { dtCreated: 'desc' },
+        },
       },
     });
 
-    if (!deal) {
+    if (!rawDeal) {
       return { success: true, data: null };
     }
 
+    const deal: any = rawDeal;
     const totalsByCurrency: CurrencyTotals = {};
-    deal.DealItems.forEach((item) => {
+    deal.DealItems.forEach((item: any) => {
       const curr = item.currency || 'USD';
       const amt = parseSafeNumber(item.totalAmt);
       totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
     });
+
+    const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || []).map((r: any) => ({
+      renewalID: r.renewalID,
+      dealID: r.dealID,
+      dtRenewal: r.dtRenewal,
+      rexpDt: r.rexpDt,
+      remarks: r.remarks,
+      dtCreated: r.dtCreated,
+    }));
 
     const formatted: DealHeaderRecord = {
       dealID: deal.dealID,
@@ -253,7 +283,7 @@ export async function getDealById(
       remarks: deal.remarks || null,
       dtCreated: deal.dtCreated || new Date(),
       dtValidTo: deal.dtValidTo || null,
-      items: deal.DealItems.map((i) => ({
+      items: deal.DealItems.map((i: any) => ({
         itemID: i.dealItemID,
         dealID: i.dealID || deal.dealID,
         itemDesc: i.itemDesc || '',
@@ -287,6 +317,8 @@ export async function getDealById(
             otherInformation: deal.DealLost.otherInformation || undefined,
           }
         : null,
+      renewals: sortedRenewals,
+      latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
       aggregatedTotals: totalsByCurrency,
     };
 
@@ -334,6 +366,8 @@ export async function createDeal(
       );
       const nextDealID = Number(maxDealResult?.[0]?.maxId || 0) + 1;
 
+      const normalizedBrand = normalizeBrandName(payload.brand);
+
       // 1. Create DealHeader
       await tx.$executeRawUnsafe(
         `INSERT INTO [dbo].[DealHeader] (
@@ -347,7 +381,7 @@ export async function createDeal(
         regDate,
         String(payload.expDt),
         expDate,
-        payload.brand,
+        normalizedBrand,
         customerIDVal,
         dealRegID,
         payload.ProjectName || payload.projectName,
@@ -489,6 +523,8 @@ export async function updateDeal(
       const oldStatus = currentDeal.dealStatus;
       const newStatus = String(payload.dealStatus);
 
+      const normalizedBrand = normalizeBrandName(payload.brand);
+
       // 1. Target Table: DealHeader
       await tx.dealHeader.update({
         where: { dealID: dealID },
@@ -496,7 +532,7 @@ export async function updateDeal(
           dtRegistered: regDate,
           expiration: String(payload.expDt),
           expDt: expDate,
-          brand: payload.brand,
+          brand: normalizedBrand,
           customerID: typeof payload.customerID === 'string'
             ? (parseInt(payload.customerID, 10) || null)
             : (payload.customerID ?? null),
@@ -722,6 +758,141 @@ export async function saveLostDeal(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[Action: saveLostDeal] Error:', message);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * 7. saveDealRenewal (Server Action)
+ * Records a renewal in DealRenewal table, updates DealHeader expiration and validity,
+ * recalculates dealWTN, and queues an email notification.
+ */
+export async function saveDealRenewal(
+  payload: SaveDealRenewalPayload,
+  _token?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    const domainAccount = (session?.user as any)?.DomainAccount || 'CORP\\DEMOUSER';
+    const userName = (session?.user as any)?.AccountName || 'Portal User';
+    const dealID = Number(payload.dealID);
+
+    const renewalDate = new Date(payload.dtRenewal);
+    const rexpDate = new Date(payload.rexpDt);
+    const validityDays = parseSafeInt(payload.validityDays, 90);
+    const now = new Date();
+
+    // dealWTN Calculation: Set to (rexpDt - 2 days)
+    const twoDaysBeforeRexp = new Date(rexpDate);
+    twoDaysBeforeRexp.setDate(twoDaysBeforeRexp.getDate() - 2);
+    const whenToNotify = now > twoDaysBeforeRexp ? now : twoDaysBeforeRexp;
+
+    await prisma.$transaction(async (tx) => {
+      const currentDeal = await tx.dealHeader.findUnique({
+        where: { dealID: dealID },
+      });
+
+      if (!currentDeal) {
+        throw new Error(`Deal ID ${dealID} not found.`);
+      }
+
+      // 1. Insert into DealRenewal
+      const maxRenewalResult = await tx.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(renewalID), 0) AS maxId FROM [dbo].[DealRenewal]`
+      );
+      const nextRenewalID = Number(maxRenewalResult?.[0]?.maxId || 0) + 1;
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO [dbo].[DealRenewal] (
+          [renewalID], [dealID], [dtRenewal], [rexpDt], [remarks], [dtCreated]
+        ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6)`,
+        nextRenewalID,
+        dealID,
+        renewalDate,
+        rexpDate,
+        payload.remarks || null,
+        now
+      );
+
+      // 2. Update DealHeader (expDt, expiration, dtValidTo, dealStatus = '1' (Registered))
+      const updateData: any = {
+        dealStatus: '1',
+        expiration: String(validityDays),
+        expDt: rexpDate,
+        dtValidTo: rexpDate,
+      };
+
+      await tx.dealHeader.update({
+        where: { dealID: dealID },
+        data: updateData,
+      });
+
+      // 3. Upsert dealWTN
+      await tx.dealWTN.deleteMany({ where: { dealID: dealID } });
+      const maxWtnResult = await tx.$queryRawUnsafe<any[]>(
+        `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
+      );
+      const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO [dbo].[dealWTN] ([id], [dealID], [whenToNotify])
+         VALUES (@P1, @P2, @P3)`,
+        nextWtnId,
+        dealID,
+        whenToNotify
+      );
+
+      // 4. Send Email Notification if requested and BU != 'BU6'
+      const buVal = currentDeal.BU || 'BU5';
+      const aoVal = currentDeal.AssignedAO || 'Unassigned';
+      if (payload.toEmail !== false && buVal !== 'BU6') {
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+
+        const messageHtml = `
+          <h2>Deal Registration: Renewal Notification</h2>
+          <p>The deal for <strong>${currentDeal.custName}</strong> (Ref: <strong>${currentDeal.dealRegID || currentDeal.dealID}</strong>) has been <strong>renewed</strong> by ${userName} (${domainAccount}).</p>
+          <ul>
+            <li><strong>Project Name:</strong> ${currentDeal.ProjectName || 'N/A'}</li>
+            <li><strong>Brand:</strong> ${currentDeal.brand}</li>
+            <li><strong>Business Unit (BU):</strong> ${buVal}</li>
+            <li><strong>Assigned AO:</strong> ${aoVal}</li>
+            <li><strong>Renewal Date:</strong> ${renewalDate.toLocaleDateString()}</li>
+            <li><strong>New Expiration Date:</strong> ${rexpDate.toLocaleDateString()} (${validityDays} days validity)</li>
+            <li><strong>Remarks:</strong> ${payload.remarks || 'No remarks provided'}</li>
+          </ul>
+          <p><a href="${baseUrl}/deals/${dealID}" style="display:inline-block;padding:8px 16px;background:#059669;color:#fff;text-decoration:none;border-radius:4px;">View Renewed Deal</a></p>
+        `;
+
+        const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
+        );
+        const nextNotifId = Number(maxNotifResult?.[0]?.maxId || 0) + 1;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO [dbo].[deals_reg_notification] (
+            [email_id], [creator], [subject], [message], [sendTo], [sendCC], [sendBCC], [dateCreated], [status]
+          ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
+          nextNotifId,
+          domainAccount,
+          `Deal Registration: Renewal Notification (${currentDeal.dealRegID || currentDeal.dealID})`,
+          messageHtml,
+          recipients.sendTo,
+          recipients.sendCC,
+          recipients.sendBCC,
+          now,
+          0
+        );
+      }
+    });
+
+    revalidatePath('/deals');
+    revalidatePath(`/deals/${dealID}`);
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Action: saveDealRenewal] Error:', message);
     return { success: false, error: message };
   }
 }

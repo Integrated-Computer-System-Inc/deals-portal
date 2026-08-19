@@ -17,6 +17,13 @@ export const CANONICAL_PRESET_BRANDS = [
   'ARUBA',
   'SOPHOS',
   'NUTANIX',
+  'APC',
+  'ACRONIS',
+  'SANGFOR',
+  'HUAWEI',
+  'TREND MICRO',
+  'VEEAM',
+  'RUCKUS',
 ] as const;
 
 /**

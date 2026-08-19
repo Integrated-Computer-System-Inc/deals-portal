@@ -28,6 +28,7 @@ import {
 import WTNModal from '../../components/WTNModal';
 import LostDealModal from '../../components/LostDealModal';
 import DealDetailsModal from '../../components/DealDetailsModal';
+import RenewalModal from '../../components/RenewalModal';
 import {
   Search,
   Edit,
@@ -82,6 +83,13 @@ function DealsContent() {
   const [viewTarget, setViewTarget] = useState<number | null>(null);
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
+  const [renewalTarget, setRenewalTarget] = useState<{
+    id: number;
+    regID: string;
+    custName?: string;
+    brand?: string;
+    expDate?: string | Date | null;
+  } | null>(null);
 
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
   const accountGroup = (session?.user as any)?.AccountGroup;
@@ -347,17 +355,26 @@ function DealsContent() {
           ? formatDateLong(record.wtn.whenToNotify)
           : null;
 
+        const hasRenewals = Boolean(record.renewals && record.renewals.length > 0);
+        const latestRenewal = record.latestRenewal || (hasRenewals ? record.renewals![0] : null);
+
         return (
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground whitespace-nowrap">
               <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-              <span>{formatDateLong(record.dtRegistered)}</span>
+              <span>{formatDateLong(latestRenewal ? latestRenewal.dtRenewal : record.dtRegistered)}</span>
             </div>
             <div className="text-[11px] text-muted dark:text-zinc-300 flex items-center gap-1 whitespace-nowrap">
-              <span>Exp: {formatDateLong(expDate)}</span>
+              <span>Exp: {formatDateLong(latestRenewal ? latestRenewal.rexpDt : expDate)}</span>
             </div>
-            <div>
-              {renderExpiryBadge(expDate)}
+            <div className="flex items-center gap-1 flex-wrap">
+              {renderExpiryBadge(latestRenewal ? latestRenewal.rexpDt : expDate)}
+              {hasRenewals && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                  <RefreshCw className="w-2.5 h-2.5" />
+                  <span>Renewed</span>
+                </span>
+              )}
             </div>
             {wtnDateStr && (
               <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 text-[10px] font-semibold border border-sky-500/20 whitespace-nowrap">
@@ -470,7 +487,33 @@ function DealsContent() {
       render: (_: any, record: DealHeaderRecord) => {
         if (!canEdit) return null;
         const statusNum = typeof record.dealStatus === 'number' ? record.dealStatus : parseInt(record.dealStatus) || 1;
+        const expDate = record.expDt || record.expiration;
+        const daysRemaining = expDate
+          ? Math.ceil((new Date(expDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+        const canRenew = (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
+
         const items: MenuProps['items'] = [
+          ...(canRenew
+            ? [
+                {
+                  key: 'renew',
+                  icon: <RefreshCw className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
+                  label: <span className="font-semibold text-emerald-700 dark:text-emerald-300">Renew Deal</span>,
+                  onClick: () =>
+                    setRenewalTarget({
+                      id: record.dealID,
+                      regID: record.dealRegID || String(record.dealID),
+                      custName: record.custName,
+                      brand: record.brand,
+                      expDate: expDate,
+                    }),
+                },
+                {
+                  type: 'divider' as const,
+                },
+              ]
+            : []),
           {
             key: 'edit',
             icon: <Edit className="w-4 h-4 text-zinc-400" />,
@@ -893,6 +936,20 @@ function DealsContent() {
           dealRegID={lostTarget.regID}
           isOpen={true}
           onClose={() => setLostTarget(null)}
+          onSuccess={fetchDeals}
+        />
+      )}
+
+      {/* Renewal Modal */}
+      {renewalTarget && (
+        <RenewalModal
+          dealID={renewalTarget.id}
+          dealRegID={renewalTarget.regID}
+          custName={renewalTarget.custName}
+          brand={renewalTarget.brand}
+          currentExpDate={renewalTarget.expDate}
+          isOpen={true}
+          onClose={() => setRenewalTarget(null)}
           onSuccess={fetchDeals}
         />
       )}

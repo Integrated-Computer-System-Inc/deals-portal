@@ -29,6 +29,7 @@ model DealHeader {
   DealWTN      dealWTN?
   DealResponse DealResponse?
   DealLost     DealLost?
+  Renewals     DealRenewal[]
 
   @@index([AssignedAO, dtCreated])
   @@index([BU, dtCreated])
@@ -137,4 +138,18 @@ model UsersTable {
   UserRole         String?   @db.VarChar(50)
   RememberToken    String?   @db.VarChar(Max)
   DateTimeCreation DateTime  @default(now()) @db.DateTime
+}
+
+model DealRenewal {
+  renewalID    Int       @id
+  dealID       Int
+  dtRenewal    DateTime? @db.Date
+  rexpDt       DateTime? @db.Date
+  remarks      String?   @db.VarChar(Max)
+  dtCreated    DateTime? @default(now()) @db.DateTime
+
+  DealHeader   DealHeader @relation(fields: [dealID], references: [dealID], onDelete: Cascade)
+
+  @@index([dealID])
+  @@index([dtRenewal])
 }

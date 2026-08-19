@@ -2,19 +2,9 @@
 
 import React, { useState, useEffect, useId } from 'react';
 import { Tag, ChevronDown, PenLine } from 'lucide-react';
+import { CANONICAL_PRESET_BRANDS, normalizeBrandName } from '@/lib/brandUtils';
 
-export const PRESET_BRANDS = [
-  'Dell',
-  'HPi',
-  'HPe',
-  'HP Poly',
-  'Cisco',
-  'Microsoft',
-  'Lenovo',
-  'Fortinet',
-  'VMware',
-  'Palo Alto',
-] as const;
+export { CANONICAL_PRESET_BRANDS };
 
 export interface BrandSelectProps {
   value?: string;
@@ -31,28 +21,41 @@ export default function BrandSelect({
   placeholder = 'Select a brand...',
   disabled = false,
 }: BrandSelectProps) {
-  const isPreset = PRESET_BRANDS.includes(value as any);
   const inputId = useId();
+
+  // Helper to resolve preset matching with normalization
+  const findMatchingPreset = (val?: string): string | null => {
+    if (!val || !val.trim()) return null;
+    const normalized = normalizeBrandName(val);
+    const match = CANONICAL_PRESET_BRANDS.find(
+      (p) => p === normalized || p.toUpperCase() === val.trim().toUpperCase()
+    );
+    return match || null;
+  };
+
+  const matchingPreset = findMatchingPreset(value);
+  const isPreset = !!matchingPreset;
 
   // Internal state for selection: either preset name, 'Others', or ''
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
-    if (isPreset) return value;
+    if (matchingPreset) return matchingPreset;
     if (value && value.trim()) return 'Others';
     return '';
   });
 
   const [customBrand, setCustomBrand] = useState<string>(() => {
-    return isPreset ? '' : value || '';
+    return matchingPreset ? '' : (value || '').toUpperCase();
   });
 
   // Sync state if external value changes (e.g. form reset or deal loaded)
   useEffect(() => {
-    if (PRESET_BRANDS.includes(value as any)) {
-      setSelectedCategory(value);
+    const match = findMatchingPreset(value);
+    if (match) {
+      setSelectedCategory(match);
       setCustomBrand('');
     } else if (value && value.trim()) {
       setSelectedCategory('Others');
-      setCustomBrand(value);
+      setCustomBrand(value.trim().toUpperCase());
     } else {
       setSelectedCategory('');
       setCustomBrand('');
@@ -64,7 +67,8 @@ export default function BrandSelect({
     setSelectedCategory(selected);
 
     if (selected === 'Others') {
-      onChange(customBrand.trim());
+      const sanitizedCustom = customBrand.trim().toUpperCase();
+      onChange(sanitizedCustom);
     } else if (selected) {
       setCustomBrand('');
       onChange(selected);
@@ -75,9 +79,9 @@ export default function BrandSelect({
   };
 
   const handleCustomBrandChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const text = e.target.value;
-    setCustomBrand(text);
-    onChange(text);
+    const upperText = e.target.value.toUpperCase();
+    setCustomBrand(upperText);
+    onChange(upperText);
   };
 
   const isOthersSelected = selectedCategory === 'Others';
@@ -89,20 +93,19 @@ export default function BrandSelect({
           value={selectedCategory}
           onChange={handleCategoryChange}
           disabled={disabled}
-          className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground appearance-none transition focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40 ${
-            error ? 'border-rose-500' : 'border-border'
-          }`}
+          className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground appearance-none transition focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40 ${error ? 'border-rose-500 ring-1 ring-rose-500/20' : 'border-border'
+            }`}
         >
           <option value="">{placeholder}</option>
-          <optgroup label="Standard Brands">
-            {PRESET_BRANDS.map((brand) => (
+          <optgroup label="Brands">
+            {CANONICAL_PRESET_BRANDS.map((brand) => (
               <option key={brand} value={brand}>
                 {brand}
               </option>
             ))}
           </optgroup>
           <optgroup label="Custom / Non-Standard">
-            <option value="Others">Others (Enter brand name...)</option>
+            <option value="Others">Others (Enter custom brand...)</option>
           </optgroup>
         </select>
         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted">
@@ -123,16 +126,15 @@ export default function BrandSelect({
               value={customBrand}
               onChange={handleCustomBrandChange}
               disabled={disabled}
-              placeholder="Type custom brand name here..."
-              className={`w-full pl-9 pr-3.5 py-2 bg-background border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/20 ${
-                error && !customBrand.trim() ? 'border-rose-500 ring-1 ring-rose-500/20' : 'border-border'
-              }`}
+              placeholder="e.g. ARISTA, ACER, SPLUNK..."
+              className={`w-full pl-9 pr-3.5 py-2 bg-background border rounded-lg text-sm font-medium uppercase tracking-wide text-foreground placeholder:text-muted placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-primary/20 ${error && !customBrand.trim() ? 'border-rose-500 ring-1 ring-rose-500/20' : 'border-border'
+                }`}
               autoFocus
             />
           </div>
           <p className="text-[11px] text-muted mt-1 ml-1 flex items-center gap-1">
             <Tag className="w-3 h-3 text-primary/70 inline" />
-            <span>Specify custom vendor / brand partner</span>
+            <span>Enter unlisted brand (will be formatted to uppercase)</span>
           </p>
         </div>
       )}

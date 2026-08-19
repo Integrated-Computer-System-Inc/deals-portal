@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
@@ -24,6 +24,7 @@ import {
 import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../../components/utils/time';
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
 import LostDealModal from '../../../components/LostDealModal';
+import BrandSelect from '../../../components/BrandSelect';
 import {
   ArrowLeft,
   Search,
@@ -427,22 +428,18 @@ export default function NewDealPage() {
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Brand Name *</label>
-              <select
-                {...register('brand')}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="">Select Brand...</option>
-                <option value="Dell">Dell</option>
-                <option value="HPi">HPi</option>
-                <option value="HPe">HPe</option>
-                <option value="HP Poly">HP Poly</option>
-                <option value="Cisco">Cisco</option>
-                <option value="Microsoft">Microsoft</option>
-                <option value="Lenovo">Lenovo</option>
-                <option value="Fortinet">Fortinet</option>
-                <option value="VMware">VMware</option>
-                <option value="Palo Alto">Palo Alto</option>
-              </select>
+              <Controller
+                control={control}
+                name="brand"
+                render={({ field }) => (
+                  <BrandSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.brand?.message}
+                    placeholder="Select Brand..."
+                  />
+                )}
+              />
               {errors.brand && <p className="text-[11px] text-rose-500 mt-1">{errors.brand.message}</p>}
             </div>
 
