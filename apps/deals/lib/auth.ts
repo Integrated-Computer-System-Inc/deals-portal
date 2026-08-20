@@ -116,10 +116,12 @@ export const authOptions: NextAuthOptions = {
           let accountGroup = isAdmin ? 'HQ' : 'BU5';
           let domainAccount = `CORP\\${emailPrefix.toUpperCase()}`;
 
-          // 4. Try to fetch rich corporate directory information (if available)
+          // 4. Try to fetch rich corporate directory information with ultra-fast 100ms timeout
           try {
             const encodedEmail = Buffer.from(user.email).toString('base64');
-            const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedEmail}`);
+            const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedEmail}`, {
+              signal: AbortSignal.timeout(100),
+            });
 
             if (res.ok) {
               const data = await res.json();
@@ -131,11 +133,9 @@ export const authOptions: NextAuthOptions = {
                 if (accountData.AccountGroup) accountGroup = accountData.AccountGroup;
                 if (accountData.DomainAccount) domainAccount = accountData.DomainAccount;
               }
-            } else {
-              console.warn('liveSearch API returned non-200, continuing with Google profile info:', res.statusText);
             }
-          } catch (apiError) {
-            console.warn('liveSearch lookup error, continuing with Google profile info:', apiError);
+          } catch {
+            // Fast fallback to Google profile defaults
           }
 
           // 5. Role determination:

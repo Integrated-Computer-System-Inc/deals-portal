@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   FileText,
@@ -14,6 +14,8 @@ import {
   Loader2,
   Layers,
   RefreshCw,
+  History,
+  Clock,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
@@ -43,7 +45,18 @@ export default function DealDetailsModal({
   onClose,
 }: DealDetailsModalProps) {
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<any>(null);
+  const [showAllRenewals, setShowAllRenewals] = useState(false);
   const { data: deal = null, isLoading: loading } = useDealQuery(dealID, isOpen);
+
+  const sortedRenewals = useMemo(() => {
+    if (!deal?.renewals) return [];
+    return [...deal.renewals].sort((a, b) => {
+      const timeB = new Date(b.dtRenewal || b.dtCreated || 0).getTime();
+      const timeA = new Date(a.dtRenewal || a.dtCreated || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [deal?.renewals]);
 
   if (!isOpen) return null;
 
@@ -58,9 +71,12 @@ export default function DealDetailsModal({
     ? Math.ceil((new Date(expDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
     : 0;
 
-  const hasRenewals = Boolean(deal?.renewals && deal.renewals.length > 0);
-  const latestRenewal = deal?.latestRenewal || (hasRenewals ? deal?.renewals![0] : null);
+  const hasRenewals = Boolean(sortedRenewals.length > 0);
+  const latestRenewal = sortedRenewals.length > 0 ? sortedRenewals[0] : null;
   const canRenew = (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
+
+  const visibleRenewals = showAllRenewals ? sortedRenewals : sortedRenewals.slice(0, 3);
+  const hasMoreThanThree = sortedRenewals.length > 3;
 
   const totalCalculated = deal?.items?.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0) || 0;
   const mainCurrency = deal?.items?.[0]?.currency || 'PHP';
@@ -238,6 +254,136 @@ export default function DealDetailsModal({
               </div>
             )}
 
+            {/* Integrated Renewal History Section */}
+            {hasRenewals && (
+              <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/70 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-foreground">
+                    <History className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Renewal History & Extension Log ({deal.renewals!.length})</span>
+                  </div>
+                  {canRenew && (
+                    <button
+                      type="button"
+                      onClick={() => setIsRenewalModalOpen(true)}
+                      className="text-[11px] font-bold text-emerald-600 hover:underline"
+                    >
+                      + Extend Validity
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2.5 max-h-72 overflow-y-auto">
+                  {visibleRenewals.map((renewal: any, idx: number) => {
+                    const isLatest = idx === 0;
+                    const validityDays = renewal.dtRenewal && renewal.rexpDt
+                      ? Math.max(1, Math.ceil((new Date(renewal.rexpDt).getTime() - new Date(renewal.dtRenewal).getTime()) / (1000 * 60 * 60 * 24)))
+                      : null;
+
+                    return (
+                      <div
+                        key={renewal.renewalID || idx}
+                        className={`p-3 rounded-xl border space-y-2.5 transition ${
+                          isLatest
+                            ? 'bg-emerald-500/5 border-emerald-500/30'
+                            : 'bg-background border-border/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] border-b border-border/40 pb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-foreground">
+                              Renewal #{sortedRenewals.length - idx}
+                            </span>
+                            {isLatest && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                Active Extension
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] text-muted">
+                              Logged: {renewal.dtCreated ? formatDateLong(renewal.dtCreated) : 'N/A'}
+                            </span>
+                            {renewal.dtUpdated && (
+                              <span className="text-[9px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                Edited: {formatDateLong(renewal.dtUpdated)}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedRenewalForEdit(renewal);
+                                setIsRenewalModalOpen(true);
+                              }}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 transition cursor-pointer"
+                              title="Edit renewal"
+                            >
+                              <Edit className="w-2.5 h-2.5" />
+                              <span>Edit</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-lg bg-neutral/40 border border-border/50 space-y-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                              <Calendar className="w-2.5 h-2.5 text-sky-500" /> Renewal Date
+                            </span>
+                            <p className="font-mono font-semibold text-xs text-foreground">
+                              {formatDateLong(renewal.dtRenewal)}
+                            </p>
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-neutral/40 border border-border/50 space-y-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5 text-amber-500" /> Extended Expiry
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                                {formatDateLong(renewal.rexpDt)}
+                              </p>
+                              {validityDays && (
+                                <span className="text-[9px] font-mono font-semibold text-emerald-600">
+                                  (+{validityDays}d)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-neutral/40 border border-border/50 space-y-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                              <FileText className="w-2.5 h-2.5 text-sky-500" /> Remarks
+                            </span>
+                            <p className="text-[11px] text-foreground italic truncate">
+                              {renewal.remarks || 'Standard validity renewal'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* See All button for modal */}
+                  {hasMoreThanThree && (
+                    <div className="pt-1.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllRenewals(!showAllRenewals)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-neutral hover:bg-neutral/80 text-foreground font-semibold text-[11px] rounded-lg border border-border transition shadow-xs cursor-pointer"
+                      >
+                        <History className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <span>
+                          {showAllRenewals
+                            ? 'Show Recent 3 Only \u2191'
+                            : `See All (${sortedRenewals.length} Renewals) \u2193`}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Remarks if present */}
             {deal.remarks && (
               <div className="p-3 rounded-xl bg-neutral/60 border border-border/70 text-xs space-y-1">
@@ -332,8 +478,15 @@ export default function DealDetailsModal({
           brand={deal.brand}
           currentExpDate={expDate}
           isOpen={isRenewalModalOpen}
-          onClose={() => setIsRenewalModalOpen(false)}
-          onSuccess={() => setIsRenewalModalOpen(false)}
+          editingRenewal={selectedRenewalForEdit}
+          onClose={() => {
+            setIsRenewalModalOpen(false);
+            setSelectedRenewalForEdit(null);
+          }}
+          onSuccess={() => {
+            setIsRenewalModalOpen(false);
+            setSelectedRenewalForEdit(null);
+          }}
         />
       )}
     </AppModal>

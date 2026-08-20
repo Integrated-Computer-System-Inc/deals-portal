@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import {
   BarChart3,
@@ -26,7 +25,7 @@ import {
   FileText,
   Sparkles,
 } from 'lucide-react';
-import { useDealsQuery } from '@/hooks/useDealsQuery';
+import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 import {
   DealHeaderRecord,
   UserRole,
@@ -46,27 +45,19 @@ import {
   DateRangeValue,
   filterDealByDateRange,
 } from '@/components/DateRangeFilterPopover';
-import { normalizeBrandName } from '@/lib/brandUtils';
+import { normalizeBrandName, calculateBrandDistribution } from '@/lib/brandUtils';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
 import { formatDateLong } from '@/components/utils/time';
+import DealsFilterPopover from '@/components/DealsFilterPopover';
+import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
+import { useModalDealFilters } from '@/components/useModalDealFilters';
+import { ModalDealTable } from '@/components/ModalDealTable';
+import DealLostListModal from '@/components/DealLostListModal';
 
 type ActiveReportType = 'EXPIRY_RISK' | 'BRAND_ANALYTICS' | 'BU_MATRIX' | null;
 
 export default function ReportsPage() {
-  const { data: session } = useSession();
-  const role: UserRole = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || 'Demo User';
-  const accountGroup = (session?.user as any)?.AccountGroup || 'HQ';
-
-  const scopedFilter = useMemo(
-    () => ({
-      userRole: role,
-      accountName,
-      accountGroup,
-    }),
-    [role, accountName, accountGroup]
-  );
-
+  const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
 
   // Global Page Date Range
@@ -75,20 +66,20 @@ export default function ReportsPage() {
     label: 'All Time',
   });
 
-  // Modal States for 4 KPI Drilldowns
+  // Modal States for 5 KPI Drilldowns
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
-  const [registeredSearchInput, setRegisteredSearchInput] = useState('');
-
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
-  const [expiredSearchInput, setExpiredSearchInput] = useState('');
-
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [brandSearchInput, setBrandSearchInput] = useState('');
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
+  const [selectedBrandForDeals, setSelectedBrandForDeals] = useState<string | null>(null);
+  const [isBrandDealsModalOpen, setIsBrandDealsModalOpen] = useState(false);
 
   const [isOtherBUModalOpen, setIsOtherBUModalOpen] = useState(false);
   const [otherBUSearchInput, setOtherBUSearchInput] = useState('');
   const [debouncedOtherBUSearch, setDebouncedOtherBUSearch] = useState('');
+
+  const [isLostReportModalOpen, setIsLostReportModalOpen] = useState(false);
 
   // Modal State for 3 Deep-Dive Report Studios
   const [activeReport, setActiveReport] = useState<ActiveReportType>(null);
@@ -125,14 +116,38 @@ export default function ReportsPage() {
     return () => clearTimeout(timer);
   }, [otherBUSearchInput]);
 
+  // Read URL query parameter on mount / navigation and auto-open relevant modal
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const view = params.get('view');
+    if (!view) return;
+
+    if (view === 'registered') {
+      setIsRegisteredModalOpen(true);
+    } else if (view === 'expired') {
+      setIsExpiredModalOpen(true);
+    } else if (view === 'brands') {
+      setIsBrandModalOpen(true);
+    } else if (view === 'bus') {
+      setIsOtherBUModalOpen(true);
+    } else if (view === 'lost') {
+      setIsLostReportModalOpen(true);
+    } else if (view === 'expiry_risk') {
+      setActiveReport('EXPIRY_RISK');
+    } else if (view === 'brand_analytics') {
+      setActiveReport('BRAND_ANALYTICS');
+    } else if (view === 'bu_matrix') {
+      setActiveReport('BU_MATRIX');
+    }
+  }, []);
+
   // Normalized Deals based on global date range
   const deals = useMemo(() => {
     return allDeals.filter((d: DealHeaderRecord) =>
       filterDealByDateRange(d.dtRegistered || d.dtCreated, globalDateRange)
     );
   }, [allDeals, globalDateRange]);
-
-
 
   const formatAmounts = (deal: DealHeaderRecord) => {
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
@@ -146,10 +161,6 @@ export default function ReportsPage() {
       return `${curr} ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return 'PHP 0.00';
-  };
-
-  const getDealTotalNumeric = (deal: DealHeaderRecord): number => {
-    return deal.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
   };
 
   const now = new Date();
@@ -195,12 +206,10 @@ export default function ReportsPage() {
     }, 0);
   }, [deals]);
 
-  const OFFICIAL_BUS = ['BU1', 'BU2', 'BU5', 'BU8', 'BU10', 'BU12'] as const;
-
   // Calculate official BUs & others breakdown
   const { officialBUsList, otherBUsMap, totalOthersCount, totalOthersValue } = useMemo(() => {
     const officialCounts: Record<string, number> = {};
-    OFFICIAL_BUS.forEach((bu) => {
+    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
       officialCounts[bu] = 0;
     });
 
@@ -209,10 +218,10 @@ export default function ReportsPage() {
     let othersValue = 0;
 
     deals.forEach((d: DealHeaderRecord) => {
-      const rawBu = (d.BU || d.bu || '').toString().trim();
+      const rawBu = normalizeBU(d.BU || d.bu || '');
       const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
 
-      if ((OFFICIAL_BUS as readonly string[]).includes(rawBu)) {
+      if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
       } else {
         const buKey = rawBu || 'Unassigned';
@@ -226,7 +235,7 @@ export default function ReportsPage() {
       }
     });
 
-    const officialList = OFFICIAL_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
+    const officialList = OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
 
     return {
       officialBUsList: officialList,
@@ -236,149 +245,183 @@ export default function ReportsPage() {
     };
   }, [deals]);
 
-  const filteredOtherBUsInModal = useMemo(() => {
-    const entries = Object.entries(otherBUsMap).sort((a, b) => b[1].count - a[1].count);
-    if (!debouncedOtherBUSearch.trim()) return entries;
-    const q = debouncedOtherBUSearch.toLowerCase().trim();
-    return entries.filter(([bu]) => bu.toLowerCase().includes(q));
-  }, [otherBUsMap, debouncedOtherBUSearch]);
-
-  const filteredRegisteredDealsInModal = useMemo(() => {
-    if (!registeredSearchInput.trim()) return registeredDealsList;
-    const q = registeredSearchInput.toLowerCase().trim();
-    return registeredDealsList.filter((d: DealHeaderRecord) => {
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const reg = (d.dealRegID || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      return proj.includes(q) || cust.includes(q) || reg.includes(q) || brand.includes(q) || bu.includes(q);
+  const lostDealsList = useMemo(() => {
+    return deals.filter((d: DealHeaderRecord) => {
+      const statusStr = String(d.dealStatus ?? '');
+      return statusStr === '7' || d.dealStatus === 7 || Boolean(d.lostInfo && d.lostInfo.reason);
     });
-  }, [registeredDealsList, registeredSearchInput]);
+  }, [deals]);
 
-  const filteredExpiredDealsInModal = useMemo(() => {
-    if (!expiredSearchInput.trim()) return expiredDealsList;
-    const q = expiredSearchInput.toLowerCase().trim();
-    return expiredDealsList.filter((d: DealHeaderRecord) => {
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const reg = (d.dealRegID || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      return proj.includes(q) || cust.includes(q) || reg.includes(q) || brand.includes(q) || bu.includes(q);
-    });
-  }, [expiredDealsList, expiredSearchInput]);
+  // Brand Distribution List with Active, Approved, Waiting counts & Revenue
+  const brandDistributionList = useMemo(() => {
+    return calculateBrandDistribution(deals);
+  }, [deals]);
 
-  // Expiration Risk Analytics Computations
-  const expiryAnalytics = useMemo(() => {
-    let criticalCount = 0;
-    let urgentCount = 0;
-    let warningCount = 0;
-    let noticeCount = 0;
-    let expiredCount = 0;
-    let totalRiskAmount = 0;
+  // BU Distribution List with Active, Approved, Waiting counts & Revenue
+  const buDistributionList = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        bu: string;
+        count: number;
+        totalValue: number;
+        activeCount: number;
+        approvedCount: number;
+        waitingCount: number;
+        lostCount: number;
+      }
+    > = {};
 
-    deals.forEach((d) => {
-      const days = getDaysRemaining(d.expDt || d.expiration);
-      const amt = getDealTotalNumeric(d);
-      if (days === null) return;
+    deals.forEach((d: DealHeaderRecord) => {
+      const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
+      const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
+      const statusNum = Number(d.dealStatus);
 
-      if (days <= 0) {
-        expiredCount++;
-      } else if (days <= 3) {
-        criticalCount++;
-        totalRiskAmount += amt;
-      } else if (days <= 7) {
-        urgentCount++;
-        totalRiskAmount += amt;
-      } else if (days <= 15) {
-        warningCount++;
-        totalRiskAmount += amt;
-      } else if (days <= 30) {
-        noticeCount++;
-        totalRiskAmount += amt;
+      if (!map[rawBu]) {
+        map[rawBu] = {
+          bu: rawBu,
+          count: 0,
+          totalValue: 0,
+          activeCount: 0,
+          approvedCount: 0,
+          waitingCount: 0,
+          lostCount: 0,
+        };
+      }
+
+      map[rawBu].count += 1;
+      map[rawBu].totalValue += amt;
+
+      if (statusNum === 1) {
+        map[rawBu].activeCount += 1;
+      } else if (statusNum === 2 || statusNum === 3) {
+        map[rawBu].approvedCount += 1;
+      } else if (statusNum === 0 || statusNum === 4 || isNaN(statusNum)) {
+        map[rawBu].waitingCount += 1;
+      } else if (statusNum === 7 || statusNum === 8) {
+        map[rawBu].lostCount += 1;
       }
     });
 
-    const totalAtRisk = criticalCount + urgentCount + warningCount + noticeCount;
+    return Object.values(map).sort((a, b) => b.count - a.count || b.totalValue - a.totalValue);
+  }, [deals]);
+
+  // Recent Deals Pipeline computation (Top 6 most recent deals)
+  const recentDeals = useMemo(() => {
+    return [...deals]
+      .sort((a, b) => {
+        const timeB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
+        const timeA = new Date(a.dtRegistered || a.dtCreated || 0).getTime();
+        return timeB - timeA;
+      })
+      .slice(0, 6);
+  }, [deals]);
+
+  // Brand Deals modal list and filter hook
+  const brandDealsList = useMemo(() => {
+    if (!selectedBrandForDeals) return [];
+    return deals.filter(
+      (d) => normalizeBrandName(d.brand).toLowerCase() === selectedBrandForDeals.toLowerCase()
+    );
+  }, [deals, selectedBrandForDeals]);
+  const brandDealsFilters = useModalDealFilters(brandDealsList);
+
+  // Hook-based Filter & Sort for Modal Deal Tables
+  const registeredFilters = useModalDealFilters(registeredDealsList);
+  const expiredFilters = useModalDealFilters(expiredDealsList);
+
+  // 2. Expiry Risk Analytics
+  const expiryAnalytics = useMemo(() => {
+    let criticalCount = 0; // <= 3 days
+    let urgentCount = 0;   // <= 7 days
+    let warningCount = 0;  // <= 15 days
+    let noticeCount = 0;   // <= 30 days
+
+    deals.forEach((d) => {
+      const days = getDaysRemaining(d.expDt || d.expiration);
+      if (days === null || days < 0) return;
+      if (days <= 3) criticalCount++;
+      else if (days <= 7) urgentCount++;
+      else if (days <= 15) warningCount++;
+      else if (days <= 30) noticeCount++;
+    });
 
     return {
       criticalCount,
       urgentCount,
       warningCount,
       noticeCount,
-      expiredCount,
-      totalAtRisk,
-      totalRiskAmount,
+      totalAtRisk: criticalCount + urgentCount + warningCount + noticeCount,
     };
   }, [deals]);
 
-  // Brand Performance Analytics Computations
+  // 3. Brand Analytics
   const brandAnalytics = useMemo(() => {
-    const map: Record<string, { count: number; totalValue: number }> = {};
-    let grandTotal = 0;
-
+    const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
     deals.forEach((d) => {
-      const brand = normalizeBrandName(d.brand || '');
-      const amt = getDealTotalNumeric(d);
-      grandTotal += amt;
-
-      if (!map[brand]) {
-        map[brand] = { count: 0, totalValue: 0 };
+      const b = normalizeBrandName(d.brand);
+      if (!map[b]) {
+        map[b] = { count: 0, totalValue: 0, deals: [] };
       }
-      map[brand].count++;
-      map[brand].totalValue += amt;
+      map[b].count++;
+      const amt = d.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
+      map[b].totalValue += amt;
+      map[b].deals.push(d);
     });
 
-    const sorted = Object.entries(map).sort((a, b) => b[1].totalValue - a[1].totalValue);
+    const list = Object.entries(map).sort((a, b) => b[1].totalValue - a[1].totalValue);
+    const grandTotal = list.reduce((sum, [, data]) => sum + data.totalValue, 0);
+
     return {
-      brandsList: sorted,
-      totalBrandsCount: sorted.length,
+      brandsList: list,
+      topBrand: list[0]?.[0] || 'DELL',
+      topBrandValue: list[0]?.[1].totalValue || 0,
       grandTotal,
-      topBrand: sorted[0] ? sorted[0][0] : 'None',
+      totalBrandsCount: list.length,
     };
   }, [deals]);
 
-  const filteredBrandsInModal = useMemo(() => {
-    if (!debouncedBrandSearch.trim()) return brandAnalytics.brandsList;
-    const q = debouncedBrandSearch.toLowerCase().trim();
-    return brandAnalytics.brandsList.filter(([brand]) => brand.toLowerCase().includes(q));
-  }, [brandAnalytics.brandsList, debouncedBrandSearch]);
-
-  // BU Matrix Analytics Computations
+  // 4. BU Performance Analytics
   const buAnalytics = useMemo(() => {
-    const buMap: Record<string, { count: number; totalValue: number; wonCount: number }> = {};
-    let othersCount = 0;
-    let othersValue = 0;
-
+    const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
     deals.forEach((d) => {
       const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
-      const amt = getDealTotalNumeric(d);
-      const isWon = String(d.dealStatus) === '1' || d.dealStatus === 1;
-
-      if (!buMap[rawBu]) {
-        buMap[rawBu] = { count: 0, totalValue: 0, wonCount: 0 };
+      if (!map[rawBu]) {
+        map[rawBu] = { count: 0, totalValue: 0, deals: [] };
       }
-      buMap[rawBu].count++;
-      buMap[rawBu].totalValue += amt;
-      if (isWon) buMap[rawBu].wonCount++;
-
-      if (!(OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
-        othersCount++;
-        othersValue += amt;
-      }
+      map[rawBu].count++;
+      const amt = d.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
+      map[rawBu].totalValue += amt;
+      map[rawBu].deals.push(d);
     });
 
-    const sortedBUs = Object.entries(buMap).sort((a, b) => b[1].count - a[1].count);
+    const list = Object.entries(map).sort((a, b) => b[1].totalValue - a[1].totalValue);
 
     return {
-      buList: sortedBUs,
-      totalBUsCount: sortedBUs.length,
-      othersCount,
-      othersValue,
-      topBU: sortedBUs[0] ? sortedBUs[0][0] : 'BU1',
+      buList: list,
+      topBU: list[0]?.[0] || 'BU1',
+      topBUValue: list[0]?.[1].totalValue || 0,
+      totalBUsCount: list.length,
+      othersCount: totalOthersCount,
+      othersValue: totalOthersValue,
     };
-  }, [deals]);
+  }, [deals, totalOthersCount, totalOthersValue]);
+
+  // Filtered Brands inside Brand Modal
+  const filteredBrandsInModal = useMemo(() => {
+    const list = brandAnalytics.brandsList;
+    if (!debouncedBrandSearch.trim()) return list;
+    const q = debouncedBrandSearch.toLowerCase().trim();
+    return list.filter(([brand]) => brand.toLowerCase().includes(q));
+  }, [brandAnalytics.brandsList, debouncedBrandSearch]);
+
+  // Filtered Other BUs inside Modal
+  const filteredOtherBUsInModal = useMemo(() => {
+    const entries = Object.entries(otherBUsMap).sort((a, b) => b[1].count - a[1].count);
+    if (!debouncedOtherBUSearch.trim()) return entries;
+    const q = debouncedOtherBUSearch.toLowerCase().trim();
+    return entries.filter(([bu]) => bu.toLowerCase().includes(q));
+  }, [otherBUsMap, debouncedOtherBUSearch]);
 
   // Filtered Deals inside the active Report Studio Modal
   const modalFilteredDeals = useMemo(() => {
@@ -415,7 +458,15 @@ export default function ReportsPage() {
         const reg = (d.dealRegID || '').toLowerCase();
         const brand = (d.brand || '').toLowerCase();
         const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
-        if (!proj.includes(q) && !cust.includes(q) && !reg.includes(q) && !brand.includes(q) && !ao.includes(q)) {
+        const remarks = (d.remarks || '').toLowerCase();
+        if (
+          !proj.includes(q) &&
+          !cust.includes(q) &&
+          !reg.includes(q) &&
+          !brand.includes(q) &&
+          !ao.includes(q) &&
+          !remarks.includes(q)
+        ) {
           return false;
         }
       }
@@ -435,88 +486,101 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 sm:p-7 rounded-2xl bg-gradient-to-tr from-primary to-slate-800 text-white shadow-md overflow-hidden">
-        <div className="space-y-2 min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/20 text-white backdrop-blur-sm flex items-center gap-1 border border-white/25">
-              <PieChart className="w-3.5 h-3.5 shrink-0" />
-              <span>Intelligence & SLA Reporting Studio</span>
+      {/* Clean Executive Toolbar (No bulky gradient banner) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+              Reports & Analytics Studio
+            </h1>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+              Live Database
             </span>
           </div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight leading-snug break-words">
-            Executive Deals Reports
-          </h1>
-          <p className="text-xs text-white/80 max-w-xl">
-            Real-time analytics across deal velocity, partner brand market share, and business unit quota distribution.
+          <p className="text-xs text-muted">
+            Portfolio performance, SLA velocity, OEM partner analytics, and division quota matrix.
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <DateRangeFilterPopover value={globalDateRange} onChange={setGlobalDateRange} />
           <Link
             href="/deals"
-            className="flex items-center justify-center gap-1.5 bg-white/15 text-white font-semibold text-xs px-4 py-2.5 rounded-xl hover:bg-white/25 transition border border-white/20 text-center whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card-bg hover:bg-neutral text-foreground font-semibold text-xs border border-border/70 shadow-xs transition"
           >
             <span>Deals Registry</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ExternalLink className="w-3.5 h-3.5 text-muted" />
           </Link>
         </div>
       </div>
 
-      {/* SECTION 1: 4 CORE CLICKABLE KPI TILES */}
+      {/* SECTION 1: 5 EXECUTIVE PERFORMANCE METRICS */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-bold text-muted uppercase tracking-wider">
-            Key Performance Metrics (Click to inspect)
+            Executive Summary KPI Matrix
           </span>
-          <span className="text-[11px] text-muted">Filter: {globalDateRange.label}</span>
+          <span className="text-[11px] text-muted font-medium">Timeframe: {globalDateRange.label}</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {/* KPI 1: Total Registered Deals */}
           <AppCard
             onClick={() => setIsRegisteredModalOpen(true)}
-            className="p-5 bg-card-bg border border-border/60 hover:border-emerald-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group"
+            className="p-4 bg-card-bg border border-border/60 hover:border-emerald-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted">Total Registered Deals</span>
-              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <span className="text-xs font-semibold text-muted truncate">Total Registered Deals</span>
+              <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
             </div>
 
-            <div className="my-2">
-              <div className="text-2xl font-bold font-mono text-emerald-600">{totalRegistered}</div>
-              <div className="text-[11px] text-muted mt-0.5">
-                PHP {grandTotalPipelineValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pipeline
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-20 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-28 rounded" />
               </div>
-            </div>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-emerald-600">{totalRegistered}</div>
+                <div className="text-[11px] text-muted truncate font-mono">
+                  PHP {grandTotalPipelineValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 pt-2 border-t border-border/40">
-              <span>View details</span>
+              <span>View registry</span>
               <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
           </AppCard>
 
-          {/* KPI 2: Expired Deals this Month */}
+          {/* KPI 2: Expired Deals & SLA Risk */}
           <AppCard
             onClick={() => setIsExpiredModalOpen(true)}
-            className="p-5 bg-card-bg border border-border/60 hover:border-rose-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group"
+            className="p-4 bg-card-bg border border-border/60 hover:border-rose-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted">Expired this Month</span>
-              <div className="h-8 w-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <span className="text-xs font-semibold text-muted truncate">Expired this Month</span>
+              <div className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
                 <Clock className="w-4 h-4" />
               </div>
             </div>
 
-            <div className="my-2">
-              <div className="text-2xl font-bold font-mono text-rose-600">{expiredThisMonth}</div>
-              <div className="text-[11px] text-muted mt-0.5">
-                {expiredDealsList.length} total expired all-time
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-16 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-32 rounded" />
               </div>
-            </div>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-rose-600">{expiredThisMonth}</div>
+                <div className="text-[11px] text-muted truncate">
+                  {expiryAnalytics.totalAtRisk} nearing expiry (≤30d)
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-[11px] font-bold text-rose-600 dark:text-rose-400 pt-2 border-t border-border/40">
               <span>View overdue</span>
@@ -524,24 +588,31 @@ export default function ReportsPage() {
             </div>
           </AppCard>
 
-          {/* KPI 3: Active Brands Represented */}
+          {/* KPI 3: Active Partner Brands */}
           <AppCard
             onClick={() => setIsBrandModalOpen(true)}
-            className="p-5 bg-card-bg border border-border/60 hover:border-sky-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group"
+            className="p-4 bg-card-bg border border-border/60 hover:border-sky-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted">Active Brands</span>
-              <div className="h-8 w-8 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <span className="text-xs font-semibold text-muted truncate">Active Brands</span>
+              <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
                 <Layers className="w-4 h-4" />
               </div>
             </div>
 
-            <div className="my-2">
-              <div className="text-2xl font-bold font-mono text-sky-600">{brandAnalytics.totalBrandsCount}</div>
-              <div className="text-[11px] text-muted mt-0.5 truncate">
-                Top Brand: <span className="font-semibold text-foreground">{brandAnalytics.topBrand}</span>
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-16 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-24 rounded" />
               </div>
-            </div>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-sky-600">{brandAnalytics.totalBrandsCount}</div>
+                <div className="text-[11px] text-muted truncate">
+                  Top: <span className="font-semibold text-foreground">{brandAnalytics.topBrand}</span>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-[11px] font-bold text-sky-600 dark:text-sky-400 pt-2 border-t border-border/40">
               <span>Brand breakdown</span>
@@ -552,41 +623,432 @@ export default function ReportsPage() {
           {/* KPI 4: Business Units Covered */}
           <AppCard
             onClick={() => setIsOtherBUModalOpen(true)}
-            className="p-5 bg-card-bg border border-border/60 hover:border-indigo-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group"
+            className="p-4 bg-card-bg border border-border/60 hover:border-indigo-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted">Business Units Covered</span>
-              <div className="h-8 w-8 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <span className="text-xs font-semibold text-muted truncate">Business Units</span>
+              <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
                 <Building2 className="w-4 h-4" />
               </div>
             </div>
 
-            <div className="my-2">
-              <div className="flex items-center gap-1 flex-wrap">
-                {officialBUsList.slice(0, 4).map(([bu, count]) => (
-                  <span
-                    key={bu}
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral/80 text-foreground border border-border/60"
-                  >
-                    {bu}
-                  </span>
-                ))}
-                <span className="text-[10px] text-indigo-600 font-bold">+{totalOthersCount} others</span>
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-20 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-24 rounded" />
               </div>
-              <div className="text-[11px] text-muted mt-1.5 truncate">
-                Top Unit: <span className="font-semibold text-foreground">{buAnalytics.topBU}</span>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-indigo-600">
+                  {OFFICIAL_REGISTERED_BUS.length} + {totalOthersCount}
+                </div>
+                <div className="text-[11px] text-muted truncate">
+                  Top: <span className="font-semibold text-foreground">{buAnalytics.topBU}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400 pt-2 border-t border-border/40">
+              <span>Inspect BUs</span>
+              <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </AppCard>
+
+          {/* KPI 5: Lost Deals & Competitor Intel */}
+          <AppCard
+            onClick={() => setIsLostReportModalOpen(true)}
+            className="p-4 bg-card-bg border border-border/60 hover:border-amber-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted truncate">Lost Deal Review</span>
+              <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                <ShieldAlert className="w-4 h-4" />
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400 pt-2 border-t border-border/40">
-              <span>Inspect all BUs</span>
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-16 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-28 rounded" />
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-amber-600">{lostDealsList.length}</div>
+                <div className="text-[11px] text-muted truncate">
+                  Competitor intelligence
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-600 dark:text-amber-400 pt-2 border-t border-border/40">
+              <span>Review intel</span>
               <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
           </AppCard>
         </div>
       </div>
 
-      {/* SECTION 2: 3 CORE INTERACTIVE REPORT STUDIO TILES */}
+      {/* SECTION 2: RECENT DEALS INTELLIGENCE STREAM (ZERO HORIZONTAL SCROLL) */}
+      <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-border/50 pb-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-500" />
+            <h2 className="font-bold text-sm text-foreground">Recent Deals Activity Stream</h2>
+          </div>
+          <Link
+            href="/deals"
+            className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 hover:underline flex items-center gap-1"
+          >
+            <span>View All Registry Deals</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+          <div className="max-h-[360px] overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse table-auto">
+              <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-2.5 w-[110px]">Deal Ref ID</th>
+                  <th className="py-2.5 px-2.5 min-w-[140px]">Customer & Project</th>
+                  <th className="py-2.5 px-2 w-[85px]">Brand</th>
+                  <th className="py-2.5 px-1.5 text-center w-[55px]">BU</th>
+                  <th className="py-2.5 px-2 w-[95px]">Assigned AO</th>
+                  <th className="py-2.5 px-2 w-[85px]">Expiry Date</th>
+                  <th className="py-2.5 px-1.5 text-center w-[85px]">Status</th>
+                  <th className="py-2.5 px-2.5 text-right w-[110px]">Amount</th>
+                  <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {loading ? (
+                  [1, 2, 3, 4].map((i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="p-2.5"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
+                      <td className="p-2.5"><div className="shimmer-skeleton h-4 w-36 rounded" /></td>
+                      <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                      <td className="p-1.5 text-center"><div className="shimmer-skeleton h-4 w-10 mx-auto rounded" /></td>
+                      <td className="p-2"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
+                      <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                      <td className="p-1.5 text-center"><div className="shimmer-skeleton h-4 w-14 mx-auto rounded" /></td>
+                      <td className="p-2.5 text-right"><div className="shimmer-skeleton h-4 w-20 ml-auto rounded" /></td>
+                      <td className="p-1.5"></td>
+                    </tr>
+                  ))
+                ) : recentDeals.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-xs text-muted">
+                      No recent deal records found for the selected time range.
+                    </td>
+                  </tr>
+                ) : (
+                  recentDeals.map((deal) => {
+                    const statusNum = typeof deal.dealStatus === 'number' ? deal.dealStatus : parseInt(deal.dealStatus || '1') || 1;
+                    const statusMeta = (DEAL_STATUS_MAP as any)[statusNum] || { label: `Status ${deal.dealStatus}`, variant: 'default' };
+
+                    return (
+                      <tr key={deal.dealID} className="hover:bg-neutral/40 transition">
+                        <td className="py-2.5 px-2.5 font-mono font-bold text-sky-600 dark:text-sky-400 truncate">
+                          {deal.dealRegID || `#${deal.dealID}`}
+                        </td>
+                        <td className="py-2.5 px-2.5">
+                          <div className="font-bold text-foreground truncate max-w-[220px]">{deal.custName || 'Unknown Customer'}</div>
+                          <div className="text-[11px] text-muted truncate max-w-[220px]">{deal.ProjectName || deal.projectName || 'Project'}</div>
+                        </td>
+                        <td className="py-2.5 px-2 font-medium text-foreground truncate">
+                          <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[10px] font-bold">
+                            {deal.brand || 'General'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-1.5 text-center">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-neutral border border-border/60">
+                            {deal.BU || deal.bu || 'BU5'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-muted truncate">
+                          {deal.AssignedAO || deal.assignedAO || '-'}
+                        </td>
+                        <td className="py-2.5 px-2 font-mono text-[11px] text-foreground truncate">
+                          {formatDateLong(deal.expDt || deal.expiration)}
+                        </td>
+                        <td className="py-2.5 px-1.5 text-center">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral border border-border/50 truncate inline-block">
+                            {statusMeta.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
+                          {formatAmounts(deal)}
+                        </td>
+                        <td className="py-2.5 px-1.5 text-center">
+                          <Link
+                            href={`/deals/${deal.dealID}`}
+                            className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition inline-flex"
+                            title="View Deal Record"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </AppCard>
+
+      {/* SECTION 3: DETAILED EXECUTIVE DISTRIBUTION MATRICES (BRANDS & BUSINESS UNITS) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Brand Analytics Ledger */}
+        <AppCard className="p-5 bg-card-bg border border-border/60 rounded-2xl shadow-xs space-y-4 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-border/50 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-sm text-foreground">Partner Brand Ecosystem Matrix</h2>
+                  <p className="text-[11px] text-muted">OEM volume share, status mix, and gross value breakdown</p>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-neutral border border-border/60 text-muted">
+                {brandDistributionList.length} Brands
+              </span>
+            </div>
+
+            <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+              <div className="max-h-[380px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse table-auto">
+                  <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-2.5 w-[110px]">Brand</th>
+                      <th className="py-2.5 px-2 w-[100px]">Market Share</th>
+                      <th className="py-2.5 px-2 min-w-[120px]">Status Mix</th>
+                      <th className="py-2.5 px-2.5 text-right w-[110px]">Gross Value</th>
+                      <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {loading ? (
+                      [1, 2, 3, 4].map((i) => (
+                        <tr key={i} className="animate-pulse">
+                          <td className="p-2.5"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
+                          <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                          <td className="p-2"><div className="shimmer-skeleton h-4 w-28 rounded" /></td>
+                          <td className="p-2.5 text-right"><div className="shimmer-skeleton h-4 w-20 ml-auto rounded" /></td>
+                          <td className="p-1.5"></td>
+                        </tr>
+                      ))
+                    ) : brandDistributionList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-xs text-muted">
+                          No brand records found for this date range.
+                        </td>
+                      </tr>
+                    ) : (
+                      brandDistributionList.slice(0, 10).map((item, idx) => {
+                        const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                        return (
+                          <tr
+                            key={item.brand}
+                            onClick={() => {
+                              setSelectedBrandForDeals(item.brand);
+                              setIsBrandDealsModalOpen(true);
+                            }}
+                            className="hover:bg-neutral/40 transition cursor-pointer group"
+                          >
+                            <td className="py-2.5 px-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
+                                <span className="font-bold text-foreground group-hover:text-sky-600 transition truncate">
+                                  {item.brand}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] font-mono">
+                                  <span className="font-semibold text-foreground">{item.count} deals</span>
+                                  <span className="text-muted">{percentage}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full"
+                                    style={{ width: `${Math.max(percentage, 4)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="flex items-center gap-1 text-[10px] font-semibold">
+                                <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20" title="Active">
+                                  {item.activeCount}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Approved">
+                                  {item.approvedCount}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title="Waiting">
+                                  {item.waitingCount}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
+                              PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="py-2.5 px-1.5 text-center">
+                              <ArrowRight className="w-3.5 h-3.5 text-muted group-hover:text-sky-600 group-hover:translate-x-0.5 transition" />
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {!loading && brandDistributionList.length > 0 && (
+            <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+              <span className="text-[11px] text-muted font-medium">
+                Showing top 10 of {brandDistributionList.length} partner brands
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsBrandModalOpen(true)}
+                className="text-xs font-bold text-sky-600 hover:text-sky-700 dark:text-sky-400 flex items-center gap-1 hover:underline transition"
+              >
+                <span>View Full Brand Directory</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </AppCard>
+
+        {/* Business Unit Divisional Ledger */}
+        <AppCard className="p-5 bg-card-bg border border-border/60 rounded-2xl shadow-xs space-y-4 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-border/50 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-sm text-foreground">Divisional Quota & BU Matrix</h2>
+                  <p className="text-[11px] text-muted">Cross-division pipeline velocity, approval mix, and revenue</p>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-neutral border border-border/60 text-muted">
+                {OFFICIAL_REGISTERED_BUS.length} Official BUs
+              </span>
+            </div>
+
+            <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+              <div className="max-h-[380px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse table-auto">
+                  <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-2.5 w-[90px]">Division</th>
+                      <th className="py-2.5 px-2 w-[100px]">Quota Share</th>
+                      <th className="py-2.5 px-2 min-w-[120px]">Status Mix</th>
+                      <th className="py-2.5 px-2.5 text-right w-[110px]">Gross Value</th>
+                      <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {loading ? (
+                      [1, 2, 3, 4].map((i) => (
+                        <tr key={i} className="animate-pulse">
+                          <td className="p-2.5"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                          <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                          <td className="p-2"><div className="shimmer-skeleton h-4 w-28 rounded" /></td>
+                          <td className="p-2.5 text-right"><div className="shimmer-skeleton h-4 w-20 ml-auto rounded" /></td>
+                          <td className="p-1.5"></td>
+                        </tr>
+                      ))
+                    ) : (
+                      <>
+                        {buDistributionList.slice(0, 8).map((item, idx) => {
+                          const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                          return (
+                            <tr key={item.bu} className="hover:bg-neutral/40 transition group">
+                              <td className="py-2.5 px-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
+                                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                    {item.bu}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-2">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between text-[10px] font-mono">
+                                    <span className="font-semibold text-foreground">{item.count} deals</span>
+                                    <span className="text-muted">{percentage}%</span>
+                                  </div>
+                                  <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40">
+                                    <div
+                                      className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 rounded-full"
+                                      style={{ width: `${Math.max(percentage, 4)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-2">
+                                <div className="flex items-center gap-1 text-[10px] font-semibold">
+                                  <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20" title="Active">
+                                    {item.activeCount}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Approved">
+                                    {item.approvedCount}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title="Waiting">
+                                    {item.waitingCount}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
+                                PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="py-2.5 px-1.5 text-center">
+                                <Link
+                                  href={`/deals?search=${encodeURIComponent(item.bu)}`}
+                                  className="p-1 text-muted hover:text-indigo-600 rounded inline-flex transition"
+                                  title={`View ${item.bu} deals in Registry`}
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </Link>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+            <span className="text-[11px] text-muted font-medium">
+              +{totalOthersCount} deals categorized under legacy / specialized units
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsOtherBUModalOpen(true)}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 hover:underline transition"
+            >
+              <span>Inspect All Business Units</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </AppCard>
+      </div>
+
+      {/* SECTION 4: 3 CORE INTERACTIVE REPORT STUDIO TILES */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-bold text-muted uppercase tracking-wider">
@@ -615,19 +1077,25 @@ export default function ReportsPage() {
                   Deal Velocity & Expiration Risk Studio
                 </h2>
                 <p className="text-xs text-muted mt-1 leading-relaxed">
-                  Tracks opportunities approaching 90-day expiry to prevent vendor discount forfeiture and lost protections.
+                  Real-time SLA monitoring and renewal risk tracking for opportunities nearing expiry.
                 </p>
-              </div>
-
-              {/* Micro KPI Strip inside Tile */}
+              </div>              {/* Micro KPI Strip inside Tile */}
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">At Risk (≤30d)</span>
-                  <span className="text-lg font-bold font-mono text-amber-600">{expiryAnalytics.totalAtRisk} deals</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-16 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold font-mono text-amber-600">{expiryAnalytics.totalAtRisk} deals</span>
+                  )}
                 </div>
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">Critical (≤3d)</span>
-                  <span className="text-lg font-bold font-mono text-rose-600">{expiryAnalytics.criticalCount} deals</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-16 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold font-mono text-rose-600">{expiryAnalytics.criticalCount} deals</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -658,19 +1126,27 @@ export default function ReportsPage() {
                   Brand Performance & Market Share Studio
                 </h2>
                 <p className="text-xs text-muted mt-1 leading-relaxed">
-                  Evaluates tier-1 partner vendor performance (Dell, Cisco, HPE, Lenovo, etc.) with normalized brand consolidation.
+                  Revenue pipeline, volume distribution, and market share metrics across OEM partners.
                 </p>
               </div>
 
               {/* Micro KPI Strip inside Tile */}
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">Active Brands</span>
-                  <span className="text-lg font-bold font-mono text-sky-600">{brandAnalytics.totalBrandsCount}</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-12 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold font-mono text-sky-600">{brandAnalytics.totalBrandsCount}</span>
+                  )}
                 </div>
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">Top Brand</span>
-                  <span className="text-lg font-bold text-foreground truncate block">{brandAnalytics.topBrand}</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-20 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold text-foreground truncate block">{brandAnalytics.topBrand}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -689,7 +1165,7 @@ export default function ReportsPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="h-10 w-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Building2 className="w-5 h-5" />
+                  <Building2 className="w-4 h-4" />
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 uppercase tracking-wider">
                   Executive Matrix
@@ -701,19 +1177,29 @@ export default function ReportsPage() {
                   BU & AO Pipeline Health Studio
                 </h2>
                 <p className="text-xs text-muted mt-1 leading-relaxed">
-                  Compares revenue pipeline and deal volumes across the 6 official business units (BU1-BU12) and Account Officers.
+                  Cross-divisional pipeline volume, conversion rates, and revenue leadership across BUs and AOs.
                 </p>
               </div>
 
               {/* Micro KPI Strip inside Tile */}
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">Covered BUs</span>
-                  <span className="text-lg font-bold font-mono text-indigo-600">6 + Others</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-20 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold font-mono text-indigo-600">
+                      {OFFICIAL_REGISTERED_BUS.length} + Others
+                    </span>
+                  )}
                 </div>
-                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40">
+                <div className="p-2.5 rounded-xl bg-neutral/40 border border-border/40 min-h-[64px] flex flex-col justify-between">
                   <span className="text-[10px] text-muted font-medium block">Top Revenue BU</span>
-                  <span className="text-lg font-bold text-foreground truncate block">{buAnalytics.topBU}</span>
+                  {loading ? (
+                    <div className="shimmer-skeleton h-6 w-16 rounded mt-1" />
+                  ) : (
+                    <span className="text-lg font-bold text-foreground truncate block">{buAnalytics.topBU}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -727,7 +1213,7 @@ export default function ReportsPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 4 KPI DRILLDOWN MODALS */}
+      {/* 5 KPI DRILLDOWN MODALS (LANDSCAPE UNIFORM FORMAT WITH FILTER & SORT) */}
       {/* ========================================================================= */}
 
       {/* KPI Modal 1: Registered Deals Drilldown */}
@@ -735,9 +1221,9 @@ export default function ReportsPage() {
         open={isRegisteredModalOpen}
         onClose={() => {
           setIsRegisteredModalOpen(false);
-          setRegisteredSearchInput('');
+          registeredFilters.resetFilters();
         }}
-        width={720}
+        width={1160}
       >
         <AppModal.Header>
           <div className="flex items-center gap-2">
@@ -745,81 +1231,55 @@ export default function ReportsPage() {
             <div>
               <AppModal.Title>Active Registered Deals</AppModal.Title>
               <AppModal.Description>
-                Detailed drill-down of all approved and registered deals across business units.
+                Detailed overview of approved opportunities across business units and account officers.
               </AppModal.Description>
             </div>
           </div>
         </AppModal.Header>
 
-        <AppModal.Body>
-          <div className="space-y-4">
-            <AppInput
-              prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search registered deals by Project, Customer, Reg ID, Brand..."
-              value={registeredSearchInput}
-              onChange={(e: any) => setRegisteredSearchInput(e.target.value)}
-              allowClear
-              size="md"
-            />
-
-            <div className="border border-border/60 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto divide-y divide-border/40">
-              {filteredRegisteredDealsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <CheckCircle2 className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No registered deals found</p>
-                </div>
-              ) : (
-                filteredRegisteredDealsInModal.map((deal, idx) => (
-                  <div
-                    key={deal.dealID || idx}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                  >
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-mono font-bold text-sky-600 dark:text-sky-400">
-                          {deal.dealRegID || `#${deal.dealID}`}
-                        </span>
-                        <span className="font-bold text-foreground truncate">{deal.custName}</span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral text-muted border border-border/50">
-                          {deal.BU || deal.bu}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted truncate">{deal.ProjectName || deal.projectName}</div>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 text-right">
-                      <div>
-                        <div className="font-mono font-bold text-foreground text-xs">
-                          {formatAmounts(deal)}
-                        </div>
-                        <div className="text-[10px] text-muted">{deal.brand}</div>
-                      </div>
-                      <Link
-                        href={`/deals/${deal.dealID}`}
-                        onClick={() => setIsRegisteredModalOpen(false)}
-                        className="p-1 text-muted hover:text-emerald-600 rounded hover:bg-neutral transition"
-                        title="View Deal"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
-                ))
-              )}
+        <AppModal.Body className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search registered deals by Project, Customer, Reg ID, Brand, BU, AO, Remarks..."
+                value={registeredFilters.searchQuery}
+                onChange={(e: any) => registeredFilters.setSearchQuery(e.target.value)}
+                allowClear
+                size="md"
+              />
             </div>
+            <DealsFilterPopover
+              buFilters={registeredFilters.buFilters}
+              onBuFiltersChange={registeredFilters.setBuFilters}
+              expiryFilters={registeredFilters.expiryFilters}
+              onExpiryFiltersChange={registeredFilters.setExpiryFilters}
+              statusFilters={registeredFilters.statusFilters}
+              onStatusFiltersChange={registeredFilters.setStatusFilters}
+              officialBUs={OFFICIAL_REGISTERED_BUS}
+            />
+            <DealsSortPopover
+              value={registeredFilters.sortConfig}
+              onChange={registeredFilters.setSortConfig}
+            />
           </div>
+
+          <ModalDealTable
+            deals={registeredFilters.filteredAndSortedDeals}
+            onCloseModal={() => setIsRegisteredModalOpen(false)}
+          />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredRegisteredDealsInModal.length} of {registeredDealsList.length} registered deals
+            Showing {registeredFilters.filteredAndSortedDeals.length} of {registeredDealsList.length} registered deals
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsRegisteredModalOpen(false);
-              setRegisteredSearchInput('');
+              registeredFilters.resetFilters();
             }}
           >
             Close
@@ -832,9 +1292,9 @@ export default function ReportsPage() {
         open={isExpiredModalOpen}
         onClose={() => {
           setIsExpiredModalOpen(false);
-          setExpiredSearchInput('');
+          expiredFilters.resetFilters();
         }}
-        width={720}
+        width={1160}
       >
         <AppModal.Header>
           <div className="flex items-center gap-2">
@@ -848,77 +1308,49 @@ export default function ReportsPage() {
           </div>
         </AppModal.Header>
 
-        <AppModal.Body>
-          <div className="space-y-4">
-            <AppInput
-              prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search expired deals by Project, Customer, Reg ID, Brand..."
-              value={expiredSearchInput}
-              onChange={(e: any) => setExpiredSearchInput(e.target.value)}
-              allowClear
-              size="md"
-            />
-
-            <div className="border border-border/60 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto divide-y divide-border/40">
-              {filteredExpiredDealsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <Clock className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No expired deals found</p>
-                </div>
-              ) : (
-                filteredExpiredDealsInModal.map((deal, idx) => (
-                  <div
-                    key={deal.dealID || idx}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                  >
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-mono font-bold text-rose-600">
-                          {deal.dealRegID || `#${deal.dealID}`}
-                        </span>
-                        <span className="font-bold text-foreground truncate">{deal.custName}</span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
-                          Expired
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted truncate">{deal.ProjectName || deal.projectName}</div>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 text-right">
-                      <div>
-                        <div className="font-mono font-bold text-foreground text-xs">
-                          {formatAmounts(deal)}
-                        </div>
-                        <div className="text-[10px] text-rose-500">
-                          Expired {formatDateLong(deal.expDt)}
-                        </div>
-                      </div>
-                      <Link
-                        href={`/deals/${deal.dealID}`}
-                        onClick={() => setIsExpiredModalOpen(false)}
-                        className="p-1 text-muted hover:text-rose-600 rounded hover:bg-neutral transition"
-                        title="View Deal"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
-                ))
-              )}
+        <AppModal.Body className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search expired deals by Project, Customer, Reg ID, Brand, BU, AO, Remarks..."
+                value={expiredFilters.searchQuery}
+                onChange={(e: any) => expiredFilters.setSearchQuery(e.target.value)}
+                allowClear
+                size="md"
+              />
             </div>
+            <DealsFilterPopover
+              buFilters={expiredFilters.buFilters}
+              onBuFiltersChange={expiredFilters.setBuFilters}
+              expiryFilters={expiredFilters.expiryFilters}
+              onExpiryFiltersChange={expiredFilters.setExpiryFilters}
+              statusFilters={expiredFilters.statusFilters}
+              onStatusFiltersChange={expiredFilters.setStatusFilters}
+              officialBUs={OFFICIAL_REGISTERED_BUS}
+            />
+            <DealsSortPopover
+              value={expiredFilters.sortConfig}
+              onChange={expiredFilters.setSortConfig}
+            />
           </div>
+
+          <ModalDealTable
+            deals={expiredFilters.filteredAndSortedDeals}
+            onCloseModal={() => setIsExpiredModalOpen(false)}
+          />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredExpiredDealsInModal.length} of {expiredDealsList.length} expired deals
+            Showing {expiredFilters.filteredAndSortedDeals.length} of {expiredDealsList.length} expired deals
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsExpiredModalOpen(false);
-              setExpiredSearchInput('');
+              expiredFilters.resetFilters();
             }}
           >
             Close
@@ -932,8 +1364,9 @@ export default function ReportsPage() {
         onClose={() => {
           setIsBrandModalOpen(false);
           setBrandSearchInput('');
+          setDebouncedBrandSearch('');
         }}
-        width={680}
+        width={1160}
       >
         <AppModal.Header>
           <div className="flex items-center gap-2">
@@ -947,8 +1380,8 @@ export default function ReportsPage() {
           </div>
         </AppModal.Header>
 
-        <AppModal.Body>
-          <div className="space-y-4">
+        <AppModal.Body className="space-y-4">
+          <div className="relative">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search brand (e.g. Dell, Cisco, HPE, Lenovo)..."
@@ -957,44 +1390,44 @@ export default function ReportsPage() {
               allowClear
               size="md"
             />
+          </div>
 
-            <div className="border border-border/60 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto divide-y divide-border/40">
-              {filteredBrandsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <Layers className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No matching brands found</p>
-                </div>
-              ) : (
-                filteredBrandsInModal.map(([brand, data], idx) => (
-                  <div
-                    key={brand}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                      <span className="text-[10px] font-mono font-bold text-muted w-5">#{idx + 1}</span>
-                      <span className="font-bold text-foreground truncate">{brand}</span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
-                        {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0 text-right">
-                      <div className="font-mono font-bold text-foreground text-xs">
-                        PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </div>
-                      <Link
-                        href={`/deals?brand=${encodeURIComponent(brand)}`}
-                        onClick={() => setIsBrandModalOpen(false)}
-                        className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition"
-                        title={`View ${brand} deals in registry`}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
+          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
+            {filteredBrandsInModal.length === 0 ? (
+              <div className="p-6 text-center text-muted text-xs space-y-1">
+                <Layers className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
+                <p className="font-semibold text-foreground">No matching brands found</p>
+              </div>
+            ) : (
+              filteredBrandsInModal.map(([brand, data], idx) => (
+                <div
+                  key={brand}
+                  className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
+                >
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <span className="text-[10px] font-mono font-bold text-muted w-5">#{idx + 1}</span>
+                    <span className="font-bold text-foreground truncate">{brand}</span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
+                      {data.count} {data.count === 1 ? 'deal' : 'deals'}
+                    </span>
                   </div>
-                ))
-              )}
-            </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0 text-right">
+                    <div className="font-mono font-bold text-foreground text-xs">
+                      PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </div>
+                    <Link
+                      href={`/deals?brand=${encodeURIComponent(brand)}`}
+                      onClick={() => setIsBrandModalOpen(false)}
+                      className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition"
+                      title={`View ${brand} deals in registry`}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </AppModal.Body>
 
@@ -1008,6 +1441,84 @@ export default function ReportsPage() {
             onClick={() => {
               setIsBrandModalOpen(false);
               setBrandSearchInput('');
+              setDebouncedBrandSearch('');
+            }}
+          >
+            Close
+          </AppButton>
+        </AppModal.Footer>
+      </AppModal>
+
+      {/* Brand Deals Drilldown Modal (Landscape Table with Filter & Sort) */}
+      <AppModal
+        open={isBrandDealsModalOpen}
+        onClose={() => {
+          setIsBrandDealsModalOpen(false);
+          setSelectedBrandForDeals(null);
+          brandDealsFilters.resetFilters();
+        }}
+        width={1160}
+      >
+        <AppModal.Header>
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-600 shrink-0">
+              <Tag className="w-4 h-4" />
+            </div>
+            <div>
+              <AppModal.Title>
+                {selectedBrandForDeals || 'Brand'} — Deals Breakdown
+              </AppModal.Title>
+              <AppModal.Description>
+                Detailed pipeline and registered opportunities under {selectedBrandForDeals || 'this brand'}.
+              </AppModal.Description>
+            </div>
+          </div>
+        </AppModal.Header>
+
+        <AppModal.Body className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder={`Search ${selectedBrandForDeals || ''} deals by Customer, Reg ID, BU, AO, Remarks...`}
+                value={brandDealsFilters.searchQuery}
+                onChange={(e: any) => brandDealsFilters.setSearchQuery(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+            <DealsFilterPopover
+              buFilters={brandDealsFilters.buFilters}
+              onBuFiltersChange={brandDealsFilters.setBuFilters}
+              expiryFilters={brandDealsFilters.expiryFilters}
+              onExpiryFiltersChange={brandDealsFilters.setExpiryFilters}
+              statusFilters={brandDealsFilters.statusFilters}
+              onStatusFiltersChange={brandDealsFilters.setStatusFilters}
+              officialBUs={OFFICIAL_REGISTERED_BUS}
+            />
+            <DealsSortPopover
+              value={brandDealsFilters.sortConfig}
+              onChange={brandDealsFilters.setSortConfig}
+            />
+          </div>
+
+          <ModalDealTable
+            deals={brandDealsFilters.filteredAndSortedDeals}
+            onCloseModal={() => setIsBrandDealsModalOpen(false)}
+          />
+        </AppModal.Body>
+
+        <AppModal.Footer className="flex items-center justify-between pt-2">
+          <span className="text-[11px] text-muted">
+            Showing {brandDealsFilters.filteredAndSortedDeals.length} of {brandDealsList.length} deals
+          </span>
+          <AppButton
+            variant="neutral"
+            size="sm"
+            onClick={() => {
+              setIsBrandDealsModalOpen(false);
+              setSelectedBrandForDeals(null);
+              brandDealsFilters.resetFilters();
             }}
           >
             Close
@@ -1021,8 +1532,9 @@ export default function ReportsPage() {
         onClose={() => {
           setIsOtherBUModalOpen(false);
           setOtherBUSearchInput('');
+          setDebouncedOtherBUSearch('');
         }}
-        width={620}
+        width={1160}
       >
         <AppModal.Header>
           <div className="flex items-center gap-2">
@@ -1036,8 +1548,8 @@ export default function ReportsPage() {
           </div>
         </AppModal.Header>
 
-        <AppModal.Body>
-          <div className="space-y-4">
+        <AppModal.Body className="space-y-4">
+          <div className="relative">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search other business units (e.g. CAC, CSD, ESD)..."
@@ -1046,46 +1558,43 @@ export default function ReportsPage() {
               allowClear
               size="md"
             />
+          </div>
 
-            <div className="border border-border/60 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto divide-y divide-border/40">
-              {filteredOtherBUsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <Building2 className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No matching business units found</p>
-                </div>
-              ) : (
-                filteredOtherBUsInModal.map(([bu, data], idx) => (
-                  <div
-                    key={bu}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-[10px] font-mono font-bold text-muted w-5">#{idx + 1}</span>
-                      <span className="font-bold px-2 py-0.5 rounded border text-indigo-400 bg-indigo-500/15 border-indigo-500/30">
-                        {bu}
-                      </span>
-                      <span className="text-[10px] font-semibold text-muted">
-                        {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0 text-right">
-                      <div className="font-mono font-bold text-foreground text-xs">
-                        PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </div>
-                      <Link
-                        href={`/deals?search=${encodeURIComponent(bu)}`}
-                        onClick={() => setIsOtherBUModalOpen(false)}
-                        className="p-1 text-muted hover:text-indigo-600 rounded hover:bg-neutral transition"
-                        title={`View ${bu} deals in registry`}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
+          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
+            {filteredOtherBUsInModal.length === 0 ? (
+              <div className="p-6 text-center text-muted text-xs space-y-1">
+                <Building2 className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
+                <p className="font-semibold text-foreground">No matching business units found</p>
+              </div>
+            ) : (
+              filteredOtherBUsInModal.map(([bu, data]) => (
+                <div
+                  key={bu}
+                  className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
+                >
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <span className="font-bold text-foreground truncate">{bu}</span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">
+                      {data.count} {data.count === 1 ? 'deal' : 'deals'}
+                    </span>
                   </div>
-                ))
-              )}
-            </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0 text-right">
+                    <div className="font-mono font-bold text-foreground text-xs">
+                      PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </div>
+                    <Link
+                      href={`/deals?search=${encodeURIComponent(bu)}`}
+                      onClick={() => setIsOtherBUModalOpen(false)}
+                      className="p-1 text-muted hover:text-indigo-600 rounded hover:bg-neutral transition"
+                      title={`View ${bu} deals in registry`}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </AppModal.Body>
 
@@ -1099,6 +1608,7 @@ export default function ReportsPage() {
             onClick={() => {
               setIsOtherBUModalOpen(false);
               setOtherBUSearchInput('');
+              setDebouncedOtherBUSearch('');
             }}
           >
             Close
@@ -1106,13 +1616,21 @@ export default function ReportsPage() {
         </AppModal.Footer>
       </AppModal>
 
+      {/* KPI Modal 5: Lost Deals & Competitor Intel Drilldown */}
+      <DealLostListModal
+        isOpen={isLostReportModalOpen}
+        onClose={() => setIsLostReportModalOpen(false)}
+        deals={deals}
+        loading={loading}
+      />
+
       {/* ========================================================================= */}
       {/* 3 CUSTOM-VIEW DEEP DIVE REPORT STUDIO MODALS */}
       {/* ========================================================================= */}
       <AppModal
         open={activeReport !== null}
         onClose={() => setActiveReport(null)}
-        width={840}
+        width={1160}
       >
         <AppModal.Header>
           <div className="flex items-center justify-between gap-4 w-full pr-6">
@@ -1145,7 +1663,7 @@ export default function ReportsPage() {
                 <div className="flex-1 max-w-sm">
                   <AppInput
                     prefix={<Search className="w-3.5 h-3.5 text-muted" />}
-                    placeholder="Filter records by keyword..."
+                    placeholder="Filter records by keyword, AO, BU, remarks..."
                     value={modalSearchQuery}
                     onChange={(e: any) => setModalSearchQuery(e.target.value)}
                     allowClear
@@ -1154,13 +1672,13 @@ export default function ReportsPage() {
                 </div>
 
                 {/* View Mode Switcher */}
-                <div className="flex items-center gap-1 p-1 rounded-xl bg-neutral/80 border border-border/60 self-start sm:self-auto">
+                <div className="flex items-center gap-1 bg-background p-1 rounded-xl border border-border shadow-xs shrink-0 self-start sm:self-auto">
                   <button
                     type="button"
                     onClick={() => setModalViewMode('SUMMARY')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
                       modalViewMode === 'SUMMARY'
-                        ? 'bg-primary text-white shadow-xs'
+                        ? 'bg-primary text-white shadow-xs font-bold'
                         : 'text-muted hover:text-foreground'
                     }`}
                   >
@@ -1169,9 +1687,9 @@ export default function ReportsPage() {
                   <button
                     type="button"
                     onClick={() => setModalViewMode('CHARTS')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
                       modalViewMode === 'CHARTS'
-                        ? 'bg-primary text-white shadow-xs'
+                        ? 'bg-primary text-white shadow-xs font-bold'
                         : 'text-muted hover:text-foreground'
                     }`}
                   >
@@ -1180,13 +1698,13 @@ export default function ReportsPage() {
                   <button
                     type="button"
                     onClick={() => setModalViewMode('GRID')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
                       modalViewMode === 'GRID'
-                        ? 'bg-primary text-white shadow-xs'
+                        ? 'bg-primary text-white shadow-xs font-bold'
                         : 'text-muted hover:text-foreground'
                     }`}
                   >
-                    Data Grid
+                    Data Grid ({modalFilteredDeals.length})
                   </button>
                 </div>
               </div>
@@ -1204,7 +1722,7 @@ export default function ReportsPage() {
                     className="px-2 py-1 rounded-lg bg-card-bg border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                   >
                     <option value="ALL">All Business Units</option>
-                    {OFFICIAL_BUS.map((bu) => (
+                    {OFFICIAL_REGISTERED_BUS.map((bu) => (
                       <option key={bu} value={bu}>
                         {bu}
                       </option>
@@ -1306,7 +1824,7 @@ export default function ReportsPage() {
                     <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
                       <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Business Units</span>
                       <span className="text-xl font-bold font-mono text-indigo-600 mt-1 block">
-                        6 Official + {buAnalytics.othersCount} Others
+                        {OFFICIAL_REGISTERED_BUS.length} Official + {buAnalytics.othersCount} Others
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
@@ -1416,60 +1934,12 @@ export default function ReportsPage() {
               </div>
             )}
 
-            {/* VIEW MODE 3: IN-APP DATA GRID */}
+            {/* VIEW MODE 3: IN-APP DATA GRID WITH REMARKS */}
             {modalViewMode === 'GRID' && (
-              <div className="border border-border/60 rounded-xl overflow-hidden max-h-[360px] overflow-y-auto divide-y divide-border/40">
-                {modalFilteredDeals.length === 0 ? (
-                  <div className="p-8 text-center text-muted text-xs space-y-1">
-                    <FileText className="w-6 h-6 mx-auto text-muted/50 mb-1" />
-                    <p className="font-semibold text-foreground">No matching deals found</p>
-                    <p>Try clearing or adjusting the custom filters.</p>
-                  </div>
-                ) : (
-                  modalFilteredDeals.map((deal) => (
-                    <div
-                      key={deal.dealID}
-                      className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                    >
-                      <div className="space-y-1 flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono font-bold text-primary">
-                            {deal.dealRegID || `#${deal.dealID}`}
-                          </span>
-                          <span className="font-bold text-foreground truncate">{deal.custName}</span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral text-muted border border-border/50">
-                            {deal.BU || deal.bu}
-                          </span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
-                            {deal.brand}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted truncate">{deal.ProjectName || deal.projectName}</div>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0 text-right">
-                        <div>
-                          <div className="font-mono font-bold text-foreground text-xs">
-                            {formatAmounts(deal)}
-                          </div>
-                          <div className="text-[10px] text-muted">
-                            Exp: {formatDateLong(deal.expDt)}
-                          </div>
-                        </div>
-
-                        <Link
-                          href={`/deals/${deal.dealID}`}
-                          onClick={() => setActiveReport(null)}
-                          className="p-1 text-muted hover:text-primary rounded hover:bg-neutral transition"
-                          title="View Deal"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+              <ModalDealTable
+                deals={modalFilteredDeals}
+                onCloseModal={() => setActiveReport(null)}
+              />
             )}
           </div>
         </AppModal.Body>

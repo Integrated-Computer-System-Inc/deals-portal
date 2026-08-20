@@ -35,6 +35,10 @@ function parseSafeInt(val: any, fallback = 0): number {
   return isNaN(num) ? fallback : num;
 }
 
+export async function invalidateServerDealsCache() {
+  // No-op / Client TanStack Query handles caching
+}
+
 /**
  * 1. getScopedDeals / getDealsList (Server Action / Query)
  * Retrieves filtered active deals based on user role (AO, PM, BU Head, or Admin).
@@ -54,8 +58,8 @@ export async function getScopedDeals(
   try {
     const session = await getServerSession(authOptions);
     const userRole = filter.userRole || (session?.user as any)?.role || 'admin';
-    const accountName = filter.accountName || (session?.user as any)?.AccountName;
-    const accountGroup = filter.accountGroup || (session?.user as any)?.AccountGroup;
+    const accountName = (filter.accountName || (session?.user as any)?.AccountName || session?.user?.name || '').trim();
+    const accountGroup = (filter.accountGroup || (session?.user as any)?.AccountGroup || '').trim();
 
     const page = Math.max(1, filter.page || 1);
     const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
@@ -66,11 +70,33 @@ export async function getScopedDeals(
 
     const andConditions: any[] = [];
 
-    // Role-based scoping
+    // Role-based scoping (handles case insensitivity, whitespace, and BU formatting variations)
     if (userRole === 'ao' && accountName) {
-      andConditions.push({ AssignedAO: accountName });
+      const nameParts = accountName.split(/\s+/).filter((p: string) => p.length > 1);
+      andConditions.push({
+        OR: [
+          { AssignedAO: accountName },
+          { AssignedAO: { contains: accountName } },
+          ...(nameParts.length > 1
+            ? [
+                {
+                  AND: nameParts.map((part: string) => ({
+                    AssignedAO: { contains: part },
+                  })),
+                },
+              ]
+            : []),
+        ],
+      });
     } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      andConditions.push({ BU: accountGroup });
+      const normalized = normalizeBusinessUnit(accountGroup);
+      andConditions.push({
+        OR: [
+          { BU: accountGroup },
+          { BU: normalized },
+          { BU: { contains: accountGroup } },
+        ],
+      });
     }
 
     // Status filter
@@ -108,16 +134,54 @@ export async function getScopedDeals(
       where: whereClause,
     });
 
-    // 2. Database-level limit & offset
+    // 2. Database-level limit & offset with lean relation loading
     const rawDeals = await prisma.dealHeader.findMany({
       where: whereClause,
       include: {
-        DealItems: true,
-        DealWTN: true,
-        DealResponse: true,
-        DealLost: true,
+        DealItems: {
+          select: {
+            dealItemID: true,
+            dealID: true,
+            itemDesc: true,
+            qty: true,
+            currency: true,
+            totalAmt: true,
+          },
+        },
+        DealWTN: {
+          select: {
+            id: true,
+            dealID: true,
+            whenToNotify: true,
+          },
+        },
+        DealResponse: {
+          select: {
+            id: true,
+            dealID: true,
+            responseDays: true,
+          },
+        },
+        DealLost: {
+          select: {
+            dealID: true,
+            competitorVendor: true,
+            competitorBrand: true,
+            icsOffer: true,
+            competitorOffer: true,
+            reason: true,
+            otherInformation: true,
+          },
+        },
         Renewals: {
-          orderBy: { dtCreated: 'desc' },
+          select: {
+            renewalID: true,
+            dealID: true,
+            dtRenewal: true,
+            rexpDt: true,
+            remarks: true,
+            dtCreated: true,
+          },
         },
       },
       orderBy: {
@@ -140,14 +204,21 @@ export async function getScopedDeals(
         totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
       });
 
-      const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || []).map((r: any) => ({
-        renewalID: r.renewalID,
-        dealID: r.dealID,
-        dtRenewal: r.dtRenewal,
-        rexpDt: r.rexpDt,
-        remarks: r.remarks,
-        dtCreated: r.dtCreated,
-      }));
+      const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || [])
+        .map((r: any) => ({
+          renewalID: r.renewalID,
+          dealID: r.dealID,
+          dtRenewal: r.dtRenewal,
+          rexpDt: r.rexpDt,
+          remarks: r.remarks,
+          dtCreated: r.dtCreated,
+          dtUpdated: r.dtUpdated || null,
+        }))
+        .sort((a: any, b: any) => {
+          const timeB = new Date(b.dtRenewal || b.dtCreated || 0).getTime();
+          const timeA = new Date(a.dtRenewal || a.dtCreated || 0).getTime();
+          return timeB - timeA;
+        });
 
       return {
         dealID: deal.dealID,
@@ -191,7 +262,7 @@ export async function getScopedDeals(
         lostInfo: deal.DealLost
           ? {
               lostID: deal.DealLost.dealID,
-              dealID: deal.DealLost.dealID,
+              dealID: deal.DealLost.dealID || deal.dealID,
               competitorVendor: deal.DealLost.competitorVendor || '',
               competitorBrand: deal.DealLost.competitorBrand || '',
               icsOffer: deal.DealLost.icsOffer || '',
@@ -257,14 +328,21 @@ export async function getDealById(
       totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
     });
 
-    const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || []).map((r: any) => ({
-      renewalID: r.renewalID,
-      dealID: r.dealID,
-      dtRenewal: r.dtRenewal,
-      rexpDt: r.rexpDt,
-      remarks: r.remarks,
-      dtCreated: r.dtCreated,
-    }));
+    const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || [])
+      .map((r: any) => ({
+        renewalID: r.renewalID,
+        dealID: r.dealID,
+        dtRenewal: r.dtRenewal,
+        rexpDt: r.rexpDt,
+        remarks: r.remarks,
+        dtCreated: r.dtCreated,
+        dtUpdated: r.dtUpdated || null,
+      }))
+      .sort((a: any, b: any) => {
+        const timeB = new Date(b.dtRenewal || b.dtCreated || 0).getTime();
+        const timeA = new Date(a.dtRenewal || a.dtCreated || 0).getTime();
+        return timeB - timeA;
+      });
 
     const formatted: DealHeaderRecord = {
       dealID: deal.dealID,
@@ -479,6 +557,7 @@ export async function createDeal(
       return { dealID: nextDealID };
     });
 
+    invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath('/dashboard');
     return { success: true, dealID: result.dealID };
@@ -665,6 +744,7 @@ export async function updateDeal(
       }
     });
 
+    invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath('/dashboard');
     return { success: true };
@@ -710,7 +790,9 @@ export async function updateWTN(
       );
     }
 
+    invalidateServerDealsCache();
     revalidatePath('/deals');
+    revalidatePath('/dashboard');
     return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -752,6 +834,7 @@ export async function saveLostDeal(
       });
     });
 
+    invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath('/dashboard');
     return { success: true };
@@ -796,23 +879,33 @@ export async function saveDealRenewal(
         throw new Error(`Deal ID ${dealID} not found.`);
       }
 
-      // 1. Insert into DealRenewal
-      const maxRenewalResult = await tx.$queryRawUnsafe<any[]>(
-        `SELECT ISNULL(MAX(renewalID), 0) AS maxId FROM [dbo].[DealRenewal]`
-      );
-      const nextRenewalID = Number(maxRenewalResult?.[0]?.maxId || 0) + 1;
+      // 1. Insert or Update DealRenewal
+      if (payload.renewalID && Number(payload.renewalID) > 0) {
+        await tx.dealRenewal.update({
+          where: { renewalID: Number(payload.renewalID) },
+          data: {
+            dtRenewal: renewalDate,
+            rexpDt: rexpDate,
+            remarks: payload.remarks || null,
+          },
+        });
+      } else {
+        const maxRenewalResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(renewalID), 0) AS maxId FROM [dbo].[DealRenewal]`
+        );
+        const nextRenewalID = Number(maxRenewalResult?.[0]?.maxId || 0) + 1;
 
-      await tx.$executeRawUnsafe(
-        `INSERT INTO [dbo].[DealRenewal] (
-          [renewalID], [dealID], [dtRenewal], [rexpDt], [remarks], [dtCreated]
-        ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6)`,
-        nextRenewalID,
-        dealID,
-        renewalDate,
-        rexpDate,
-        payload.remarks || null,
-        now
-      );
+        await tx.dealRenewal.create({
+          data: {
+            renewalID: nextRenewalID,
+            dealID: dealID,
+            dtRenewal: renewalDate,
+            rexpDt: rexpDate,
+            remarks: payload.remarks || null,
+            dtCreated: now,
+          },
+        });
+      }
 
       // 2. Update DealHeader (expDt, expiration, dtValidTo, dealStatus = '1' (Registered))
       const updateData: any = {
@@ -828,19 +921,25 @@ export async function saveDealRenewal(
       });
 
       // 3. Upsert dealWTN
-      await tx.dealWTN.deleteMany({ where: { dealID: dealID } });
-      const maxWtnResult = await tx.$queryRawUnsafe<any[]>(
-        `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
-      );
-      const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
-
-      await tx.$executeRawUnsafe(
-        `INSERT INTO [dbo].[dealWTN] ([id], [dealID], [whenToNotify])
-         VALUES (@P1, @P2, @P3)`,
-        nextWtnId,
-        dealID,
-        whenToNotify
-      );
+      const existingWtn = await tx.dealWTN.findUnique({ where: { dealID } });
+      if (existingWtn) {
+        await tx.dealWTN.update({
+          where: { dealID },
+          data: { whenToNotify },
+        });
+      } else {
+        const maxWtnResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[dealWTN]`
+        );
+        const nextWtnId = Number(maxWtnResult?.[0]?.maxId || 0) + 1;
+        await tx.dealWTN.create({
+          data: {
+            id: nextWtnId,
+            dealID,
+            whenToNotify,
+          },
+        });
+      }
 
       // 4. Send Email Notification if requested and BU != 'BU6'
       const buVal = currentDeal.BU || 'BU5';
@@ -886,6 +985,7 @@ export async function saveDealRenewal(
       }
     });
 
+    invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath(`/deals/${dealID}`);
     revalidatePath('/dashboard');
@@ -1001,14 +1101,36 @@ export async function getDashboardSummary(): Promise<{
   try {
     const session = await getServerSession(authOptions);
     const userRole = (session?.user as any)?.role || 'admin';
-    const accountName = (session?.user as any)?.AccountName;
-    const accountGroup = (session?.user as any)?.AccountGroup;
+    const accountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
+    const accountGroup = ((session?.user as any)?.AccountGroup || '').trim();
 
     const andConditions: any[] = [];
     if (userRole === 'ao' && accountName) {
-      andConditions.push({ AssignedAO: accountName });
+      const nameParts = accountName.split(/\s+/).filter((p: string) => p.length > 1);
+      andConditions.push({
+        OR: [
+          { AssignedAO: accountName },
+          { AssignedAO: { contains: accountName } },
+          ...(nameParts.length > 1
+            ? [
+                {
+                  AND: nameParts.map((part: string) => ({
+                    AssignedAO: { contains: part },
+                  })),
+                },
+              ]
+            : []),
+        ],
+      });
     } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      andConditions.push({ BU: accountGroup });
+      const normalized = normalizeBusinessUnit(accountGroup);
+      andConditions.push({
+        OR: [
+          { BU: accountGroup },
+          { BU: normalized },
+          { BU: { contains: accountGroup } },
+        ],
+      });
     }
 
     const baseWhere = andConditions.length > 0 ? { AND: andConditions } : {};

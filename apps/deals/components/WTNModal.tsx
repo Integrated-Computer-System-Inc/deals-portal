@@ -36,14 +36,19 @@ export default function WTNModal({
     : new Date().toISOString().split('T')[0];
 
   const [wtnDate, setWtnDate] = useState(defaultDateStr);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const updateMutation = useUpdateWTNMutation();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenConfirm = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!wtnDate) return;
     setError(null);
+    setShowConfirm(true);
+  };
 
+  const handleExecuteSave = async () => {
     try {
       const res = await updateMutation.mutateAsync({
         dealID,
@@ -53,12 +58,15 @@ export default function WTNModal({
       });
 
       if (res && res.success) {
+        setShowConfirm(false);
         onSuccess();
         onClose();
       } else {
+        setShowConfirm(false);
         setError(res?.error || 'Failed to update When to Notify date.');
       }
     } catch (err: any) {
+      setShowConfirm(false);
       setError(err?.message || 'Failed to update When to Notify date.');
     }
   };
@@ -66,66 +74,100 @@ export default function WTNModal({
   const loading = updateMutation.isPending;
 
   return (
-    <AppModal open={isOpen} onClose={onClose} width={480}>
-      <AppModalHeader>
-        <div className="flex items-center gap-2 text-primary">
-          <BellRing className="w-5 h-5 text-amber-500" />
-          <AppModalTitle>Update When To Notify (WTN)</AppModalTitle>
-        </div>
-        <AppModalDescription>
-          Adjust the scheduled email alert threshold for Deal: <span className="font-bold text-foreground">{dealRegID}</span>
-        </AppModalDescription>
-      </AppModalHeader>
-
-      <form onSubmit={handleSubmit}>
-        <AppModalBody className="space-y-4 py-3">
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold text-foreground">
-              Notification Trigger Date *
-            </label>
-            <input
-              type="date"
-              value={wtnDate}
-              onChange={(e) => setWtnDate(e.target.value)}
-              required
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-            {wtnDate && (
-              <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium">
-                {formatDateLong(wtnDate)}
-              </p>
-            )}
-            <p className="text-[11px] text-muted flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-muted" />
-              Automated SMTP dispatcher checks this date to notify Assigned AO & BU Head.
-            </p>
+    <>
+      <AppModal open={isOpen && !showConfirm} onClose={onClose} width={480}>
+        <AppModalHeader>
+          <div className="flex items-center gap-2 text-primary">
+            <BellRing className="w-5 h-5 text-amber-500" />
+            <AppModalTitle>Update When To Notify (WTN)</AppModalTitle>
           </div>
-        </AppModalBody>
+          <AppModalDescription>
+            Adjust the scheduled email alert threshold for Deal: <span className="font-bold text-foreground">{dealRegID}</span>
+          </AppModalDescription>
+        </AppModalHeader>
+
+        <form onSubmit={handleOpenConfirm}>
+          <AppModalBody className="space-y-4 py-3">
+            {error && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-foreground">
+                Notification Trigger Date *
+              </label>
+              <input
+                type="date"
+                value={wtnDate}
+                onChange={(e) => setWtnDate(e.target.value)}
+                required
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              {wtnDate && (
+                <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium">
+                  {formatDateLong(wtnDate)}
+                </p>
+              )}
+              <p className="text-[11px] text-muted flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-muted" />
+                Automated SMTP dispatcher checks this date to notify Assigned AO & BU Head.
+              </p>
+            </div>
+          </AppModalBody>
+
+          <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-primary hover:opacity-90 rounded-xl shadow-sm transition disabled:opacity-50"
+            >
+              <span>Continue &rarr;</span>
+            </button>
+          </AppModalFooter>
+        </form>
+      </AppModal>
+
+      {/* Confirmation Modal Safeguard */}
+      <AppModal open={showConfirm} onClose={() => setShowConfirm(false)} width={420}>
+        <AppModalHeader>
+          <div className="flex items-center gap-2 text-amber-600">
+            <BellRing className="w-5 h-5 text-amber-500" />
+            <AppModalTitle>Confirm WTN Update</AppModalTitle>
+          </div>
+          <AppModalDescription>
+            Are you sure you want to update the notification date for <strong className="text-foreground">{dealRegID}</strong> to <strong className="text-foreground">{formatDateLong(wtnDate)}</strong>?
+          </AppModalDescription>
+        </AppModalHeader>
 
         <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => setShowConfirm(false)}
+            disabled={loading}
             className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
           >
-            Cancel
+            Back / Edit
           </button>
           <button
-            type="submit"
+            type="button"
+            onClick={handleExecuteSave}
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-primary hover:opacity-90 rounded-xl shadow-sm transition disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-primary hover:opacity-90 rounded-xl shadow-xs transition disabled:opacity-50"
           >
             {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            <span>Save Notification Date</span>
+            <span>{loading ? 'Saving...' : 'Yes, Confirm & Save'}</span>
           </button>
         </AppModalFooter>
-      </form>
-    </AppModal>
+      </AppModal>
+    </>
   );
 }

@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
-import { useDealsQuery } from '@/hooks/useDealsQuery';
+import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 import {
   DealHeaderRecord,
   UserRole,
@@ -91,18 +91,7 @@ function DealsContent() {
     expDate?: string | Date | null;
   } | null>(null);
 
-  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
-  const accountGroup = (session?.user as any)?.AccountGroup;
-
-  const scopedFilter = useMemo(
-    () => ({
-      userRole: role,
-      accountName,
-      accountGroup,
-    }),
-    [role, accountName, accountGroup]
-  );
-
+  const scopedFilter = useCurrentUserFilter();
   const { data: deals = [], isLoading: loading, refetch: fetchDeals } = useDealsQuery(scopedFilter);
 
   // Handle URL navigation parameters (e.g. /deals?view=123 or /deals?brand=Dell)

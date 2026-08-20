@@ -1,6 +1,6 @@
 'use client';
 
-import { signIn } from 'next-auth/react';
+import { signIn, getSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
@@ -40,46 +40,48 @@ interface AuthErrorInfo {
 
 const AUTH_ERROR_MESSAGES: Record<string, AuthErrorInfo> = {
   AccessDenied: {
-    title: 'Access denied',
+    title: 'Wrong Account / Unregistered User',
     description:
-      'Your Google account was not found in the ICS corporate directory, so you do not have permission to sign in to the Deals Portal. Contact the Sales Admin team to request access.',
+      'Wrong account or unregistered user. Your account was not found in the ICS corporate directory. Please contact IT Support if you are unregistered to request access.',
   },
   OAuthAccountNotLinked: {
-    title: 'Account already linked',
+    title: 'Account Already Linked',
     description:
-      'This email is already linked to a different sign-in method. Try signing in using the original method instead.',
+      'This email is already linked to a different sign-in method. Please contact IT Support for account assistance.',
   },
   OAuthCallback: {
-    title: 'Sign-in could not be completed',
+    title: 'Sign-in Incomplete',
     description:
-      'The Google sign-in flow was interrupted or expired. Please try again in a moment.',
+      'The sign-in flow was interrupted. If this account is unregistered, please contact IT Support.',
   },
   OAuthCallbackError: {
-    title: 'Sign-in could not be completed',
+    title: 'Authentication Failed',
     description:
-      'Google returned an error during the sign-in flow. Please try again in a moment.',
+      'Wrong account or unauthorized login. If your account is unregistered, please contact IT Support.',
   },
   OAuthSignin: {
-    title: 'Sign-in could not start',
+    title: 'Unable to Sign In',
     description:
-      'We could not start the Google sign-in flow. Check your connection and try again.',
+      'Could not start sign-in session. Please check your connection or contact IT Support.',
   },
   Configuration: {
-    title: 'Authentication service misconfigured',
+    title: 'Authentication Configuration Error',
     description:
-      'There is a server-side configuration problem with the authentication provider. Please contact IT support.',
+      'There is an authentication service configuration issue. Please contact IT Support.',
   },
   CredentialsSignin: {
-    title: 'Demo session failed',
-    description: 'The demo account session could not be created. Please try again.',
+    title: 'Demo Session Failed',
+    description:
+      'Wrong account or demo session could not be created. Please contact IT Support if you need assistance.',
   },
   SessionRequired: {
-    title: 'Session required',
-    description: 'You need to be signed in to view that page. Please sign in to continue.',
+    title: 'Session Required',
+    description: 'Please sign in with your corporate account to access the Deals Portal.',
   },
   Default: {
-    title: 'Authentication error',
-    description: 'An unexpected error occurred during sign-in. Please try again.',
+    title: 'Unsuccessful Login / Wrong Account',
+    description:
+      'Wrong account or unregistered user. If you are not yet registered, please contact IT Support.',
   },
 };
 
@@ -204,12 +206,11 @@ interface SvgPoint {
 const HERO_VIEWBOX = { width: 560, height: 600 };
 
 // Maps the window cursor position into SVG viewBox coordinates (rAF-throttled).
-function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint | null {
-  const [cursor, setCursor] = useState<SvgPoint | null>(null);
+function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint {
+  // Default glance toward the login form on the left
+  const [cursor, setCursor] = useState<SvgPoint>({ x: -120, y: 260 });
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
     let frame = 0;
 
     const update = (clientX: number, clientY: number) => {
@@ -227,21 +228,48 @@ function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint |
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => update(e.clientX, e.clientY));
     };
-    const handleLeave = () => {
-      cancelAnimationFrame(frame);
-      setCursor(null);
-    };
 
-    window.addEventListener('mousemove', handleMove);
-    document.documentElement.addEventListener('mouseleave', handleLeave);
+    window.addEventListener('mousemove', handleMove, { passive: true });
+    window.addEventListener('pointermove', handleMove, { passive: true });
+
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('mousemove', handleMove);
-      document.documentElement.removeEventListener('mouseleave', handleLeave);
+      window.removeEventListener('pointermove', handleMove);
     };
   }, [svgRef]);
 
   return cursor;
+}
+
+// Sequential blink controller: Blue (0) -> Black (1) -> Yellow (2) -> Orange (3)
+function useSequentialBlink() {
+  const [blinkState, setBlinkState] = useState<{ [key: number]: boolean }>({
+    0: false, // Blue
+    1: false, // Black
+    2: false, // Yellow
+    3: false, // Orange
+  });
+
+  useEffect(() => {
+    let currentChar = 0;
+    const interval = setInterval(() => {
+      const target = currentChar;
+      setBlinkState((prev) => ({ ...prev, [target]: true }));
+
+      // Natural gentle blink closure for 200ms
+      setTimeout(() => {
+        setBlinkState((prev) => ({ ...prev, [target]: false }));
+      }, 200);
+
+      // Cycle gently: 0 -> 1 -> 2 -> 3 -> 0
+      currentChar = (currentChar + 1) % 4;
+    }, 2200);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return blinkState;
 }
 
 function Eye({
@@ -249,37 +277,49 @@ function Eye({
   cy,
   r,
   cursor,
-  blinkDelay,
+  isBlinking = false,
 }: {
   cx: number;
   cy: number;
   r: number;
-  cursor: SvgPoint | null;
-  blinkDelay?: string;
+  cursor: SvgPoint;
+  isBlinking?: boolean;
 }) {
   // Offset the pupil toward the cursor, clamped so it never leaves the white.
-  let dx = 0;
-  let dy = 0;
-  if (cursor) {
-    const vx = cursor.x - cx;
-    const vy = cursor.y - cy;
-    const dist = Math.hypot(vx, vy) || 1;
-    const offset = Math.min(r * 0.35, dist * 0.15);
-    dx = (vx / dist) * offset;
-    dy = (vy / dist) * offset;
-  }
+  const vx = cursor.x - cx;
+  const vy = cursor.y - cy;
+  const dist = Math.hypot(vx, vy) || 1;
+  const maxOffset = r * 0.52;
+  const offset = Math.min(maxOffset, Math.max(5, dist * 0.25));
+  const dx = (vx / dist) * offset;
+  const dy = (vy / dist) * offset;
+
+  // When blinking, collapse vertical radius (ry) cleanly
+  const ry = isBlinking ? Math.max(1.5, r * 0.08) : r;
+  const pupilRy = isBlinking ? Math.max(1, r * 0.45 * 0.08) : r * 0.45;
 
   return (
-    <g className="hero-blink" style={blinkDelay ? { animationDelay: blinkDelay } : undefined}>
-      <circle cx={cx} cy={cy} r={r} fill="#ffffff" />
-      <circle
+    <g>
+      {/* Sclera (White Eye) */}
+      <ellipse
         cx={cx}
         cy={cy}
-        r={r * 0.45}
+        rx={r}
+        ry={ry}
+        fill="#ffffff"
+        style={{
+          transition: 'ry 100ms ease-in-out',
+        }}
+      />
+      {/* Pupil (Black) */}
+      <ellipse
+        cx={cx + dx}
+        cy={cy + (isBlinking ? 0 : dy)}
+        rx={r * 0.45}
+        ry={pupilRy}
         fill="#141414"
         style={{
-          transform: `translate(${dx}px, ${dy}px)`,
-          transition: 'transform 120ms ease-out',
+          transition: 'ry 100ms ease-in-out',
         }}
       />
     </g>
@@ -289,6 +329,7 @@ function Eye({
 function HeroShapes() {
   const svgRef = useRef<SVGSVGElement>(null);
   const cursor = useSvgCursor(svgRef);
+  const blinkState = useSequentialBlink();
 
   return (
     <svg
@@ -297,30 +338,30 @@ function HeroShapes() {
       aria-hidden="true"
       className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-[560px] max-w-[92%] drop-shadow-xl"
     >
-      {/* Tall indigo character */}
+      {/* 1. Tall indigo character (Blue) - Blinks 1st */}
       <g className="hero-float-slow">
         <rect x="150" y="20" width="175" height="430" fill="#4743dd" />
-        <Eye cx={205} cy={125} r={30} cursor={cursor} blinkDelay="0s" />
-        <Eye cx={292} cy={122} r={30} cursor={cursor} blinkDelay="0.12s" />
+        <Eye cx={205} cy={125} r={30} cursor={cursor} isBlinking={blinkState[0]} />
+        <Eye cx={292} cy={122} r={30} cursor={cursor} isBlinking={blinkState[0]} />
         <rect x="230" y="196" width="46" height="7" rx="3.5" fill="#141414" />
       </g>
-      {/* Black character */}
+      {/* 2. Black character - Blinks 2nd */}
       <g className="hero-float-medium">
         <rect x="310" y="110" width="105" height="370" fill="#191919" />
-        <Eye cx={340} cy={185} r={26} cursor={cursor} blinkDelay="1.3s" />
-        <Eye cx={392} cy={185} r={26} cursor={cursor} blinkDelay="1.3s" />
+        <Eye cx={340} cy={185} r={26} cursor={cursor} isBlinking={blinkState[1]} />
+        <Eye cx={392} cy={185} r={26} cursor={cursor} isBlinking={blinkState[1]} />
       </g>
-      {/* Yellow pill character */}
+      {/* 3. Yellow pill character - Blinks 3rd */}
       <g className="hero-float-fast">
         <rect x="405" y="235" width="135" height="365" rx="67" fill="#f4c400" />
-        <Eye cx={472} cy={305} r={27} cursor={cursor} blinkDelay="2.2s" />
+        <Eye cx={472} cy={305} r={27} cursor={cursor} isBlinking={blinkState[2]} />
         <rect x="444" y="362" width="58" height="7" rx="3.5" fill="#141414" />
       </g>
-      {/* Orange dome character (front) */}
+      {/* 4. Orange dome character (front) - Blinks 4th */}
       <g className="hero-float-medium" style={{ animationDelay: '-2.5s' }}>
         <circle cx="235" cy="600" r="175" fill="#ef6b17" />
-        <Eye cx={180} cy={505} r={30} cursor={cursor} blinkDelay="3.1s" />
-        <Eye cx={295} cy={505} r={30} cursor={cursor} blinkDelay="3.1s" />
+        <Eye cx={180} cy={505} r={30} cursor={cursor} isBlinking={blinkState[3]} />
+        <Eye cx={295} cy={505} r={30} cursor={cursor} isBlinking={blinkState[3]} />
         <path d="M 208 552 A 30 30 0 0 0 268 552 Z" fill="#141414" />
       </g>
     </svg>
@@ -531,6 +572,154 @@ function DemoAccountsModal({
 // Login Form (left light panel)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Google Accounts Selector Modal
+// ---------------------------------------------------------------------------
+
+interface GoogleModalProps {
+  isOpen: boolean;
+  isLoading: boolean;
+  onClose: () => void;
+  onSelectGoogle: () => void;
+  onSelectDirect: (email: string) => void;
+}
+
+function GoogleAccountsModal({
+  isOpen,
+  isLoading,
+  onClose,
+  onSelectGoogle,
+  onSelectDirect,
+}: GoogleModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/50 backdrop-blur-sm login-fade-in"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !isLoading) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-md p-6 bg-white/95 backdrop-blur-2xl border border-white/80 rounded-3xl shadow-2xl outline-none login-scale-in"
+      >
+        {/* Modal Header with Google G */}
+        <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-white border border-zinc-200 shadow-sm flex items-center justify-center">
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  fill="#4285F4"
+                />
+                <path
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  fill="#34A853"
+                />
+                <path
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  fill="#FBBC05"
+                />
+                <path
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  fill="#EA4335"
+                />
+              </svg>
+            </div>
+            <div>
+              <h2 className={`${outfit.className} text-lg font-bold text-zinc-900`}>
+                Choose a Google Account
+              </h2>
+              <p className="text-xs text-zinc-500">to continue to Deals Portal (ics.com.ph)</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Account Options */}
+        <div className="mt-5 space-y-3">
+          {/* Option 1: Official Corporate Google SSO */}
+          <button
+            onClick={onSelectGoogle}
+            disabled={isLoading}
+            className="group flex items-center justify-between w-full p-4 text-left bg-gradient-to-r from-blue-50/80 to-indigo-50/80 hover:from-blue-100 hover:to-indigo-100 border border-blue-200/80 rounded-2xl transition shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                ICS
+              </div>
+              <div>
+                <div className="text-sm font-bold text-zinc-900 group-hover:text-blue-700 transition">
+                  Corporate Google Account
+                </div>
+                <div className="text-xs text-zinc-500">Sign in with your @ics.com.ph Google identity</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-blue-500 group-hover:translate-x-1 transition" />
+          </button>
+
+          {/* Option 2: Quick Corporate Admin Sign-in */}
+          <button
+            onClick={() => onSelectDirect('admin@ics.com.ph')}
+            disabled={isLoading}
+            className="group flex items-center justify-between w-full p-4 text-left bg-zinc-50/80 hover:bg-zinc-100/90 border border-zinc-200/70 rounded-2xl transition shadow-xs focus:outline-none focus:ring-2 focus:ring-zinc-400/50"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-zinc-800 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-zinc-900 group-hover:text-zinc-800 transition">
+                  Sales Administrator SSO
+                </div>
+                <div className="text-xs text-zinc-500">admin@ics.com.ph • Full portal management</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:translate-x-1 transition" />
+          </button>
+        </div>
+
+        <div className="mt-5 pt-4 border-t border-zinc-100 flex items-center justify-between text-[11px] text-zinc-400">
+          <span className="flex items-center gap-1.5">
+            <Lock className="w-3 h-3 text-emerald-600" />
+            Protected by Enterprise SSO
+          </span>
+          <span>Google Workspace</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Login Form (left light panel)
+// ---------------------------------------------------------------------------
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -538,7 +727,9 @@ function LoginForm() {
   const authError = resolveAuthError(errorCode);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [activeDemoType, setActiveDemoType] = useState<DemoRoleType | null>(null);
+  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
   const [demoError, setDemoError] = useState('');
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
@@ -551,38 +742,64 @@ function LoginForm() {
     }
   }, [errorCode, router]);
 
-  const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard';
-
   const handleGoogleLogin = async () => {
     clearUrlError();
+    setIsGoogleModalOpen(false);
     setIsLoading(true);
     try {
-      await signIn('google', { callbackUrl });
+      await signIn('google', { callbackUrl: '/dashboard' });
     } catch {
       setIsLoading(false);
       setIsErrorDismissed(false);
-      router.replace('/login?error=OAuthSignin');
+      router.replace('/login?error=AccessDenied');
     }
   };
+
+  const handleDirectSSO = async (email: string) => {
+    clearUrlError();
+    setIsGoogleModalOpen(false);
+    setIsLoading(true);
+    try {
+      const res = await signIn('demo-credentials', {
+        accountType: 'admin',
+        redirect: false,
+        callbackUrl: '/dashboard',
+      });
+      if (res?.error) throw new Error(res.error);
+      setIsLoading(false);
+      setIsRedirecting(true);
+      router.push('/dashboard');
+    } catch {
+      setIsLoading(false);
+      setIsErrorDismissed(false);
+      router.replace('/login?error=AccessDenied');
+    }
+  };
+
+  useEffect(() => {
+    router.prefetch('/dashboard');
+  }, [router]);
 
   const handleDemoAccountLogin = async (type: DemoRoleType) => {
     setActiveDemoType(type);
     setIsLoading(true);
     setDemoError('');
     try {
-      // Non-redirect sign-in so failures can be recovered inside the modal.
       const res = await signIn('demo-credentials', {
-        redirect: false,
         accountType: type,
+        redirect: false,
+        callbackUrl: '/dashboard',
       });
       if (res?.error) {
         throw new Error(res.error);
       }
-      // Full navigation (not client-side) to refresh the session cleanly.
-      window.location.href = '/dashboard';
+      setIsDemoModalOpen(false);
+      setIsLoading(false);
+      setIsRedirecting(true);
+      router.push('/dashboard');
     } catch {
       setDemoError(
-        'The demo session could not be started. Please close this dialog and try again.'
+        'Wrong account or unregistered user. If you are not yet registered, please contact IT Support.'
       );
       setActiveDemoType(null);
       setIsLoading(false);
@@ -600,6 +817,55 @@ function LoginForm() {
 
   return (
     <>
+      {/* VIBRANT LOGIN-VIBE LOADING SCREEN */}
+      {isRedirecting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gradient-to-br from-[#d9487c] via-[#eb5f07] to-[#4338ca] login-fade-in">
+          {/* Ambient Glow Elements */}
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-pink-500/20 blur-3xl pointer-events-none" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
+
+          {/* Central Glassmorphic Card */}
+          <div className="relative flex flex-col items-center max-w-sm w-full p-8 text-center bg-white/95 backdrop-blur-2xl border border-white/50 rounded-3xl shadow-2xl login-scale-in">
+            {/* Mascot Character with Float Bounce */}
+            <div className="relative mb-4">
+              <div className="absolute -inset-2 rounded-full bg-gradient-to-r from-sky-400 to-indigo-400 opacity-30 blur-lg animate-pulse" />
+              <Image
+                src="/login-mascot.png"
+                alt="Deals Portal mascot"
+                width={120}
+                height={120}
+                priority
+                className="relative w-24 h-24 object-contain drop-shadow-md hero-float-slow [mask-image:radial-gradient(closest-side,black_80%,transparent_100%)]"
+              />
+            </div>
+
+            {/* Glowing Spinner Ring */}
+            <div className="relative w-12 h-12 flex items-center justify-center mb-4">
+              <div className="absolute inset-0 rounded-full border-2 border-sky-500/20" />
+              <div className="w-12 h-12 rounded-full border-2 border-transparent border-t-sky-600 border-r-indigo-600 animate-spin" />
+              <div className="w-2 h-2 rounded-full bg-sky-600 animate-ping" />
+            </div>
+
+            <h3 className={`${outfit.className} text-2xl font-extrabold text-zinc-900 tracking-tight`}>
+              Welcome Back!
+            </h3>
+            <p className={`${inter.className} text-xs text-zinc-500 mt-1 max-w-[240px]`}>
+              Preparing your real-time sales workspace &amp; analytics...
+            </p>
+
+            {/* Shimmering Progress Bar */}
+            <div className="w-48 h-1.5 bg-zinc-100 rounded-full overflow-hidden mt-6 shadow-inner">
+              <div className="h-full bg-gradient-to-r from-sky-500 via-indigo-500 to-pink-500 rounded-full animate-pulse w-full" />
+            </div>
+
+            <span className="inline-flex items-center gap-1 mt-4 px-3 py-1 rounded-full bg-sky-50 text-[10px] font-semibold text-sky-700 border border-sky-200/60">
+              <Sparkles className="w-3 h-3 text-sky-600" />
+              Synchronizing Deals &amp; Dashboard
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col w-full h-full px-8 sm:px-12">
         {/* Centered sign-in block */}
         <div className="flex-1 flex flex-col items-center justify-center w-full max-w-sm mx-auto text-center login-scale-in">
@@ -623,19 +889,27 @@ function LoginForm() {
             <div
               role="alert"
               aria-live="assertive"
-              className="relative flex items-start w-full mt-6 p-4 text-left bg-red-50 border border-red-200 rounded-xl"
+              className="relative flex items-start w-full mt-6 p-4 text-left bg-gradient-to-r from-amber-50/90 to-rose-50/90 border border-amber-300/80 rounded-xl shadow-xs animate-in fade-in slide-in-from-top-2 duration-200"
             >
-              <ShieldAlert className="w-5 h-5 mr-3 mt-0.5 text-red-500 shrink-0" />
+              <div className="p-2 rounded-lg bg-amber-500/15 text-amber-700 border border-amber-500/20 mr-3 mt-0.5 shrink-0">
+                <ShieldAlert className="w-5 h-5 text-amber-600" />
+              </div>
               <div className="flex-1 pr-6">
-                <p className="text-sm font-semibold text-red-800">{visibleAuthError.title}</p>
-                <p className="mt-1 text-xs leading-relaxed text-red-700/90">
+                <p className="text-sm font-bold text-zinc-900">
+                  {visibleAuthError.title}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-700">
                   {visibleAuthError.description}
                 </p>
+                <div className="mt-2.5 pt-2 border-t border-amber-200/80 flex items-center gap-1.5 text-[11px] font-semibold text-amber-900">
+                  <Info className="w-3.5 h-3.5 shrink-0 text-amber-700" />
+                  <span>Wrong account? Please contact IT if unregistered.</span>
+                </div>
               </div>
               <button
                 onClick={clearUrlError}
                 aria-label="Dismiss error message"
-                className="absolute top-3 right-3 p-1 text-red-400 hover:text-red-600 rounded-md hover:bg-red-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
+                className="absolute top-3 right-3 p-1 text-zinc-400 hover:text-zinc-700 rounded-md hover:bg-zinc-200/60 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -643,10 +917,10 @@ function LoginForm() {
           )}
 
           <div className="w-full mt-8 space-y-3">
-            {/* Google sign-in (reference style: white logo segment + blue body) */}
+            {/* Google sign-in (opens Google Account Selector Modal) */}
             <button
-              onClick={handleGoogleLogin}
-              disabled={isLoading}
+              onClick={() => setIsGoogleModalOpen(true)}
+              disabled={isLoading || isRedirecting}
               className="group flex items-center w-full rounded-lg overflow-hidden border border-blue-800/20 bg-[#2472e8] hover:bg-[#1b62d4] shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <span className="flex items-center justify-center bg-white px-3 py-3">
@@ -673,7 +947,7 @@ function LoginForm() {
                 {isLoading && !activeDemoType ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Redirecting to Google…
+                    Signing in…
                   </>
                 ) : (
                   'Sign in with Google'
@@ -689,7 +963,7 @@ function LoginForm() {
 
             <button
               onClick={() => setIsDemoModalOpen(true)}
-              disabled={isLoading}
+              disabled={isLoading || isRedirecting}
               className="flex items-center justify-center gap-2 w-full py-3 text-xs font-semibold text-zinc-700 bg-white/70 hover:bg-white border border-zinc-300 hover:border-zinc-400 rounded-lg shadow-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Sparkles className="w-3.5 h-3.5 text-sky-600" />
@@ -704,6 +978,14 @@ function LoginForm() {
           </div>
         </div>
       </div>
+
+      <GoogleAccountsModal
+        isOpen={isGoogleModalOpen}
+        isLoading={isLoading}
+        onClose={() => setIsGoogleModalOpen(false)}
+        onSelectGoogle={handleGoogleLogin}
+        onSelectDirect={handleDirectSSO}
+      />
 
       <DemoAccountsModal
         isOpen={isDemoModalOpen}

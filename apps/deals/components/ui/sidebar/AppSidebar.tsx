@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useContext } from 'react';
+import React from 'react';
 import { cn } from '../../utils/cn';
 import { AppSidebarProvider, useSidebar } from './AppSidebarProvider';
 
@@ -33,7 +33,5 @@ export default function AppSidebar({
   children,
   className,
 }: AppSidebarProps) {
-  const existingContext = useContext(useSidebar as any);
-
   return <SidebarInner className={className}>{children}</SidebarInner>;
 }

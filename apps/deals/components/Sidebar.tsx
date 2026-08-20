@@ -25,12 +25,12 @@ import ThemeSwitcher from './ThemeSwitcher';
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
   const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
 
-  const userRole: UserRole = (session?.user as any)?.role || 'ao';
-  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || 'Account User';
+  const userRole: UserRole = (session?.user as any)?.role || 'admin';
+  const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
   const accountEmail = (session?.user as any)?.Email || session?.user?.email || '';
   const accountImage = (session?.user as any)?.GAvatar || session?.user?.image || undefined;
   const userBU = (session?.user as any)?.AccountGroup || 'HQ';
@@ -42,7 +42,7 @@ export default function Sidebar() {
     return 'Account Officer';
   };
 
-  const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
+  const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao');
 
   const menuItems = [
     {
@@ -209,22 +209,32 @@ export default function Sidebar() {
           ) : (
             /* Expanded Footer */
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <AppAvatar
-                  name={accountName}
-                  src={accountImage}
-                  size={34}
-                  className="shrink-0"
-                />
-                <div className="flex flex-col min-w-0">
-                  <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
-                    {accountName}
-                  </span>
-                  <span className="text-[10px] text-muted truncate">
-                    {getRoleLabel()}
-                  </span>
+              {status === 'loading' ? (
+                <div className="flex items-center gap-2.5 min-w-0 flex-1 animate-pulse">
+                  <div className="w-8 h-8 rounded-full bg-neutral/80 shrink-0" />
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="h-3.5 bg-neutral/80 rounded w-24" />
+                    <div className="h-2.5 bg-neutral/60 rounded w-16" />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <AppAvatar
+                    name={accountName || 'User'}
+                    src={accountImage}
+                    size={34}
+                    className="shrink-0"
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
+                      {accountName || 'Administrator'}
+                    </span>
+                    <span className="text-[10px] text-muted truncate">
+                      {getRoleLabel()}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center gap-1 shrink-0">
                 <ThemeSwitcher />

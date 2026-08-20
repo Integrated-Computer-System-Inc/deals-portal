@@ -24,6 +24,12 @@ import {
   AppTextarea,
   AppCard,
   AppChip,
+  AppModal,
+  AppModalHeader,
+  AppModalTitle,
+  AppModalDescription,
+  AppModalBody,
+  AppModalFooter,
 } from '../../../../components/ui';
 import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../../../components/utils/time';
 import CustomerSearchModal from '../../../../components/CustomerSearchModal';
@@ -47,6 +53,9 @@ import {
   Lock,
   Unlock,
   RefreshCw,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import RenewalModal from '../../../../components/RenewalModal';
 
@@ -92,6 +101,8 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [isCustomerFromIceCream, setIsCustomerFromIceCream] = useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<UpdateDealFormData | null>(null);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
@@ -281,38 +292,47 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     return totals;
   }, [watchItems]);
 
-  const onSubmit = async (data: UpdateDealFormData) => {
+  const handlePreSubmit = (data: UpdateDealFormData) => {
+    setPendingFormData(data);
+    setShowSaveConfirm(true);
+  };
+
+  const executeFinalSave = async () => {
+    if (!pendingFormData) return;
     setErrorMsg(null);
 
-    const finalBu = data.bu || watch('bu') || 'BU5';
+    const finalBu = pendingFormData.bu || watch('bu') || 'BU5';
 
     try {
       const result = await updateMutation.mutateAsync({
         dealID,
-        dtRegistered: data.dtRegistered,
-        expDt: data.expDt,
-        brand: data.brand,
-        customerID: data.customerID,
-        custName: data.custName,
-        dealRegID: data.dealRegID,
-        projectName: data.projectName,
-        ProjectName: data.projectName,
-        assignedAO: data.assignedAO,
-        AssignedAO: data.assignedAO,
+        dtRegistered: pendingFormData.dtRegistered,
+        expDt: pendingFormData.expDt,
+        brand: pendingFormData.brand,
+        customerID: pendingFormData.customerID,
+        custName: pendingFormData.custName,
+        dealRegID: pendingFormData.dealRegID,
+        projectName: pendingFormData.projectName,
+        ProjectName: pendingFormData.projectName,
+        assignedAO: pendingFormData.assignedAO,
+        AssignedAO: pendingFormData.assignedAO,
         bu: finalBu,
         BU: finalBu,
-        dealStatus: data.dealStatus,
-        remarks: data.remarks,
-        toEmail: data.toEmail,
-        items: data.items,
+        dealStatus: pendingFormData.dealStatus,
+        remarks: pendingFormData.remarks,
+        toEmail: pendingFormData.toEmail,
+        items: pendingFormData.items,
       });
 
       if (result && result.success) {
+        setShowSaveConfirm(false);
         router.push('/deals');
       } else {
+        setShowSaveConfirm(false);
         setErrorMsg(result?.error || 'Failed to update deal record.');
       }
     } catch (err: any) {
+      setShowSaveConfirm(false);
       setErrorMsg(err?.message || 'A network error occurred.');
     }
   };
@@ -410,7 +430,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={handleSubmit(handlePreSubmit)} className="space-y-6">
         {/* Section 1: Customer Account */}
         <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-border/50 pb-3">
@@ -432,41 +452,23 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
+              <label className="block text-xs font-semibold text-foreground mb-1">Customer / Account Name *</label>
               <input
                 {...register('custName')}
                 disabled={isViewOnly}
-                placeholder="e.g. HEALTHPROOF (MANILA) INC."
+                placeholder="e.g. San Miguel Corporation or Department of Agriculture"
                 className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-foreground">Customer ID Reference</label>
-                {!isViewOnly && (
-                  watch('customerID') ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setValue('customerID', '');
-                        setIsCustomerFromIceCream(false);
-                      }}
-                      className="text-[11px] text-sky-600 dark:text-sky-400 hover:text-sky-700 font-semibold hover:underline flex items-center gap-1"
-                    >
-                      Detach / Clear ID
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-muted font-normal">(Optional / Blank)</span>
-                  )
-                )}
-              </div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Customer / ERP ID</label>
               <input
                 {...register('customerID')}
                 onChange={(e) => {
-                  register('customerID').onChange(e);
-                  if (!e.target.value) {
+                  setValue('customerID', e.target.value, { shouldValidate: true, shouldDirty: true });
+                  if (!e.target.value.trim()) {
                     setIsCustomerFromIceCream(false);
                   }
                 }}
@@ -526,11 +528,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
           </div>
         </AppCard>
 
-        {/* Section 2: Deal Core Information */}
+        {/* Section 2: Deal Core Information & Integrated Renewal History */}
         <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center gap-2 border-b border-border/50 pb-3">
             <FileText className="w-4 h-4 text-emerald-600" />
-            <h2 className="font-bold text-sm text-foreground">2. Deal Header & Validity Period</h2>
+            <h2 className="font-bold text-sm text-foreground">2. Timeline & Validity Period</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -647,6 +649,87 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
               rows={2}
             />
+          </div>
+
+          {/* Integrated Renewal History & Extension Logs inside same Section 2 */}
+          <div className="pt-3 border-t border-border/60 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-emerald-600" />
+                <h3 className="font-bold text-xs text-foreground uppercase tracking-wider">
+                  Renewal History & Extension Records
+                </h3>
+              </div>
+              {!isViewOnly && (
+                <button
+                  type="button"
+                  onClick={() => setIsRenewalModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg transition cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Extend Deal Renewal</span>
+                </button>
+              )}
+            </div>
+
+            {deal?.renewals && deal.renewals.length > 0 ? (
+              <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-neutral/80 border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2 px-3">#</th>
+                      <th className="py-2 px-3">Renewal Date</th>
+                      <th className="py-2 px-3 text-center">Extended</th>
+                      <th className="py-2 px-3">New Expiry Date</th>
+                      <th className="py-2 px-3">Remarks / Partner Notes</th>
+                      <th className="py-2 px-3 text-right">Logged At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {deal.renewals.map((r: any, idx: number) => (
+                      <tr key={r.renewalID || idx} className="hover:bg-neutral/40 transition">
+                        <td className="py-2 px-3 font-mono text-[11px] text-muted">#{idx + 1}</td>
+                        <td className="py-2 px-3 font-mono font-bold text-foreground">
+                          {formatDateLong(r.dtRenewal)}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 text-[11px]">
+                            +{r.validityDays || 90}d
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatDateLong(r.rexpDt)}
+                        </td>
+                        <td className="py-2 px-3 text-muted max-w-[220px] truncate">
+                          {r.remarks || 'Standard validity renewal'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-[10px] text-muted">
+                          {formatDateLong(r.dtCreated)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-neutral/30 border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-muted">
+                  <Clock className="w-4 h-4 text-muted/70 shrink-0" />
+                  <span>
+                    Current deal validity is <strong>{watchValidityDays || 90} days</strong>. No historical renewal extensions have been recorded yet.
+                  </span>
+                </div>
+                {!isViewOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setIsRenewalModalOpen(true)}
+                    className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline shrink-0"
+                  >
+                    Add First Extension &rarr;
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {!isViewOnly && (
@@ -809,6 +892,68 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </form>
+
+      {/* Save Confirmation Modal Safeguard */}
+      <AppModal open={showSaveConfirm} onClose={() => setShowSaveConfirm(false)} width={480}>
+        <AppModalHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-primary/10 text-primary border border-primary/20">
+              <Save className="w-5 h-5" />
+            </div>
+            <div>
+              <AppModalTitle>Confirm Deal Record Update</AppModalTitle>
+              <AppModalDescription>
+                Are you sure you want to save changes to this deal record?
+              </AppModalDescription>
+            </div>
+          </div>
+        </AppModalHeader>
+
+        <AppModalBody className="space-y-3 py-3 text-xs">
+          <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/70 space-y-2">
+            <div className="flex justify-between">
+              <span className="text-muted">Deal Reg ID:</span>
+              <span className="font-mono font-bold text-foreground">{pendingFormData?.dealRegID}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">Customer:</span>
+              <span className="font-bold text-foreground truncate max-w-[240px]">{pendingFormData?.custName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">Brand & BU:</span>
+              <span className="font-semibold text-foreground">{pendingFormData?.brand} • {pendingFormData?.bu}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">Line Items:</span>
+              <span className="font-mono font-bold text-foreground">{pendingFormData?.items.length} items</span>
+            </div>
+          </div>
+        </AppModalBody>
+
+        <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={() => setShowSaveConfirm(false)}
+            disabled={loading}
+            className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
+          >
+            Cancel / Edit More
+          </button>
+          <button
+            type="button"
+            onClick={executeFinalSave}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-primary hover:opacity-90 rounded-xl shadow-xs transition disabled:opacity-50"
+          >
+            {loading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            )}
+            <span>{loading ? 'Saving...' : 'Yes, Update Record'}</span>
+          </button>
+        </AppModalFooter>
+      </AppModal>
 
       {/* Customer LiveSearch Modal */}
       <CustomerSearchModal

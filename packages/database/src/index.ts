@@ -9,6 +9,7 @@ export function getDatabaseUrl(): string {
   if (!password || password === '1)3al!') {
     password = '1)3al$Gatekeeper!';
   }
+  password = password.replace(/\\\$/g, '$');
 
   const host = instance ? `${server}\\${instance}` : server;
   return `sqlserver://${host};database=${database};user=${user};password=${password};encrypt=true;trustServerCertificate=true;`;

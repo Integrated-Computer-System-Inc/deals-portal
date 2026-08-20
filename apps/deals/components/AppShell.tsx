@@ -5,10 +5,32 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
 import { AppSidebarProvider } from './ui/sidebar';
+import { useSession } from 'next-auth/react';
+import { useDealsQuery } from '@/hooks/useDealsQuery';
+
+function DealsCachePrewarmer() {
+  const { data: session, status } = useSession();
+  const role = (session?.user as any)?.role || 'admin';
+  const accountName = (session?.user as any)?.AccountName;
+  const accountGroup = (session?.user as any)?.AccountGroup;
+
+  const scopedFilter = React.useMemo(
+    () => ({
+      userRole: role,
+      accountName,
+      accountGroup,
+    }),
+    [role, accountName, accountGroup]
+  );
+
+  useDealsQuery(scopedFilter, { enabled: status === 'authenticated' });
+
+  return null;
+}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === '/login';
+  const isLoginPage = pathname === '/login' || pathname?.startsWith('/login') || pathname?.startsWith('/api/auth');
 
   if (isLoginPage) {
     return (
@@ -20,6 +42,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AppSidebarProvider>
+      <DealsCachePrewarmer />
       <div className="h-screen w-screen flex bg-background text-foreground transition-colors duration-200 overflow-hidden">
         {/* Sidebar */}
         <Sidebar />

@@ -20,6 +20,12 @@ import {
 import {
   AppTextarea,
   AppCard,
+  AppModal,
+  AppModalHeader,
+  AppModalTitle,
+  AppModalDescription,
+  AppModalBody,
+  AppModalFooter,
 } from '../../../components/ui';
 import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../../components/utils/time';
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
@@ -38,6 +44,9 @@ import {
   Info,
   Lock,
   Unlock,
+  CheckCircle2,
+  AlertCircle,
+  Calendar,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -217,9 +226,18 @@ export default function NewDealPage() {
     return totals;
   }, [watchItems]);
 
-  const onSubmit = async (data: CreateDealFormData) => {
-    setErrorMsg(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<CreateDealFormData | null>(null);
 
+  const onSubmit = (data: CreateDealFormData) => {
+    setErrorMsg(null);
+    setPendingFormData(data);
+    setShowConfirmModal(true);
+  };
+
+  const handleExecuteCreate = async () => {
+    if (!pendingFormData) return;
+    const data = pendingFormData;
     const finalBu = data.bu || watch('bu') || 'BU5';
 
     try {
@@ -244,11 +262,14 @@ export default function NewDealPage() {
       );
 
       if (result && result.success) {
+        setShowConfirmModal(false);
         router.push('/deals');
       } else {
+        setShowConfirmModal(false);
         setErrorMsg(result?.error || 'Failed to submit deal registration.');
       }
     } catch (err: any) {
+      setShowConfirmModal(false);
       setErrorMsg(err?.message || 'A network error occurred.');
     }
   };
@@ -666,6 +687,76 @@ export default function NewDealPage() {
         onClose={() => setIsLostModalOpen(false)}
         onSuccess={() => {}}
       />
+
+      {/* Transaction Confirmation Modal Safeguard */}
+      <AppModal open={showConfirmModal} onClose={() => setShowConfirmModal(false)} width={480}>
+        <AppModalHeader>
+          <div className="flex items-center gap-2 text-primary">
+            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+            <AppModalTitle>Confirm Deal Registration</AppModalTitle>
+          </div>
+          <AppModalDescription>
+            Please verify the registration parameters before saving to the database.
+          </AppModalDescription>
+        </AppModalHeader>
+
+        {pendingFormData && (
+          <AppModalBody className="space-y-3 py-2 text-xs">
+            <div className="p-3.5 rounded-xl bg-neutral/40 border border-border/70 space-y-2">
+              <div className="flex justify-between">
+                <span className="text-muted">Deal Reg ID:</span>
+                <span className="font-mono font-bold text-foreground">{pendingFormData.dealRegID}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Customer:</span>
+                <span className="font-bold text-foreground">{pendingFormData.custName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Project:</span>
+                <span className="font-medium text-foreground truncate max-w-[200px]">{pendingFormData.projectName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Brand & BU:</span>
+                <span className="font-bold text-foreground">{pendingFormData.brand} | {pendingFormData.bu || watch('bu')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Assigned AO:</span>
+                <span className="font-medium text-foreground">{pendingFormData.assignedAO}</span>
+              </div>
+              <div className="flex justify-between border-t border-border/40 pt-1.5">
+                <span className="text-muted">Validity:</span>
+                <span className="font-mono font-bold text-emerald-600">
+                  {formatDateLong(pendingFormData.dtRegistered)} → {formatDateLong(pendingFormData.expDt)}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-border/40 pt-1.5">
+                <span className="text-muted font-bold">Total Items:</span>
+                <span className="font-bold text-foreground">{pendingFormData.items?.length || 0} line items</span>
+              </div>
+            </div>
+          </AppModalBody>
+        )}
+
+        <AppModalFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={() => setShowConfirmModal(false)}
+            disabled={loading}
+            className="px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl transition"
+          >
+            Back / Edit
+          </button>
+          <button
+            type="button"
+            onClick={handleExecuteCreate}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-primary hover:opacity-90 rounded-xl shadow-xs transition disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <span>{loading ? 'Registering...' : 'Yes, Confirm & Register'}</span>
+          </button>
+        </AppModalFooter>
+      </AppModal>
     </div>
   );
 }

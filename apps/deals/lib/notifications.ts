@@ -4,13 +4,18 @@ import nodemailer from 'nodemailer';
 /**
  * Configure Nodemailer transport using SMTP credentials with fallback for development/testing
  */
+const smtpHost = process.env.MAIL_HOST || process.env.SMTP_HOST || 'smtp.gmail.com';
+const smtpPort = parseInt(process.env.MAIL_PORT || process.env.SMTP_PORT || '587', 10);
+const smtpUser = process.env.MAIL_USERNAME || process.env.SMTP_USER || 'noreply-newsite@ics.com.ph';
+const smtpPass = process.env.MAIL_PASSWORD || process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
+
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-  port: parseInt(process.env.SMTP_PORT || '587', 10),
-  secure: process.env.SMTP_SECURE === 'true',
+  host: smtpHost,
+  port: smtpPort,
+  secure: process.env.SMTP_SECURE === 'true' || smtpPort === 465,
   auth: {
-    user: process.env.SMTP_USER || 'ethereal_user',
-    pass: process.env.SMTP_PASS || 'ethereal_pass',
+    user: smtpUser,
+    pass: smtpPass,
   },
 });
 

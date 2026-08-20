@@ -33,6 +33,11 @@ import {
 } from './ui';
 import { formatDateLong } from './utils/time';
 
+import DealsFilterPopover from './DealsFilterPopover';
+import DealsSortPopover, { SortConfig } from './DealsSortPopover';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { ArrowRight } from 'lucide-react';
+
 interface DealLostListModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -48,6 +53,12 @@ export default function DealLostListModal({
 }: DealLostListModalProps) {
   const router = useRouter();
   const [searchInput, setSearchInput] = useState('');
+  const [buFilters, setBuFilters] = useState<string[]>([]);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    field: 'dtRegistered',
+    order: 'desc',
+  });
   const [expandedDealID, setExpandedDealID] = useState<number | null>(null);
 
   // Helper to resolve lost reason: DealLost.reason -> DealHeader.remarks -> fallback
@@ -100,33 +111,77 @@ export default function DealLostListModal({
     };
   }, [lostDeals]);
 
-  // Filter lost deals by search term
+  // Filter and sort lost deals
   const filteredDeals = useMemo(() => {
-    if (!searchInput.trim()) return lostDeals;
-    const q = searchInput.toLowerCase().trim();
+    let result = lostDeals;
 
-    return lostDeals.filter((d) => {
-      const company = (d.custName || '').toLowerCase();
-      const project = (d.ProjectName || d.projectName || '').toLowerCase();
-      const regID = (d.dealRegID || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      const resolvedReason = getResolvedLostReason(d).toLowerCase();
-      const remarks = (d.remarks || '').toLowerCase();
-      const vendor = (d.lostInfo?.competitorVendor || '').toLowerCase();
-      const competitorBrand = (d.lostInfo?.competitorBrand || '').toLowerCase();
+    if (searchInput.trim()) {
+      const q = searchInput.toLowerCase().trim();
+      result = result.filter((d) => {
+        const company = (d.custName || '').toLowerCase();
+        const project = (d.ProjectName || d.projectName || '').toLowerCase();
+        const regID = (d.dealRegID || '').toLowerCase();
+        const brand = (d.brand || '').toLowerCase();
+        const resolvedReason = getResolvedLostReason(d).toLowerCase();
+        const remarks = (d.remarks || '').toLowerCase();
+        const vendor = (d.lostInfo?.competitorVendor || '').toLowerCase();
+        const competitorBrand = (d.lostInfo?.competitorBrand || '').toLowerCase();
 
-      return (
-        company.includes(q) ||
-        project.includes(q) ||
-        regID.includes(q) ||
-        brand.includes(q) ||
-        resolvedReason.includes(q) ||
-        remarks.includes(q) ||
-        vendor.includes(q) ||
-        competitorBrand.includes(q)
-      );
+        return (
+          company.includes(q) ||
+          project.includes(q) ||
+          regID.includes(q) ||
+          brand.includes(q) ||
+          resolvedReason.includes(q) ||
+          remarks.includes(q) ||
+          vendor.includes(q) ||
+          competitorBrand.includes(q)
+        );
+      });
+    }
+
+    if (statusFilters.length > 0) {
+      result = result.filter((d) => statusFilters.includes(String(d.dealStatus)));
+    }
+
+    if (buFilters.length > 0) {
+      result = result.filter((d) => {
+        const bu = normalizeBU(d.BU || d.bu || '');
+        return buFilters.includes(bu);
+      });
+    }
+
+    return [...result].sort((a, b) => {
+      let comp = 0;
+      switch (sortConfig.field) {
+        case 'dtRegistered':
+          comp = new Date(a.dtRegistered || a.dtCreated || 0).getTime() - new Date(b.dtRegistered || b.dtCreated || 0).getTime();
+          break;
+        case 'expDt':
+          comp = new Date(a.expDt || a.expiration || 0).getTime() - new Date(b.expDt || b.expiration || 0).getTime();
+          break;
+        case 'dealRegID':
+          comp = (a.dealRegID || String(a.dealID)).localeCompare(b.dealRegID || String(b.dealID));
+          break;
+        case 'custName':
+          comp = (a.custName || '').localeCompare(b.custName || '');
+          break;
+        case 'projectName':
+          comp = (a.ProjectName || a.projectName || '').localeCompare(b.ProjectName || b.projectName || '');
+          break;
+        case 'brand':
+          comp = (a.brand || '').localeCompare(b.brand || '');
+          break;
+        case 'totalAmt': {
+          const vA = a.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
+          const vB = b.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
+          comp = vA - vB;
+          break;
+        }
+      }
+      return sortConfig.order === 'asc' ? comp : -comp;
     });
-  }, [lostDeals, searchInput]);
+  }, [lostDeals, searchInput, statusFilters, buFilters, sortConfig]);
 
   const toggleExpand = (dealID: number) => {
     setExpandedDealID((prev) => (prev === dealID ? null : dealID));
@@ -166,7 +221,7 @@ export default function DealLostListModal({
         setSearchInput('');
         setExpandedDealID(null);
       }}
-      width={840}
+      width={1160}
     >
       <AppModal.Header>
         <div className="flex items-center gap-3">
@@ -211,28 +266,43 @@ export default function DealLostListModal({
           </div>
         </div>
 
-        {/* Search Filter Bar */}
-        <div className="relative">
-          <AppInput
-            prefix={<Search className="w-4 h-4 text-muted" />}
-            placeholder="Search by company, project, reason, or competitor..."
-            value={searchInput}
-            onChange={(e: any) => setSearchInput(e.target.value)}
-            allowClear
-            size="md"
+        {/* Search & Filter & Sort Bar */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <AppInput
+              prefix={<Search className="w-4 h-4 text-muted" />}
+              placeholder="Search by company, project, reason, or competitor..."
+              value={searchInput}
+              onChange={(e: any) => setSearchInput(e.target.value)}
+              allowClear
+              size="md"
+            />
+          </div>
+          <DealsFilterPopover
+            buFilters={buFilters}
+            onBuFiltersChange={setBuFilters}
+            expiryFilters={[]}
+            onExpiryFiltersChange={() => {}}
+            statusFilters={statusFilters}
+            onStatusFiltersChange={setStatusFilters}
+            officialBUs={OFFICIAL_REGISTERED_BUS}
+          />
+          <DealsSortPopover
+            value={sortConfig}
+            onChange={setSortConfig}
           />
         </div>
 
-        {/* Minimalist Interactive Master-Detail Table */}
+        {/* Minimalist Interactive Master-Detail Table - Zero Horizontal Scroll */}
         <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
-          <div className="max-h-[420px] overflow-y-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
+            <table className="w-full table-fixed text-left text-xs border-collapse">
               <thead className="sticky top-0 z-10 bg-neutral/90 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
                 <tr>
-                  <th className="py-2.5 px-3 w-8"></th>
-                  <th className="py-2.5 px-3">Company Name</th>
-                  <th className="py-2.5 px-3">Project Name</th>
-                  <th className="py-2.5 px-3">Lost Reason</th>
+                  <th className="py-2.5 px-3 w-[6%]"></th>
+                  <th className="py-2.5 px-3 w-[30%]">Company Name</th>
+                  <th className="py-2.5 px-3 w-[34%]">Project Name</th>
+                  <th className="py-2.5 px-3 w-[30%]">Lost Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -464,17 +534,27 @@ export default function DealLostListModal({
         <span className="text-[11px] text-muted">
           Showing {filteredDeals.length} of {lostDeals.length} lost deal records
         </span>
-        <AppButton
-          variant="neutral"
-          size="sm"
-          onClick={() => {
-            onClose();
-            setSearchInput('');
-            setExpandedDealID(null);
-          }}
-        >
-          Close
-        </AppButton>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/reports?view=lost"
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-lg border border-amber-500/30 transition shadow-xs"
+          >
+            <span>Open in Reports Studio</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+          <AppButton
+            variant="neutral"
+            size="sm"
+            onClick={() => {
+              onClose();
+              setSearchInput('');
+              setExpandedDealID(null);
+            }}
+          >
+            Close
+          </AppButton>
+        </div>
       </AppModal.Footer>
     </AppModal>
   );

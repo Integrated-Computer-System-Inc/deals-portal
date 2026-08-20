@@ -70,48 +70,46 @@ export function AppFilterPopover({
     ...props
 }: AppFilterPopoverProps) {
     const content = (
-        <div className={cn('w-[280px] p-4 flex flex-col gap-4 select-none', className)}>
+        <div className={cn('w-[320px] max-h-[min(480px,calc(100vh-80px))] p-3 flex flex-col select-none bg-background border border-border rounded-xl shadow-2xl overflow-hidden', className)}>
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-border/40 pb-2.5 shrink-0">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2 shrink-0 bg-background z-10">
                 <span className="font-bold text-foreground text-sm">{title}</span>
                 {onResetAll && (
                     <button
                         type="button"
                         onClick={onResetAll}
-                        className="text-text-info hover:text-accent-1 text-xs font-semibold hover:underline cursor-pointer transition-colors"
+                        className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 hover:underline cursor-pointer transition-colors"
                     >
                         Reset all
                     </button>
                 )}
             </div>
 
-            {/* Body / Groups */}
-            <div className={cn('flex flex-col gap-4 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar', bodyClassName)}>
+            {/* Body / Groups (Scrollable only in this container) */}
+            <div className={cn('flex flex-col gap-3 overflow-y-auto pr-1 py-2 custom-scrollbar flex-1 min-h-0 max-h-[min(320px,calc(100vh-180px))]', bodyClassName)}>
                 {children}
             </div>
 
-            {/* Footer Actions */}
+            {/* Sticky Footer Actions - Fixed at bottom */}
             {(onClose || onApply) && (
-                <div className="flex items-center gap-2 shrink-0 pt-1">
+                <div className="flex items-center gap-2 shrink-0 pt-2.5 border-t border-border/60 mt-auto bg-background/95 backdrop-blur-xs z-20">
                     {onClose && (
-                        <AppButton
-                            variant="neutral"
-                            size="sm"
-                            className="flex-1"
+                        <button
+                            type="button"
+                            className="flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border text-foreground hover:bg-neutral transition"
                             onClick={onClose}
                         >
                             Close
-                        </AppButton>
+                        </button>
                     )}
                     {onApply && (
-                        <AppButton
-                            variant="accent"
-                            size="sm"
-                            className="flex-1 font-bold !bg-accent-1 !text-white hover:!opacity-90 transition-opacity shadow-sm"
+                        <button
+                            type="button"
+                            className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:opacity-90 transition shadow-sm cursor-pointer"
                             onClick={onApply}
                         >
-                            Apply
-                        </AppButton>
+                            Apply Filters
+                        </button>
                     )}
                 </div>
             )}

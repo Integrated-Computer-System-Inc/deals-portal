@@ -49,6 +49,7 @@ export interface UpdateDealPayload {
 }
 
 export interface SaveDealRenewalPayload {
+  renewalID?: number;
   dealID: number;
   dtRenewal: string | Date;
   validityDays: number;
@@ -111,6 +112,7 @@ export interface DealRenewalRecord {
   rexpDt: Date | string;
   remarks?: string | null;
   dtCreated?: Date | string;
+  dtUpdated?: Date | string | null;
 }
 
 export interface DealWTNRecord {
