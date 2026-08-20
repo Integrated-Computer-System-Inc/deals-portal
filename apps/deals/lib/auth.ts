@@ -9,6 +9,13 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || 'MOCK_GOOGLE_CLIENT_ID',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'MOCK_GOOGLE_CLIENT_SECRET',
+      authorization: {
+        params: {
+          prompt: 'select_account',
+          access_type: 'offline',
+          response_type: 'code',
+        },
+      },
     }),
     CredentialsProvider({
       id: 'demo-credentials',
@@ -77,51 +84,98 @@ export const authOptions: NextAuthOptions = {
         try {
           if (!user.email) return false;
 
-          const encodedEmail = Buffer.from(user.email).toString('base64');
-          const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedEmail}`);
+          const emailLower = user.email.toLowerCase();
+          const emailDomain = emailLower.split('@')[1];
 
-          if (!res.ok) {
-            console.error('Failed to fetch liveSearch API:', res.statusText);
-            return false;
-          }
+          // 1. Validate enterprise email domain (all @ics.com.ph allowed)
+          const allowedDomains = (process.env.ALLOWED_EMAIL_DOMAINS || 'ics.com.ph')
+            .split(',')
+            .map((d) => d.trim().toLowerCase())
+            .filter(Boolean);
 
-          const data = await res.json();
-          const accountData = Array.isArray(data) ? data[0] : data;
-
-          if (accountData && accountData.AccountID && accountData.AccountName) {
-            let roleToAssign: UserRole = 'admin';
-            try {
-              const existingUser = await prisma.usersTable.findUnique({
-                where: { Email: user.email },
-              });
-              if (existingUser && existingUser.UserRole) {
-                roleToAssign = existingUser.UserRole as UserRole;
-              } else {
-                await prisma.usersTable.upsert({
-                  where: { Email: user.email },
-                  update: {
-                    AccountName: accountData.AccountName,
-                  },
-                  create: {
-                    AccountID: String(accountData.AccountID),
-                    AccountName: accountData.AccountName,
-                    Email: user.email,
-                    UserRole: 'admin',
-                  },
-                });
-              }
-            } catch (dbError) {
-              console.warn('Could not upsert into UsersTable. Continuing login.', dbError);
-            }
-
-            (user as any).AccountID = String(accountData.AccountID);
-            (user as any).AccountName = accountData.AccountName;
-            (user as any).role = roleToAssign;
-            return true;
-          } else {
-            console.error('Validation failed: AccountID or AccountName missing in response.');
+          if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+            console.warn(
+              `Sign-in rejected: ${user.email} does not match allowed domains:`,
+              allowedDomains
+            );
             return '/login?error=AccessDenied';
           }
+
+          // 2. Check if user is configured as Admin via ADMIN_EMAILS env variable
+          const adminEmails = (process.env.ADMIN_EMAILS || 'jdoremon@ics.com.ph')
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
+
+          const isAdmin = adminEmails.includes(emailLower);
+
+          // 3. Defaults based on Google profile
+          const emailPrefix = emailLower.split('@')[0];
+          let accountID = `ACC-${emailPrefix.toUpperCase()}`;
+          let accountName = user.name || emailPrefix.replace(/\./g, ' ').toUpperCase();
+          let accountGroup = isAdmin ? 'HQ' : 'BU5';
+          let domainAccount = `CORP\\${emailPrefix.toUpperCase()}`;
+
+          // 4. Try to fetch rich corporate directory information (if available)
+          try {
+            const encodedEmail = Buffer.from(user.email).toString('base64');
+            const res = await fetch(`https://ice-cream.ics.com.ph/api/liveSearch?key=${encodedEmail}`);
+
+            if (res.ok) {
+              const data = await res.json();
+              const accountData = Array.isArray(data) ? data[0] : data;
+
+              if (accountData) {
+                if (accountData.AccountID) accountID = String(accountData.AccountID);
+                if (accountData.AccountName) accountName = accountData.AccountName;
+                if (accountData.AccountGroup) accountGroup = accountData.AccountGroup;
+                if (accountData.DomainAccount) domainAccount = accountData.DomainAccount;
+              }
+            } else {
+              console.warn('liveSearch API returned non-200, continuing with Google profile info:', res.statusText);
+            }
+          } catch (apiError) {
+            console.warn('liveSearch lookup error, continuing with Google profile info:', apiError);
+          }
+
+          // 5. Role determination:
+          // Admin if in ADMIN_EMAILS, else check existing UsersTable role, else default to 'ao'
+          let roleToAssign: UserRole = isAdmin ? 'admin' : 'ao';
+
+          try {
+            const existingUser = await prisma.usersTable.findUnique({
+              where: { Email: user.email },
+            });
+
+            if (isAdmin) {
+              roleToAssign = 'admin';
+            } else if (existingUser && existingUser.UserRole) {
+              roleToAssign = existingUser.UserRole as UserRole;
+            }
+
+            await prisma.usersTable.upsert({
+              where: { Email: user.email },
+              update: {
+                AccountName: accountName,
+                ...(isAdmin ? { UserRole: 'admin' } : {}),
+              },
+              create: {
+                AccountID: accountID,
+                AccountName: accountName,
+                Email: user.email,
+                UserRole: roleToAssign,
+              },
+            });
+          } catch (dbError) {
+            console.warn('Could not upsert into UsersTable. Continuing login.', dbError);
+          }
+
+          (user as any).AccountID = accountID;
+          (user as any).AccountName = accountName;
+          (user as any).AccountGroup = accountGroup;
+          (user as any).DomainAccount = domainAccount;
+          (user as any).role = roleToAssign;
+          return true;
         } catch (error) {
           console.error('Error during Google sign-in validation:', error);
           return '/login?error=AccessDenied';
@@ -133,10 +187,10 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         const u = user as any;
         token.AccountID = u.AccountID || 'UNKNOWN';
-        token.AccountName = u.AccountName || u.name || 'Demo User';
-        token.role = u.role || 'admin';
-        token.DomainAccount = u.DomainAccount || `GOOGLE\\${(u.email || '').split('@')[0].toUpperCase()}`;
-        token.AccountGroup = u.AccountGroup || 'HQ';
+        token.AccountName = u.AccountName || u.name || 'User';
+        token.role = u.role || 'ao';
+        token.DomainAccount = u.DomainAccount || `CORP\\${(u.email || '').split('@')[0].toUpperCase()}`;
+        token.AccountGroup = u.AccountGroup || 'BU5';
       }
       return token;
     },
@@ -159,5 +213,6 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'jwt',
   },
+  debug: process.env.NODE_ENV === 'development',
   secret: process.env.NEXTAUTH_SECRET || 'super-secret-deals-reg-portal-key',
 };

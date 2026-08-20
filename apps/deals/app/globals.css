@@ -27,6 +27,67 @@ body {
   100% { background-position: 600px 0; }
 }
 
+/* Login page entrance & modal animations */
+@keyframes login-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes login-scale-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.login-fade-in {
+  animation: login-fade-in 0.2s ease-out both;
+}
+
+.login-scale-in {
+  animation: login-scale-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Hero panel ambient animations (login page characters) */
+@keyframes hero-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.hero-float-slow {
+  animation: hero-float 7s ease-in-out infinite;
+}
+
+.hero-float-medium {
+  animation: hero-float 5.5s ease-in-out infinite;
+  animation-delay: -1.8s;
+}
+
+.hero-float-fast {
+  animation: hero-float 6.2s ease-in-out infinite;
+  animation-delay: -3.4s;
+}
+
+@keyframes hero-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+.hero-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hero-blink 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-fade-in,
+  .login-scale-in,
+  .hero-float-slow,
+  .hero-float-medium,
+  .hero-float-fast,
+  .hero-blink {
+    animation: none;
+  }
+}
+
 .shimmer-skeleton, .shimmer-row {
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.05) 25%, rgba(0, 0, 0, 0.12) 50%, rgba(0, 0, 0, 0.05) 75%);
   background-size: 1200px 100%;
@@ -319,6 +380,15 @@ select,
 .input-autocaps,
 input[data-autocaps="true"] {
   text-transform: uppercase !important;
+}
+
+/* Login page keeps the light design system even when the app theme is dark:
+   force light shimmer loading states inside the login scope. */
+.login-light-scope .shimmer-skeleton,
+.login-light-scope .shimmer-row {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.05) 25%, rgba(0, 0, 0, 0.12) 50%, rgba(0, 0, 0, 0.05) 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s infinite linear;
 }
 
 

@@ -4,6 +4,7 @@ const nextConfig = {
   transpilePackages: ['@my-app/types', '@my-app/database'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'antd'],
+    allowedDevOrigins: ['192.168.15.36:3000', 'localhost:3000'],
   },
 };
 
