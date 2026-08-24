@@ -27,6 +27,7 @@ import {
   ArrowUpDown,
   SlidersHorizontal,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 import {
@@ -80,9 +81,10 @@ export default function ReportsPage() {
   const [buSort, setBuSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
   const [buStatusFilter, setBuStatusFilter] = useState<'ALL' | 'ACTIVE' | 'APPROVED' | 'WAITING' | 'LOST'>('ALL');
 
-  // Modal States for 5 KPI Drilldowns
+  // Modal States for KPI Drilldowns
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
+  const [isRenewedModalOpen, setIsRenewedModalOpen] = useState(false);
 
   // Brand Directory Modal States
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
@@ -136,6 +138,8 @@ export default function ReportsPage() {
       setIsRegisteredModalOpen(true);
     } else if (view === 'expired') {
       setIsExpiredModalOpen(true);
+    } else if (view === 'renewed') {
+      setIsRenewedModalOpen(true);
     } else if (view === 'brands') {
       setIsBrandModalOpen(true);
     } else if (view === 'bus') {
@@ -198,6 +202,22 @@ export default function ReportsPage() {
       return !isNaN(exp.getTime()) && exp < now;
     });
   }, [deals, now]);
+
+  const renewedDealsList = useMemo(() => {
+    return deals
+      .filter((d: DealHeaderRecord) => {
+        return Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal);
+      })
+      .sort((a: any, b: any) => {
+        const latestA = a.latestRenewal || (a.renewals ? a.renewals[0] : null);
+        const latestB = b.latestRenewal || (b.renewals ? b.renewals[0] : null);
+        const timeB = latestB ? new Date(latestB.dtRenewal || latestB.dtCreated || 0).getTime() : 0;
+        const timeA = latestA ? new Date(latestA.dtRenewal || latestA.dtCreated || 0).getTime() : 0;
+        return timeB - timeA;
+      });
+  }, [deals]);
+
+  const renewedFilters = useModalDealFilters(renewedDealsList);
 
   const expiredThisMonth = useMemo(() => {
     return deals.filter((d: DealHeaderRecord) => {
@@ -663,7 +683,7 @@ export default function ReportsPage() {
           <span className="text-[11px] text-muted font-medium">Timeframe: {globalDateRange.label}</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
           {/* KPI 1: Total Registered Deals */}
           <AppCard
             onClick={() => setIsRegisteredModalOpen(true)}
@@ -724,6 +744,38 @@ export default function ReportsPage() {
 
             <div className="flex items-center justify-between text-[11px] font-bold text-rose-600 dark:text-rose-400 pt-2 border-t border-border/40">
               <span>View overdue</span>
+              <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </AppCard>
+
+          {/* KPI 3: Total Renewed Deals */}
+          <AppCard
+            onClick={() => setIsRenewedModalOpen(true)}
+            className="p-4 bg-card-bg border border-border/60 hover:border-emerald-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted truncate">Renewed Deals</span>
+              <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="shimmer-skeleton h-7 w-16 rounded-md" />
+                <div className="shimmer-skeleton h-3.5 w-28 rounded" />
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                <div className="text-2xl font-bold font-mono text-emerald-600">{renewedDealsList.length}</div>
+                <div className="text-[11px] text-muted truncate">
+                  Active renewals logged
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 pt-2 border-t border-border/40">
+              <span>View renewals</span>
               <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
           </AppCard>
@@ -2101,6 +2153,81 @@ export default function ReportsPage() {
               setIsBUDealsModalOpen(false);
               setSelectedBUForDeals(null);
               buDealsFilters.resetFilters();
+            }}
+          >
+            Close
+          </AppButton>
+        </AppModal.Footer>
+      </AppModal>
+
+      {/* KPI Modal: Renewed Deals Drilldown */}
+      <AppModal
+        open={isRenewedModalOpen}
+        onClose={() => {
+          setIsRenewedModalOpen(false);
+          renewedFilters.resetFilters();
+        }}
+        width={1160}
+      >
+        <AppModal.Header>
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 shrink-0">
+              <RefreshCw className="w-4 h-4" />
+            </div>
+            <div>
+              <AppModal.Title>
+                Renewed Deals Directory ({renewedFilters.filteredAndSortedDeals.length})
+              </AppModal.Title>
+              <AppModal.Description>
+                Overview of deal registrations with processed validity extensions and renewal records.
+              </AppModal.Description>
+            </div>
+          </div>
+        </AppModal.Header>
+
+        <AppModal.Body className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search renewed deals by Customer, Reg ID, Brand, BU, AO, Remarks..."
+                value={renewedFilters.searchQuery}
+                onChange={(e: any) => renewedFilters.setSearchQuery(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+            <DealsFilterPopover
+              buFilters={renewedFilters.buFilters}
+              onBuFiltersChange={renewedFilters.setBuFilters}
+              expiryFilters={renewedFilters.expiryFilters}
+              onExpiryFiltersChange={renewedFilters.setExpiryFilters}
+              statusFilters={renewedFilters.statusFilters}
+              onStatusFiltersChange={renewedFilters.setStatusFilters}
+              officialBUs={OFFICIAL_REGISTERED_BUS}
+            />
+            <DealsSortPopover
+              value={renewedFilters.sortConfig}
+              onChange={renewedFilters.setSortConfig}
+            />
+          </div>
+
+          <ModalDealTable
+            deals={renewedFilters.filteredAndSortedDeals}
+            onCloseModal={() => setIsRenewedModalOpen(false)}
+          />
+        </AppModal.Body>
+
+        <AppModal.Footer className="flex items-center justify-between pt-2">
+          <span className="text-[11px] text-muted">
+            Showing {renewedFilters.filteredAndSortedDeals.length} of {renewedDealsList.length} renewed deals
+          </span>
+          <AppButton
+            variant="neutral"
+            size="sm"
+            onClick={() => {
+              setIsRenewedModalOpen(false);
+              renewedFilters.resetFilters();
             }}
           >
             Close

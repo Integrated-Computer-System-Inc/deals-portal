@@ -6,7 +6,9 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
-import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
+import { useQueryClient } from '@tanstack/react-query';
+import { useDealsQuery, useCurrentUserFilter, DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
+import { getDealById } from '@/app/actions/deals';
 import {
   DealHeaderRecord,
   UserRole,
@@ -64,11 +66,24 @@ import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 
 function DealsContent() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const role: UserRole = (session?.user as any)?.role || 'admin';
   const canCreate = role === 'admin' || role === 'aa';
   const canEdit = role === 'admin' || role === 'aa';
+
+  const prefetchDealDetail = (dealID: number) => {
+    if (!dealID || isNaN(dealID)) return;
+    queryClient.prefetchQuery({
+      queryKey: DEAL_QUERY_KEYS.detail(dealID),
+      queryFn: async () => {
+        const res = await getDealById(dealID);
+        return res.data || null;
+      },
+      staleTime: 1000 * 60 * 15,
+    });
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
@@ -426,6 +441,7 @@ function DealsContent() {
           <div className="space-y-0.5 max-w-[210px]">
             <Link
               href={`/deals/${record.dealID}`}
+              onMouseEnter={() => prefetchDealDetail(record.dealID)}
               className="font-bold text-xs text-foreground hover:text-sky-600 transition truncate block hover:underline"
               title={record.custName}
             >
@@ -590,6 +606,7 @@ function DealsContent() {
             >
               <button
                 type="button"
+                onMouseEnter={() => prefetchDealDetail(record.dealID)}
                 className="h-8 w-8 rounded-lg bg-neutral/80 hover:bg-neutral text-foreground dark:text-zinc-200 hover:text-foreground border border-border/70 hover:border-border transition-all flex items-center justify-center cursor-pointer shadow-xs active:scale-95 mx-auto"
                 title="More Actions"
                 aria-label="More Actions"
@@ -850,7 +867,7 @@ function DealsContent() {
 
       {/* Upgraded Data Table with Shimmer Skeleton */}
       <AppCard className="border border-border/50 rounded-xl overflow-hidden shadow-xs bg-card-bg">
-        {loading ? (
+        {loading && deals.length === 0 ? (
           <div className="p-4 space-y-4">
             {/* Header skeleton */}
             <div className="flex items-center justify-between pb-3 border-b border-border/50">

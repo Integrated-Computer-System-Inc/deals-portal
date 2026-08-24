@@ -6,22 +6,11 @@ import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
 import { AppSidebarProvider } from './ui/sidebar';
 import { useSession } from 'next-auth/react';
-import { useDealsQuery, useDashboardQuery } from '@/hooks/useDealsQuery';
+import { useDealsQuery, useDashboardQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 
 function DealsCachePrewarmer() {
-  const { data: session, status } = useSession();
-  const role = (session?.user as any)?.role || 'admin';
-  const accountName = (session?.user as any)?.AccountName;
-  const accountGroup = (session?.user as any)?.AccountGroup;
-
-  const scopedFilter = React.useMemo(
-    () => ({
-      userRole: role,
-      accountName,
-      accountGroup,
-    }),
-    [role, accountName, accountGroup]
-  );
+  const { status } = useSession();
+  const scopedFilter = useCurrentUserFilter();
 
   useDealsQuery(scopedFilter, { enabled: status === 'authenticated' });
   useDashboardQuery({ enabled: status === 'authenticated' });
@@ -30,12 +19,7 @@ function DealsCachePrewarmer() {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  let pathname: string | null = null;
-  try {
-    pathname = usePathname();
-  } catch {
-    pathname = null;
-  }
+  const pathname = usePathname();
 
   const isLoginPage = !pathname || pathname === '/login' || pathname.startsWith('/login') || pathname.startsWith('/api/auth');
 

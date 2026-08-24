@@ -26,12 +26,7 @@ import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 
 export default function Sidebar() {
-  let pathname: string | null = null;
-  try {
-    pathname = usePathname();
-  } catch {
-    pathname = null;
-  }
+  const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();

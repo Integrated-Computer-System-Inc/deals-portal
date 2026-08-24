@@ -88,8 +88,9 @@ export function useDealsQuery(filter?: ScopedDealsFilter, options?: { enabled?: 
       throw new Error(res?.error || 'Failed to fetch deals');
     },
     enabled: options?.enabled !== undefined ? options.enabled : true,
+    placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 5, // 5 minutes fresh window
-    gcTime: 1000 * 60 * 30, // 30 minutes in-memory retention
+    gcTime: 1000 * 60 * 60, // 60 minutes in-memory retention
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   });
@@ -109,8 +110,9 @@ export function useDashboardQuery(options?: { enabled?: boolean }) {
       throw new Error(res?.error || 'Failed to load dashboard metrics');
     },
     enabled: options?.enabled !== undefined ? options.enabled : true,
+    placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 5, // 5 minutes fresh
-    gcTime: 1000 * 60 * 30, // 30 minutes in-memory
+    gcTime: 1000 * 60 * 60, // 60 minutes in-memory
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   });
@@ -150,8 +152,8 @@ export function useDealQuery(dealID: number | null, enabled = true) {
       }
       return null;
     },
-    // Instantly seed data from any deals list currently in memory!
-    initialData: () => {
+    // Instantly show summary data while background fetch retrieves full relations!
+    placeholderData: () => {
       if (!dealID) return undefined;
       const queries = queryClient.getQueriesData<DealHeaderRecord[]>({ queryKey: DEAL_QUERY_KEYS.all });
       for (const [, list] of queries) {
@@ -162,7 +164,6 @@ export function useDealQuery(dealID: number | null, enabled = true) {
       }
       return undefined;
     },
-    initialDataUpdatedAt: () => Date.now(),
     enabled: !!dealID && enabled,
     staleTime: 1000 * 60 * 15,
     gcTime: 1000 * 60 * 60,

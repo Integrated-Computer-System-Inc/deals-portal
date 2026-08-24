@@ -29,9 +29,10 @@ import {
   ExternalLink,
   Tag,
   ShieldAlert,
+  RefreshCw,
 } from 'lucide-react';
 
-import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
+import { useDealsQuery, useCurrentUserFilter, useDashboardQuery } from '@/hooks/useDealsQuery';
 import {
   DateRangeFilterPopover,
   DateRangeValue,
@@ -44,6 +45,7 @@ import {
 import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
 import DealLostListModal from '@/components/DealLostListModal';
 import { ModalDealTable } from '@/components/ModalDealTable';
+import { formatDateLong } from '@/components/utils/time';
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -70,6 +72,8 @@ export default function DashboardPage() {
   const [isLostModalOpen, setIsLostModalOpen] = useState(false);
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
+  const [isRenewedModalOpen, setIsRenewedModalOpen] = useState(false);
+  const [renewedSearch, setRenewedSearch] = useState('');
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [brandSearchInput, setBrandSearchInput] = useState('');
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
@@ -88,6 +92,7 @@ export default function DashboardPage() {
 
   const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
+  const { data: metrics } = useDashboardQuery();
 
   // Apply Date Range Filter to deals
   const deals = useMemo(() => {
@@ -283,6 +288,35 @@ export default function DashboardPage() {
     });
   }, [deals]);
 
+  const renewedDealsList = useMemo(() => {
+    return deals
+      .filter((d: DealHeaderRecord) => {
+        return Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal);
+      })
+      .sort((a: any, b: any) => {
+        const latestA = a.latestRenewal || (a.renewals ? a.renewals[0] : null);
+        const latestB = b.latestRenewal || (b.renewals ? b.renewals[0] : null);
+        const timeB = latestB ? new Date(latestB.dtRenewal || latestB.dtCreated || 0).getTime() : 0;
+        const timeA = latestA ? new Date(latestA.dtRenewal || latestA.dtCreated || 0).getTime() : 0;
+        return timeB - timeA;
+      });
+  }, [deals]);
+
+  const totalRenewedCount = metrics?.totalRenewed ?? renewedDealsList.length;
+
+  const filteredRenewedDeals = useMemo(() => {
+    if (!renewedSearch.trim()) return renewedDealsList;
+    const q = renewedSearch.toLowerCase().trim();
+    return renewedDealsList.filter((d) => {
+      const reg = (d.dealRegID || '').toLowerCase();
+      const cust = (d.custName || '').toLowerCase();
+      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
+      const bu = (d.BU || d.bu || '').toLowerCase();
+      const brand = (d.brand || '').toLowerCase();
+      return reg.includes(q) || cust.includes(q) || proj.includes(q) || bu.includes(q) || brand.includes(q);
+    });
+  }, [renewedDealsList, renewedSearch]);
+
   const formatAmounts = (deal: DealHeaderRecord) => {
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
       return Object.entries(deal.aggregatedTotals)
@@ -412,8 +446,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 5 Core Clickable KPI Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
+      {/* 6 Core Clickable KPI Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-4">
         {/* KPI 1: Total Registered Deals (Clickable) */}
         <AppCard
           onClick={() => setIsRegisteredModalOpen(true)}
@@ -466,6 +500,36 @@ export default function DashboardPage() {
               <div className="text-[11px] text-muted mt-1 truncate flex items-center justify-between">
                 <span>Requires WTN</span>
                 <span className="text-[10px] text-rose-500 font-bold group-hover:underline transition">Click &rarr;</span>
+              </div>
+            </>
+          )}
+        </AppCard>
+
+        {/* KPI 3: Total Renewed Deals (Clickable) */}
+        <AppCard
+          onClick={() => setIsRenewedModalOpen(true)}
+          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
+            <span className="truncate group-hover:text-emerald-500 transition">Renewed Deals</span>
+            <RefreshCw className="w-4 h-4 text-emerald-500 shrink-0" />
+          </div>
+          {loading ? (
+            <div className="space-y-2 mt-2">
+              <div className="shimmer-skeleton h-8 w-20 rounded-md" />
+              <div className="shimmer-skeleton h-3.5 w-32 rounded" />
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl sm:text-3xl font-bold text-emerald-600 mt-2 font-mono truncate">
+                {totalRenewedCount}
+              </div>
+              <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center justify-between truncate">
+                <div className="flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Active renewals</span>
+                </div>
+                <span className="text-[10px] text-muted group-hover:text-emerald-600 transition font-medium">Click &rarr;</span>
               </div>
             </>
           )}
@@ -1381,6 +1445,72 @@ export default function DashboardPage() {
               onClick={() => {
                 setIsExpiredModalOpen(false);
                 setExpiredSearch('');
+              }}
+            >
+              Close
+            </AppButton>
+          </div>
+        </AppModal.Footer>
+      </AppModal>
+
+      {/* Renewed Deals Overview Modal Drilldown */}
+      <AppModal
+        open={isRenewedModalOpen}
+        onClose={() => {
+          setIsRenewedModalOpen(false);
+          setRenewedSearch('');
+        }}
+        width={1160}
+      >
+        <AppModal.Header>
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-5 h-5 text-emerald-500" />
+            <div>
+              <AppModal.Title>Renewed Deals Directory ({filteredRenewedDeals.length})</AppModal.Title>
+              <AppModal.Description>
+                Overview of all deal registrations with processed validity extensions and renewal records.
+              </AppModal.Description>
+            </div>
+          </div>
+        </AppModal.Header>
+
+        <AppModal.Body className="space-y-4">
+          <div className="relative">
+            <AppInput
+              prefix={<Search className="w-4 h-4 text-muted" />}
+              placeholder="Search renewed deals by Project, Customer, Reg ID, BU, Brand..."
+              value={renewedSearch}
+              onChange={(e: any) => setRenewedSearch(e.target.value)}
+              allowClear
+              size="md"
+            />
+          </div>
+
+          <ModalDealTable
+            deals={filteredRenewedDeals}
+            onCloseModal={() => setIsRenewedModalOpen(false)}
+          />
+        </AppModal.Body>
+
+        <AppModal.Footer className="flex items-center justify-between pt-2">
+          <span className="text-[11px] text-muted">
+            Showing {filteredRenewedDeals.length} of {renewedDealsList.length} renewed deals
+          </span>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/reports?view=renewed"
+              onClick={() => setIsRenewedModalOpen(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-lg border border-emerald-500/30 transition shadow-xs"
+            >
+              <span>Open in Reports Studio</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            <AppButton
+              variant="neutral"
+              size="sm"
+              onClick={() => {
+                setIsRenewedModalOpen(false);
+                setRenewedSearch('');
               }}
             >
               Close

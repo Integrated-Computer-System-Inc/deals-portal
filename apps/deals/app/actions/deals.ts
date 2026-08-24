@@ -349,8 +349,17 @@ export async function getDealById(
   _token?: string
 ): Promise<{ success: boolean; data?: DealHeaderRecord | null; error?: string }> {
   try {
+    const id = Number(dealID);
+    if (!id || isNaN(id)) return { success: true, data: null };
+
+    const cacheKey = `deal_detail:${id}`;
+    const cached = serverCache.get<DealHeaderRecord | null>(cacheKey);
+    if (cached !== null) {
+      return { success: true, data: cached };
+    }
+
     const rawDeal = await prisma.dealHeader.findUnique({
-      where: { dealID: Number(dealID) },
+      where: { dealID: id },
       include: {
         DealItems: true,
         DealWTN: true,
@@ -445,6 +454,8 @@ export async function getDealById(
       latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
       aggregatedTotals: totalsByCurrency,
     };
+
+    serverCache.set(cacheKey, formatted, 300_000, ['deals']);
 
     return { success: true, data: formatted };
   } catch (err: unknown) {
@@ -1207,6 +1218,7 @@ export interface DashboardSummaryData {
   totalCount: number;
   totalRegistered: number;
   expiredThisMonth: number;
+  totalRenewed: number;
   dealsByBrand: { brand: string; count: number }[];
   dealsByBU: { bu: string; count: number }[];
   recentDeals: DealHeaderRecord[];
@@ -1287,6 +1299,7 @@ export async function getDashboardSummary(): Promise<{
       totalCount,
       totalRegistered,
       expiredThisMonth,
+      totalRenewed,
       dealsByBrandGroup,
       dealsByBUGroup,
       recentRawDeals,
@@ -1308,6 +1321,15 @@ export async function getDashboardSummary(): Promise<{
             gte: startOfMonth,
             lte: endOfMonth,
             lt: now,
+          },
+        },
+      }),
+      // 4. Total Renewed (Deals joined with DealRenewal by dealID)
+      prisma.dealHeader.count({
+        where: {
+          ...baseWhere,
+          Renewals: {
+            some: {},
           },
         },
       }),
@@ -1402,6 +1424,7 @@ export async function getDashboardSummary(): Promise<{
       totalCount,
       totalRegistered,
       expiredThisMonth,
+      totalRenewed,
       dealsByBrand,
       dealsByBU,
       recentDeals: formattedRecentDeals,

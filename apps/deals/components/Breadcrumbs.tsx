@@ -6,12 +6,7 @@ import { AppBreadcrumbs, BreadcrumbItem } from './ui/breadcrumbs';
 import { LayoutDashboard, FileSpreadsheet, PlusCircle, Edit3, FileText, BarChart2 } from 'lucide-react';
 
 export default function Breadcrumbs() {
-  let pathname: string | null = null;
-  try {
-    pathname = usePathname();
-  } catch {
-    pathname = null;
-  }
+  const pathname = usePathname();
 
   if (!pathname || pathname === '/login') {
     return null;
