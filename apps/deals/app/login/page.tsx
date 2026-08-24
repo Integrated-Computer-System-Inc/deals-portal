@@ -1,6 +1,6 @@
 'use client';
 
-import { signIn } from 'next-auth/react';
+import { signIn, getSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -301,15 +301,16 @@ function HeroShapes({
 }
 
 // ---------------------------------------------------------------------------
-// Login Form (Direct Google OAuth 2.0 Integration)
+// Login Form (Direct Google OAuth 2.0 Integration with Popup Modal)
 // ---------------------------------------------------------------------------
 
 interface LoginFormProps {
   onMoodChange: (mood: 'idle' | 'sad') => void;
+  onAuthSuccess: () => void;
   isBusy: boolean;
 }
 
-function LoginForm({ onMoodChange, isBusy }: LoginFormProps) {
+function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const errorCode = searchParams?.get('error') || null;
@@ -317,8 +318,9 @@ function LoginForm({ onMoodChange, isBusy }: LoginFormProps) {
 
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
+  const [localAuthError, setLocalAuthError] = useState<AuthErrorInfo | null>(null);
 
-  const visibleAuthError = !isErrorDismissed ? authError : null;
+  const visibleAuthError = localAuthError || (!isErrorDismissed ? authError : null);
 
   useEffect(() => {
     if (visibleAuthError) {
@@ -329,27 +331,140 @@ function LoginForm({ onMoodChange, isBusy }: LoginFormProps) {
   }, [visibleAuthError, onMoodChange]);
 
   const clearUrlError = useCallback(() => {
+    setLocalAuthError(null);
+    setIsErrorDismissed(true);
+    onMoodChange('idle');
     if (errorCode) {
-      setIsErrorDismissed(true);
-      onMoodChange('idle');
       router.replace('/login');
     }
   }, [errorCode, onMoodChange, router]);
 
   const handleGoogleSignIn = async () => {
     if (isBusy || isSigningIn) return;
+    setLocalAuthError(null);
     clearUrlError();
     setIsSigningIn(true);
     onMoodChange('idle');
 
+    // Calculate center coordinates for Google OAuth popup modal
+    const width = 500;
+    const height = 650;
+    const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
+
+    // Open popup synchronously on click to prevent browser popup blockers
+    const popup = window.open(
+      'about:blank',
+      'google_oauth_popup',
+      `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes,scrollbars=yes`
+    );
+
+    if (popup) {
+      try {
+        popup.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head><title>Connecting to Google...</title></head>
+            <body style="margin:0;display:flex;height:100vh;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#ffffff;color:#333;">
+              <div style="text-align:center;">
+                <div style="width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
+                <p style="font-size:13px;font-weight:600;color:#1e293b;margin:0;">Connecting to Google...</p>
+              </div>
+              <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+            </body>
+          </html>
+        `);
+      } catch (e) {
+        // Ignore potential cross-origin document notice
+      }
+    }
+
     try {
-      await signIn('google', {
-        callbackUrl: '/dashboard',
+      // 1. Fetch CSRF token from NextAuth
+      const csrfRes = await fetch('/api/auth/csrf');
+      const { csrfToken } = await csrfRes.json();
+
+      // 2. Obtain Google authorization URL directly without top-level redirect
+      const signinRes = await fetch('/api/auth/signin/google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          csrfToken,
+          callbackUrl: `${window.location.origin}/login?popup=1`,
+          json: 'true',
+        }),
       });
+
+      const signinData = await signinRes.json();
+      const authUrl = signinData?.url;
+
+      if (!authUrl) {
+        if (popup && !popup.closed) popup.close();
+        throw new Error('Failed to obtain Google authorization URL');
+      }
+
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+        popup.focus();
+      } else {
+        window.location.href = authUrl;
+        return;
+      }
+
+      let isFinished = false;
+
+      // Listen for message from popup
+      const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === 'OAUTH_SUCCESS') {
+          isFinished = true;
+          window.removeEventListener('message', handleMessage);
+          clearInterval(pollTimer);
+          setIsSigningIn(false);
+          onAuthSuccess();
+        } else if (event.data?.type === 'OAUTH_ERROR') {
+          isFinished = true;
+          window.removeEventListener('message', handleMessage);
+          clearInterval(pollTimer);
+          setIsSigningIn(false);
+          onMoodChange('sad');
+          router.replace(`/login?error=${encodeURIComponent(event.data.error || 'OAuthCallbackError')}`);
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+
+      // Poll in case the popup closes
+      const pollTimer = setInterval(async () => {
+        if (popup.closed && !isFinished) {
+          clearInterval(pollTimer);
+          window.removeEventListener('message', handleMessage);
+          const session = await getSession();
+          if (session?.user) {
+            setIsSigningIn(false);
+            onAuthSuccess();
+          } else {
+            setIsSigningIn(false);
+            onMoodChange('sad');
+            setLocalAuthError({
+              title: 'Access Restricted / Sign-In Cancelled',
+              description:
+                'The sign-in window was closed or access was blocked. Deals Portal is restricted to authorized @ics.com.ph accounts only. If your account is unregistered or you need access, please contact IT Support.',
+            });
+          }
+        }
+      }, 500);
     } catch (err) {
       console.error('Sign-in error:', err);
+      if (popup && !popup.closed) popup.close();
       setIsSigningIn(false);
       onMoodChange('sad');
+      setLocalAuthError({
+        title: 'Sign-In Error',
+        description: 'Unable to start Google authentication. Please try again or contact IT Support.',
+      });
     }
   };
 
@@ -456,17 +571,60 @@ type AnimationStep = 'idle' | 'celebrating' | 'expanding' | 'loading';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [animationStep] = useState<AnimationStep>('idle');
+  const searchParams = useSearchParams();
+  const [animationStep, setAnimationStep] = useState<AnimationStep>('idle');
   const [characterMood, setCharacterMood] = useState<'idle' | 'sad'>('idle');
+
+  // Handle OAuth Popup Callback if inside the popup window
+  const isPopup = searchParams?.get('popup') === '1';
+
+  useEffect(() => {
+    if (isPopup && typeof window !== 'undefined' && window.opener) {
+      const error = searchParams?.get('error');
+      try {
+        if (error) {
+          window.opener.postMessage({ type: 'OAUTH_ERROR', error }, window.location.origin);
+        } else {
+          window.opener.postMessage({ type: 'OAUTH_SUCCESS' }, window.location.origin);
+        }
+      } catch (e) {
+        console.error('Popup postMessage error:', e);
+      }
+      setTimeout(() => {
+        window.close();
+      }, 50);
+    }
+  }, [isPopup, searchParams]);
 
   useEffect(() => {
     router.prefetch('/dashboard');
+  }, [router]);
+
+  // Trigger celebration animation on successful authentication
+  const handleAuthSuccess = useCallback(() => {
+    setAnimationStep('celebrating');
+    setTimeout(() => {
+      setAnimationStep('loading');
+      router.push('/dashboard');
+    }, 1400);
   }, [router]);
 
   const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
   const isCelebrating = animationStep === 'celebrating';
   const isSad = characterMood === 'sad' && !isCelebrating;
   const isLoading = animationStep === 'loading';
+
+  // If this window is the closing popup, render lightweight loader
+  if (isPopup) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white p-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="text-xs font-semibold text-zinc-600">Completing sign in...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-light-scope relative flex min-h-screen bg-[#f8f9fa] overflow-hidden selection:bg-pink-300/50">
@@ -513,6 +671,7 @@ export default function LoginPage() {
               >
                 <LoginForm
                   onMoodChange={setCharacterMood}
+                  onAuthSuccess={handleAuthSuccess}
                   isBusy={animationStep !== 'idle'}
                 />
               </Suspense>

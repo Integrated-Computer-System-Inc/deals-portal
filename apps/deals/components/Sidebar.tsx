@@ -297,8 +297,7 @@ export default function Sidebar() {
             leftIcon={<LogOut size={14} />}
             onClick={async () => {
               setShowSignOutConfirm(false);
-              signOut({ redirect: false });
-              router.replace('/login');
+              await signOut({ callbackUrl: '/login' });
             }}
           >
             Sign Out
