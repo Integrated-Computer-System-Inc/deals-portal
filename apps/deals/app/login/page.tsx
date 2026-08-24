@@ -3,6 +3,9 @@
 import { signIn, getSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
+import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 import {
   ShieldAlert,
   Loader2,
@@ -704,19 +707,50 @@ export default function LoginPage() {
     }
   }, [isPopup, searchParams, router]);
 
+  const queryClient = useQueryClient();
+
   useEffect(() => {
     router.prefetch('/dashboard');
+    router.prefetch('/deals');
+    router.prefetch('/reports');
   }, [router]);
 
-  // Trigger celebration animation on successful authentication
+  // Trigger celebration animation and data prewarming on successful authentication
   const handleAuthSuccess = useCallback(() => {
     setAnimationStep('celebrating');
+
+    // 1. Prefetch Next.js route chunks
     router.prefetch('/dashboard');
+    router.prefetch('/deals');
+    router.prefetch('/reports');
+
+    // 2. Background pre-warm TanStack Query caches
+    queryClient.prefetchQuery({
+      queryKey: DEAL_QUERY_KEYS.dashboard(),
+      queryFn: async () => {
+        const res = await getDashboardSummary();
+        return res.data || null;
+      },
+      staleTime: 1000 * 60 * 5,
+    });
+
+    queryClient.prefetchQuery({
+      queryKey: DEAL_QUERY_KEYS.list({}),
+      queryFn: async () => {
+        const res = await getScopedDeals({});
+        return res.data || [];
+      },
+      staleTime: 1000 * 60 * 5,
+    });
+
+    // 3. Smooth transition to dashboard after 2.2s prewarming buffer
     setTimeout(() => {
       setAnimationStep('loading');
-      router.replace('/dashboard');
-    }, 1000);
-  }, [router]);
+      setTimeout(() => {
+        router.replace('/dashboard');
+      }, 700);
+    }, 1500);
+  }, [router, queryClient]);
 
   const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
   const isCelebrating = animationStep === 'celebrating';
@@ -753,7 +787,7 @@ export default function LoginPage() {
                 Signing in
               </h3>
               <p className={`${inter.className} text-xs text-zinc-500 mt-1`}>
-                Directing to Deals Portal
+                Preparing &amp; pre-loading your Deals Workspace...
               </p>
             </div>
           </div>
