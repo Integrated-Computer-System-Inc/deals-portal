@@ -24,6 +24,7 @@ import {
 } from '@/lib/email-templates';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { normalizeBrandName } from '@/lib/brandUtils';
+import { serverCache } from '@/lib/serverCache';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -42,7 +43,7 @@ function parseSafeInt(val: any, fallback = 0): number {
 }
 
 export async function invalidateServerDealsCache() {
-  // No-op / Client TanStack Query handles caching
+  serverCache.invalidateTags(['deals', 'dashboard']);
 }
 
 /**
@@ -73,6 +74,32 @@ export async function getScopedDeals(
     const statusFilter = filter.statusFilter || 'ALL';
     const buFilter = filter.buFilter || 'ALL';
     const brandFilter = filter.brandFilter || 'ALL';
+
+    const cacheKey = serverCache.generateKey('scoped_deals', {
+      userRole,
+      accountName,
+      accountGroup,
+      assignedBUs: filter.assignedBUs,
+      page,
+      pageSize,
+      searchQuery,
+      statusFilter,
+      buFilter,
+      brandFilter,
+    });
+
+    const cached = serverCache.get<{
+      success: boolean;
+      data: DealHeaderRecord[];
+      totalCount: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
 
     const andConditions: any[] = [];
 
@@ -293,7 +320,7 @@ export async function getScopedDeals(
 
     const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1;
 
-    return {
+    const result = {
       success: true,
       data: formattedDeals,
       totalCount,
@@ -301,6 +328,11 @@ export async function getScopedDeals(
       pageSize,
       totalPages,
     };
+
+    // Cache in server memory for 60s
+    serverCache.set(cacheKey, result, 60_000, ['deals']);
+
+    return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[Action: getScopedDeals] Error:', message);
@@ -1233,6 +1265,18 @@ export async function getDashboardSummary(): Promise<{
       }
     }
 
+    const cacheKey = serverCache.generateKey('dashboard_summary', {
+      userRole,
+      accountName,
+      accountGroup,
+      assignedBUs: (session?.user as any)?.assignedBUs,
+    });
+
+    const cached = serverCache.get<DashboardSummaryData>(cacheKey);
+    if (cached) {
+      return { success: true, data: cached };
+    }
+
     const baseWhere = andConditions.length > 0 ? { AND: andConditions } : {};
 
     const now = new Date();
@@ -1354,16 +1398,21 @@ export async function getDashboardSummary(): Promise<{
       count: bu._count.dealID,
     }));
 
+    const summaryData: DashboardSummaryData = {
+      totalCount,
+      totalRegistered,
+      expiredThisMonth,
+      dealsByBrand,
+      dealsByBU,
+      recentDeals: formattedRecentDeals,
+    };
+
+    // Cache in server memory for 120s
+    serverCache.set(cacheKey, summaryData, 120_000, ['dashboard', 'deals']);
+
     return {
       success: true,
-      data: {
-        totalCount,
-        totalRegistered,
-        expiredThisMonth,
-        dealsByBrand,
-        dealsByBU,
-        recentDeals: formattedRecentDeals,
-      },
+      data: summaryData,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

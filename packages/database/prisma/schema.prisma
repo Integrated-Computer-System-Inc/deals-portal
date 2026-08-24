@@ -35,6 +35,8 @@ model DealHeader {
   @@index([BU, dtCreated])
   @@index([dtCreated])
   @@index([customerID])
+  @@index([brand, dtCreated])
+  @@index([expDt])
 }
 
 model DealItems {

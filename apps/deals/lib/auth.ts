@@ -357,23 +357,20 @@ export const authOptions: NextAuthOptions = {
           // 7. Persist / upsert session details into dbo.Users table if table exists
           try {
             await prisma.$executeRawUnsafe(`
-              IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
-              BEGIN
-                IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId})
-                  UPDATE Users 
-                  SET AccountName = N'${accountName.replace(/'/g, "''")}',
-                      Email = '${emailLower.replace(/'/g, "''")}',
-                      UserRole = '${userAccess.role}',
-                      RememberToken = '${rememberToken}',
-                      LastLogin = GETDATE()
-                  WHERE AccountID = ${accountId};
-                ELSE
-                  INSERT INTO Users (AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin)
-                  VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', '${rememberToken}', GETDATE(), GETDATE());
-              END
+              IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId})
+                UPDATE Users 
+                SET AccountName = N'${accountName.replace(/'/g, "''")}',
+                    Email = '${emailLower.replace(/'/g, "''")}',
+                    UserRole = '${userAccess.role}',
+                    RememberToken = '${rememberToken}',
+                    LastLogin = GETDATE()
+                WHERE AccountID = ${accountId};
+              ELSE
+                INSERT INTO Users (AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin)
+                VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', '${rememberToken}', GETDATE(), GETDATE());
             `);
           } catch (dbError) {
-            console.warn('[Google Sign-In] Could not persist into Users table. Continuing login:', dbError);
+            console.warn('[Google Sign-In] Users upsert notice:', dbError);
           }
 
           // 8. Attach claims to NextAuth user object

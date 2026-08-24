@@ -31,14 +31,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error }, { status: 500 });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: result.data,
-      totalCount: result.totalCount,
-      page: result.page,
-      pageSize: result.pageSize,
-      totalPages: result.totalPages,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        data: result.data,
+        totalCount: result.totalCount,
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: result.totalPages,
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, s-maxage=60, stale-while-revalidate=300',
+        },
+      }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[/api/deals] Execution error:', message);

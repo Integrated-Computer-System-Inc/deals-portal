@@ -6,11 +6,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getScopedDeals,
   getDealById,
+  getDashboardSummary,
   createDeal,
   updateDeal,
   saveLostDeal,
   updateWTN,
   saveDealRenewal,
+  DashboardSummaryData,
 } from '../app/actions/deals';
 import {
   DealHeaderRecord,
@@ -48,6 +50,7 @@ export const DEAL_QUERY_KEYS = {
   list: (filter?: ScopedDealsFilter) => [...DEAL_QUERY_KEYS.lists(), normalizeScopedFilter(filter)] as const,
   details: () => [...DEAL_QUERY_KEYS.all, 'detail'] as const,
   detail: (id: number | null) => [...DEAL_QUERY_KEYS.details(), id ? Number(id) : null] as const,
+  dashboard: () => [...DEAL_QUERY_KEYS.all, 'dashboard'] as const,
 };
 
 /**
@@ -87,6 +90,27 @@ export function useDealsQuery(filter?: ScopedDealsFilter, options?: { enabled?: 
     enabled: options?.enabled !== undefined ? options.enabled : true,
     staleTime: 1000 * 60 * 5, // 5 minutes fresh window
     gcTime: 1000 * 60 * 30, // 30 minutes in-memory retention
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
+}
+
+/**
+ * Hook to retrieve dashboard metrics with TanStack Query caching
+ */
+export function useDashboardQuery(options?: { enabled?: boolean }) {
+  return useQuery<DashboardSummaryData>({
+    queryKey: DEAL_QUERY_KEYS.dashboard(),
+    queryFn: async () => {
+      const res = await getDashboardSummary();
+      if (res && res.success && res.data) {
+        return res.data;
+      }
+      throw new Error(res?.error || 'Failed to load dashboard metrics');
+    },
+    enabled: options?.enabled !== undefined ? options.enabled : true,
+    staleTime: 1000 * 60 * 5, // 5 minutes fresh
+    gcTime: 1000 * 60 * 30, // 30 minutes in-memory
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   });
@@ -188,7 +212,8 @@ export function useUpdateWTNMutation() {
     },
     onSettled: (_, __, variables) => {
       const dealID = Number(variables.wtn_dealID || (variables as any).dealID);
-      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.dashboard() });
       if (dealID) {
         queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.detail(dealID) });
       }
@@ -249,7 +274,8 @@ export function useLostDealMutation() {
     },
     onSettled: (_, __, variables) => {
       const dealID = Number(variables.dealID);
-      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.dashboard() });
       if (dealID) {
         queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.detail(dealID) });
       }
@@ -266,7 +292,8 @@ export function useCreateDealMutation() {
   return useMutation({
     mutationFn: (payload: CreateDealPayload) => createDeal(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.dashboard() });
     },
   });
 }
@@ -280,7 +307,8 @@ export function useUpdateDealMutation() {
   return useMutation({
     mutationFn: (payload: UpdateDealPayload) => updateDeal(payload),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.dashboard() });
       if (variables.dealID) {
         queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.detail(Number(variables.dealID)) });
       }
@@ -391,7 +419,8 @@ export function useRenewDealMutation() {
     },
     onSettled: (_, __, variables) => {
       const dealID = Number(variables.dealID);
-      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.dashboard() });
       if (dealID) {
         queryClient.invalidateQueries({ queryKey: DEAL_QUERY_KEYS.detail(dealID) });
       }

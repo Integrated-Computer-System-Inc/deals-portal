@@ -6,7 +6,7 @@ import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
 import { AppSidebarProvider } from './ui/sidebar';
 import { useSession } from 'next-auth/react';
-import { useDealsQuery } from '@/hooks/useDealsQuery';
+import { useDealsQuery, useDashboardQuery } from '@/hooks/useDealsQuery';
 
 function DealsCachePrewarmer() {
   const { data: session, status } = useSession();
@@ -24,6 +24,7 @@ function DealsCachePrewarmer() {
   );
 
   useDealsQuery(scopedFilter, { enabled: status === 'authenticated' });
+  useDashboardQuery({ enabled: status === 'authenticated' });
 
   return null;
 }

@@ -21,6 +21,9 @@ import {
 } from 'lucide-react';
 import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
+import { useQueryClient } from '@tanstack/react-query';
+import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
+import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 
 export default function Sidebar() {
   let pathname: string | null = null;
@@ -30,6 +33,7 @@ export default function Sidebar() {
     pathname = null;
   }
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
   const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
@@ -39,6 +43,37 @@ export default function Sidebar() {
   const accountEmail = (session?.user as any)?.Email || session?.user?.email || '';
   const accountImage = (session?.user as any)?.GAvatar || session?.user?.image || undefined;
   const userBU = (session?.user as any)?.AccountGroup || 'HQ';
+
+  const scopedFilter = React.useMemo(
+    () => ({
+      userRole,
+      accountName,
+      accountGroup: userBU,
+    }),
+    [userRole, accountName, userBU]
+  );
+
+  const handlePrefetchData = (href: string) => {
+    if (href === '/dashboard') {
+      queryClient.prefetchQuery({
+        queryKey: DEAL_QUERY_KEYS.dashboard(),
+        queryFn: async () => {
+          const res = await getDashboardSummary();
+          return res.data;
+        },
+        staleTime: 1000 * 60 * 5,
+      });
+    } else if (href === '/deals' || href === '/reports') {
+      queryClient.prefetchQuery({
+        queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
+        queryFn: async () => {
+          const res = await getScopedDeals(scopedFilter);
+          return res.data || [];
+        },
+        staleTime: 1000 * 60 * 5,
+      });
+    }
+  };
 
   const getRoleLabel = () => {
     if (userRole === 'admin') return 'Administrator';
@@ -163,7 +198,12 @@ export default function Sidebar() {
             {menuItems.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <div key={item.href} className="w-full flex justify-center">
+                <div
+                  key={item.href}
+                  className="w-full flex justify-center"
+                  onMouseEnter={() => handlePrefetchData(item.href)}
+                  onFocus={() => handlePrefetchData(item.href)}
+                >
                   <AppSidebar.Item
                     href={item.href}
                     icon={item.icon}

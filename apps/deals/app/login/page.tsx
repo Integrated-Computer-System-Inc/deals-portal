@@ -88,9 +88,13 @@ interface SvgPoint {
 }
 
 const HERO_VIEWBOX = { width: 560, height: 600 };
+const MOBILE_HERO_VIEWBOX = { width: 380, height: 130 };
 
-function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint {
-  const [cursor, setCursor] = useState<SvgPoint>({ x: 280, y: 150 });
+function useSvgCursor(
+  svgRef: React.RefObject<SVGSVGElement | null>,
+  viewBox: { width: number; height: number } = HERO_VIEWBOX
+): SvgPoint {
+  const [cursor, setCursor] = useState<SvgPoint>({ x: viewBox.width / 2, y: viewBox.height / 3 });
 
   useEffect(() => {
     let frame = 0;
@@ -101,8 +105,8 @@ function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint {
       const rect = svg.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
       setCursor({
-        x: ((clientX - rect.left) / rect.width) * HERO_VIEWBOX.width,
-        y: ((clientY - rect.top) / rect.height) * HERO_VIEWBOX.height,
+        x: ((clientX - rect.left) / rect.width) * viewBox.width,
+        y: ((clientY - rect.top) / rect.height) * viewBox.height,
       });
     };
 
@@ -111,15 +115,24 @@ function useSvgCursor(svgRef: React.RefObject<SVGSVGElement | null>): SvgPoint {
       frame = requestAnimationFrame(() => update(e.clientX, e.clientY));
     };
 
+    const handleTouch = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => update(e.touches[0].clientX, e.touches[0].clientY));
+      }
+    };
+
     window.addEventListener('mousemove', handleMove, { passive: true });
     window.addEventListener('pointermove', handleMove, { passive: true });
+    window.addEventListener('touchmove', handleTouch, { passive: true });
 
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('touchmove', handleTouch);
     };
-  }, [svgRef]);
+  }, [svgRef, viewBox.width, viewBox.height]);
 
   return cursor;
 }
@@ -300,6 +313,100 @@ function HeroShapes({
   );
 }
 
+function MobileHeroShapes({
+  isCelebrating = false,
+  isSad = false,
+}: {
+  isCelebrating?: boolean;
+  isSad?: boolean;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const cursor = useSvgCursor(svgRef, MOBILE_HERO_VIEWBOX);
+  const blinkState = useSequentialBlink();
+
+  return (
+    <svg
+      ref={svgRef}
+      viewBox="0 0 380 130"
+      aria-hidden="true"
+      className="w-full h-full max-h-[145px] drop-shadow-md select-none block mx-auto overflow-hidden"
+    >
+      {/* 1. Tall indigo character (Blue) - Far Left */}
+      <g className={isCelebrating ? 'hero-celebrate-0' : isSad ? 'hero-sad-slump' : 'hero-float-slow'}>
+        <rect x="18" y="16" width="76" height="160" rx="18" fill="#4743dd" />
+        <Eye cx={42} cy={48} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
+        <Eye cx={70} cy={48} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh">
+            <path d="M 44 72 Q 56 90 68 72 Z" fill="#141414" />
+            <path d="M 48 80 Q 56 75 64 80 Q 56 86 48 80 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <>
+            <path d="M 44 82 Q 56 68 68 82" stroke="#141414" strokeWidth="4" fill="none" strokeLinecap="round" />
+            <path d="M 42 58 C 42 58 39 65 39 68 C 39 70 41 72 42 72 C 44 72 46 70 46 68 C 46 65 42 58 42 58 Z" fill="#60a5fa" />
+          </>
+        ) : (
+          <rect x="44" y="76" width="24" height="4" rx="2" fill="#141414" />
+        )}
+      </g>
+
+      {/* 2. Black character - Center Left */}
+      <g className={isCelebrating ? 'hero-celebrate-1' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}>
+        <rect x="108" y="22" width="72" height="160" rx="16" fill="#191919" />
+        <Eye cx={128} cy={54} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
+        <Eye cx={160} cy={54} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.12s' }}>
+            <path d="M 132 78 Q 144 94 156 78 Z" fill="#ffffff" />
+            <path d="M 136 85 Q 144 81 152 85 Q 144 91 136 85 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 132 86 Q 144 74 156 86" stroke="#ffffff" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        ) : (
+          <rect x="132" y="80" width="24" height="4" rx="2" fill="#404040" />
+        )}
+      </g>
+
+      {/* 3. Orange dome character - Center Right */}
+      <g
+        className={isCelebrating ? 'hero-celebrate-3' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}
+        style={!isCelebrating && !isSad ? { animationDelay: '-2.5s' } : undefined}
+      >
+        <ellipse cx="232" cy="130" rx="46" ry="66" fill="#ef6b17" />
+        <Eye cx={214} cy={90} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
+        <Eye cx={250} cy={90} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.18s' }}>
+            <path d="M 220 106 Q 232 124 244 106 Z" fill="#141414" />
+            <path d="M 224 114 Q 232 110 240 114 Q 232 120 224 114 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 220 116 Q 232 104 244 116" stroke="#141414" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        ) : (
+          <path d="M 220 106 Q 232 118 244 106 Z" fill="#141414" />
+        )}
+      </g>
+
+      {/* 4. Yellow pill character - Far Right */}
+      <g className={isCelebrating ? 'hero-celebrate-2' : isSad ? 'hero-sad-slump' : 'hero-float-fast'}>
+        <rect x="290" y="18" width="74" height="160" rx="37" fill="#f4c400" />
+        <Eye cx={327} cy={52} r={14.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[2]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.24s' }}>
+            <path d="M 314 76 Q 327 94 340 76 Z" fill="#141414" />
+            <path d="M 318 84 Q 327 79 336 84 Q 327 90 318 84 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 314 86 Q 327 73 340 86" stroke="#141414" strokeWidth="4" fill="none" strokeLinecap="round" />
+        ) : (
+          <rect x="314" y="80" width="26" height="4" rx="2" fill="#141414" />
+        )}
+      </g>
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Login Form (Direct Google OAuth 2.0 Integration with Popup Modal)
 // ---------------------------------------------------------------------------
@@ -469,14 +576,14 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
   };
 
   return (
-    <div className="flex flex-col w-full h-full px-7 sm:px-12 justify-center">
+    <div className="flex flex-col w-full px-6 sm:px-12">
       <div className="w-full max-w-sm mx-auto text-left login-scale-in">
         {/* Header */}
-        <div className="text-center sm:text-left mb-6">
+        <div className="text-center sm:text-left mb-5">
           <h1 className={`${outfit.className} text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight`}>
             Welcome back
           </h1>
-          <p className={`${inter.className} mt-1.5 text-xs text-zinc-500`}>
+          <p className={`${inter.className} mt-1 text-xs text-zinc-500`}>
             Sign in to manage deal registrations &amp; pipelines
           </p>
         </div>
@@ -550,14 +657,6 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
             Sign in with your verified <span className="font-medium text-zinc-600">@ics.com.ph</span> corporate account
           </p>
         </div>
-
-        <div className="mt-8 pt-4 border-t border-zinc-100 flex items-center justify-between text-[11px] text-zinc-400">
-          <span className="flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            Enterprise NextAuth SSO
-          </span>
-          <span>Google Workspace</span>
-        </div>
       </div>
     </div>
   );
@@ -575,26 +674,35 @@ export default function LoginPage() {
   const [animationStep, setAnimationStep] = useState<AnimationStep>('idle');
   const [characterMood, setCharacterMood] = useState<'idle' | 'sad'>('idle');
 
-  // Handle OAuth Popup Callback if inside the popup window
+  // Handle OAuth Popup Callback if inside the popup window or redirected
   const isPopup = searchParams?.get('popup') === '1';
 
   useEffect(() => {
-    if (isPopup && typeof window !== 'undefined' && window.opener) {
+    if (isPopup && typeof window !== 'undefined') {
       const error = searchParams?.get('error');
-      try {
-        if (error) {
-          window.opener.postMessage({ type: 'OAUTH_ERROR', error }, window.location.origin);
-        } else {
-          window.opener.postMessage({ type: 'OAUTH_SUCCESS' }, window.location.origin);
+      if (window.opener) {
+        try {
+          if (error) {
+            window.opener.postMessage({ type: 'OAUTH_ERROR', error }, window.location.origin);
+          } else {
+            window.opener.postMessage({ type: 'OAUTH_SUCCESS' }, window.location.origin);
+          }
+        } catch (e) {
+          console.error('Popup postMessage error:', e);
         }
-      } catch (e) {
-        console.error('Popup postMessage error:', e);
+        setTimeout(() => {
+          window.close();
+        }, 50);
+      } else {
+        // Fallback for mobile browser full-tab redirect
+        if (error) {
+          router.replace(`/login?error=${encodeURIComponent(error)}`);
+        } else {
+          router.replace('/dashboard');
+        }
       }
-      setTimeout(() => {
-        window.close();
-      }, 50);
     }
-  }, [isPopup, searchParams]);
+  }, [isPopup, searchParams, router]);
 
   useEffect(() => {
     router.prefetch('/dashboard');
@@ -603,10 +711,11 @@ export default function LoginPage() {
   // Trigger celebration animation on successful authentication
   const handleAuthSuccess = useCallback(() => {
     setAnimationStep('celebrating');
+    router.prefetch('/dashboard');
     setTimeout(() => {
       setAnimationStep('loading');
-      router.push('/dashboard');
-    }, 1400);
+      router.replace('/dashboard');
+    }, 1000);
   }, [router]);
 
   const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
@@ -651,7 +760,7 @@ export default function LoginPage() {
         ) : (
           <>
             {/* Brand Header */}
-            <header className="flex items-center gap-2.5 px-8 sm:px-10 pt-7">
+            <header className="flex items-center gap-2.5 px-8 sm:px-10 pt-7 pb-3">
               <div className="p-1.5 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 shadow-sm">
                 <Fingerprint className="w-4 h-4 text-white" strokeWidth={2} />
               </div>
@@ -660,7 +769,31 @@ export default function LoginPage() {
               </span>
             </header>
 
-            <main className="flex-1 flex flex-col justify-center">
+            {/* Mobile Character Hero Banner (Visible on mobile screens < lg) */}
+            <div
+              className="lg:hidden relative w-full overflow-hidden flex flex-col items-center justify-between pt-6 sm:pt-8 pb-0 shrink-0 shadow-xs border-y border-purple-300/40"
+              style={{
+                background:
+                  'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
+              }}
+            >
+              {/* Mobile Heading and Subtitle */}
+              <div className="px-6 sm:px-10 pt-2 pb-3 text-center z-10">
+                <h2 className={`${outfit.className} text-lg sm:text-2xl font-extrabold text-white leading-snug tracking-tight drop-shadow-xs`}>
+                  Your deal registrations, managed seamlessly.
+                </h2>
+                <p className={`${inter.className} mt-1.5 text-xs sm:text-sm text-white/90 leading-relaxed max-w-sm mx-auto`}>
+                  Log in to register deals, track pipeline status, and collaborate with your business units. We&apos;re excited to help you streamline your sales workflow!
+                </p>
+              </div>
+
+              {/* Peeking Characters Banner (Side-by-Side Zoomed In) */}
+              <div className="w-full max-w-[420px] sm:max-w-[460px] h-36 sm:h-44 flex items-end justify-center relative px-2">
+                <MobileHeroShapes isCelebrating={isCelebrating} isSad={isSad} />
+              </div>
+            </div>
+
+            <main className="flex-1 flex flex-col justify-start lg:justify-center pt-6 sm:pt-8 pb-8">
               <Suspense
                 fallback={
                   <div className="flex-1 flex items-center justify-center">
@@ -692,7 +825,7 @@ export default function LoginPage() {
         className="relative hidden lg:flex flex-1 flex-col overflow-hidden transition-opacity duration-500"
         style={{
           background:
-            'linear-gradient(155deg, #f2a3c2 0%, #e17ba7 40%, #c65589 75%, #ad4176 100%)',
+            'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
         }}
       >
         <div className="relative z-10 px-16 xl:px-24 pt-24">
