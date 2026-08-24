@@ -174,13 +174,15 @@ export interface BrandDistributionItem {
   activeCount: number;
   approvedCount: number;
   waitingCount: number;
+  lostCount: number;
   currencies: Set<string>;
 }
 
 /**
- * Categorizes a deal into Approved, Waiting, and Active status buckets:
+ * Categorizes a deal into Approved, Waiting, Lost, and Active status buckets:
  * - Approved: Status 1 (Registered) & Status 6 (Won)
  * - Waiting: Status 3 (Waiting) & Status 4 (Pending)
+ * - Lost: Status 7 (Lost), Status 8 (Cancelled), or deals with lostInfo.reason
  * - Active: Total unexpired operational pipeline deals across statuses 1, 3, 4, 6
  */
 export function categorizeDealStatus(deal: DealHeaderRecord) {
@@ -199,14 +201,15 @@ export function categorizeDealStatus(deal: DealHeaderRecord) {
 
   const isApproved = statusNum === 1 || statusNum === 6;
   const isWaiting = statusNum === 3 || statusNum === 4;
+  const isLost = statusNum === 7 || statusNum === 8 || statusStr === '7' || statusStr === '8' || Boolean(deal.lostInfo && deal.lostInfo.reason);
   // Active is any non-expired operational deal in Registered, Waiting, Pending, or Won
   const isActive = (isApproved || isWaiting) && !isExpired;
 
-  return { isApproved, isWaiting, isActive, isExpired };
+  return { isApproved, isWaiting, isLost, isActive, isExpired };
 }
 
 /**
- * Calculates aggregated brand distribution metrics with status breakdown (Active, Approved, Waiting)
+ * Calculates aggregated brand distribution metrics with status breakdown (Active, Approved, Waiting, Lost)
  */
 export function calculateBrandDistribution(deals: DealHeaderRecord[]): BrandDistributionItem[] {
   const map: Record<string, BrandDistributionItem> = {};
@@ -221,16 +224,18 @@ export function calculateBrandDistribution(deals: DealHeaderRecord[]): BrandDist
         activeCount: 0,
         approvedCount: 0,
         waitingCount: 0,
+        lostCount: 0,
         currencies: new Set<string>(),
       };
     }
 
-    const { isApproved, isWaiting, isActive } = categorizeDealStatus(deal);
+    const { isApproved, isWaiting, isLost, isActive } = categorizeDealStatus(deal);
 
     map[brand].count += 1;
     if (isActive) map[brand].activeCount += 1;
     if (isApproved) map[brand].approvedCount += 1;
     if (isWaiting) map[brand].waitingCount += 1;
+    if (isLost) map[brand].lostCount += 1;
 
     const dealAmt =
       deal.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;

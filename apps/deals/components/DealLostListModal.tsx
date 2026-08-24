@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,6 +8,9 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   ExternalLink,
   DollarSign,
   Building2,
@@ -18,6 +21,7 @@ import {
   Calendar,
   Briefcase,
   AlertOctagon,
+  ArrowRight,
 } from 'lucide-react';
 import { DealHeaderRecord } from '@my-app/types';
 import {
@@ -36,7 +40,6 @@ import { formatDateLong } from './utils/time';
 import DealsFilterPopover from './DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from './DealsSortPopover';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
-import { ArrowRight } from 'lucide-react';
 
 interface DealLostListModalProps {
   isOpen: boolean;
@@ -60,6 +63,10 @@ export default function DealLostListModal({
     order: 'desc',
   });
   const [expandedDealID, setExpandedDealID] = useState<number | null>(null);
+
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   // Helper to resolve lost reason: DealLost.reason -> DealHeader.remarks -> fallback
   const getResolvedLostReason = (deal: DealHeaderRecord): string => {
@@ -183,6 +190,39 @@ export default function DealLostListModal({
     });
   }, [lostDeals, searchInput, statusFilters, buFilters, sortConfig]);
 
+  // Reset pagination on filter/search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchInput, statusFilters, buFilters, sortConfig, pageSize]);
+
+  const totalRecords = filteredDeals.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedDeals = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredDeals.slice(startIndex, startIndex + pageSize);
+  }, [filteredDeals, safeCurrentPage, pageSize]);
+
+  const startRecord = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const endRecord = Math.min(safeCurrentPage * pageSize, totalRecords);
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let startPage = Math.max(1, safeCurrentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+
+    if (endPage - startPage < maxButtons - 1) {
+      startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  }, [safeCurrentPage, totalPages]);
+
   const toggleExpand = (dealID: number) => {
     setExpandedDealID((prev) => (prev === dealID ? null : dealID));
   };
@@ -294,7 +334,7 @@ export default function DealLostListModal({
         </div>
 
         {/* Minimalist Interactive Master-Detail Table - Zero Horizontal Scroll */}
-        <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+        <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background flex flex-col">
           <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
             <table className="w-full table-fixed text-left text-xs border-collapse">
               <thead className="sticky top-0 z-10 bg-neutral/90 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
@@ -321,7 +361,7 @@ export default function DealLostListModal({
                       </td>
                     </tr>
                   ))
-                ) : filteredDeals.length === 0 ? (
+                ) : totalRecords === 0 ? (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-muted text-xs">
                       <AlertOctagon className="w-7 h-7 mx-auto text-muted/50 mb-1.5" />
@@ -332,7 +372,7 @@ export default function DealLostListModal({
                     </td>
                   </tr>
                 ) : (
-                  filteredDeals.map((deal) => {
+                  paginatedDeals.map((deal) => {
                     const isExpanded = expandedDealID === deal.dealID;
                     const reasonText = getResolvedLostReason(deal);
 
@@ -356,20 +396,18 @@ export default function DealLostListModal({
                           </td>
                           <td className="py-3 px-3 font-semibold text-foreground">
                             <div className="space-y-0.5">
-                              <span className="group-hover:text-rose-600 transition font-bold">
+                              <div className="truncate group-hover:text-rose-600 transition" title={deal.custName}>
                                 {deal.custName || 'Unknown Customer'}
-                              </span>
-                              {deal.dealRegID && (
-                                <div className="text-[10px] font-mono text-muted">
-                                  {deal.dealRegID}
-                                </div>
-                              )}
+                              </div>
+                              <div className="font-mono text-[10px] text-muted font-normal">
+                                {deal.dealRegID || `#${deal.dealID}`}
+                              </div>
                             </div>
                           </td>
-                          <td className="py-3 px-3 text-muted dark:text-zinc-300">
-                            <span className="font-medium truncate block max-w-[240px]" title={deal.ProjectName || deal.projectName || ''}>
-                              {deal.ProjectName || deal.projectName || 'Untitled Project'}
-                            </span>
+                          <td className="py-3 px-3 text-foreground">
+                            <div className="truncate max-w-[280px]" title={deal.ProjectName || deal.projectName}>
+                              {deal.ProjectName || deal.projectName || 'Standard Project'}
+                            </div>
                           </td>
                           <td className="py-3 px-3">
                             <span
@@ -526,6 +564,98 @@ export default function DealLostListModal({
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination Controls Bar */}
+          <div className="py-2.5 px-3.5 bg-neutral/40 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            {/* Record count info */}
+            <div className="text-muted text-[11px] font-medium">
+              {totalRecords === 0 ? (
+                '0 deals'
+              ) : (
+                <>
+                  Showing <span className="font-semibold text-foreground">{startRecord}</span>–
+                  <span className="font-semibold text-foreground">{endRecord}</span> of{' '}
+                  <span className="font-semibold text-foreground">{totalRecords}</span> deals
+                </>
+              )}
+            </div>
+
+            {/* Page navigation and page size picker */}
+            <div className="flex items-center gap-3">
+              {/* Per-Page Picker */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted text-[11px]">Per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 bg-card-bg border border-border/60 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+              </div>
+
+              {/* Navigation Buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  title="First Page"
+                >
+                  <ChevronsLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  title="Previous Page"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Numeric Page Buttons */}
+                {pageNumbers.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-semibold transition ${
+                      safeCurrentPage === page
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-muted hover:text-foreground hover:bg-neutral border border-border/40'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  title="Next Page"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  title="Last Page"
+                >
+                  <ChevronsRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </AppModal.Body>

@@ -48,6 +48,10 @@ import {
   Building2,
   X,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 
 import {
@@ -253,6 +257,43 @@ function DealsContent() {
       return 0;
     });
   }, [deals, searchQuery, statusFilters, buFilters, dateRange, expiryFilters, sortConfig]);
+
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Reset pagination on filter or page size change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilters, buFilters, dateRange, expiryFilters, sortConfig, pageSize]);
+
+  const totalRecords = filteredDeals.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedDeals = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredDeals.slice(startIndex, startIndex + pageSize);
+  }, [filteredDeals, safeCurrentPage, pageSize]);
+
+  const startRecord = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const endRecord = Math.min(safeCurrentPage * pageSize, totalRecords);
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let startPage = Math.max(1, safeCurrentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+
+    if (endPage - startPage < maxButtons - 1) {
+      startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  }, [safeCurrentPage, totalPages]);
 
   // Metrics summary
   const metrics = useMemo(() => {
@@ -866,36 +907,126 @@ function DealsContent() {
             </div>
           </div>
         ) : (
-          <AppTable
-            columns={columns}
-            dataSource={filteredDeals}
-            rowKey={(record: any) => record.dealID}
-            tableLayout="fixed"
-            scroll={{ x: 1000 }}
-            onRow={(record: any) => ({
-              onClick: (e: React.MouseEvent) => {
-                const target = e.target as HTMLElement;
-                if (
-                  target.closest('button') ||
-                  target.closest('a') ||
-                  target.closest('.ant-dropdown') ||
-                  target.closest('[role="menuitem"]')
-                ) {
-                  return;
-                }
-                router.push(`/deals/${record.dealID}`);
-              },
-              onMouseEnter: () => {
-                router.prefetch(`/deals/${record.dealID}`);
-              },
-              className: 'cursor-pointer hover:bg-neutral/40 transition-colors',
-            })}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              pageSizeOptions: ['10', '20', '50'],
-            }}
-          />
+          <div className="space-y-0">
+            <AppTable
+              columns={columns}
+              dataSource={paginatedDeals}
+              rowKey={(record: any) => record.dealID}
+              tableLayout="fixed"
+              scroll={{ x: 1000 }}
+              onRow={(record: any) => ({
+                onClick: (e: React.MouseEvent) => {
+                  const target = e.target as HTMLElement;
+                  if (
+                    target.closest('button') ||
+                    target.closest('a') ||
+                    target.closest('.ant-dropdown') ||
+                    target.closest('[role="menuitem"]')
+                  ) {
+                    return;
+                  }
+                  router.push(`/deals/${record.dealID}`);
+                },
+                onMouseEnter: () => {
+                  router.prefetch(`/deals/${record.dealID}`);
+                },
+                className: 'cursor-pointer hover:bg-neutral/40 transition-colors',
+              })}
+              pagination={false}
+            />
+
+            {/* Unified Clean Pagination Bar matching Reports page */}
+            <div className="py-2.5 px-3.5 bg-neutral/40 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs rounded-b-xl">
+              {/* Record count info */}
+              <div className="text-muted text-[11px] font-medium">
+                {totalRecords === 0 ? (
+                  '0 deals'
+                ) : (
+                  <>
+                    Showing <span className="font-semibold text-foreground">{startRecord}</span>–
+                    <span className="font-semibold text-foreground">{endRecord}</span> of{' '}
+                    <span className="font-semibold text-foreground">{totalRecords}</span> deals
+                  </>
+                )}
+              </div>
+
+              {/* Page navigation and page size picker */}
+              <div className="flex items-center gap-3">
+                {/* Per-Page Picker */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted text-[11px]">Per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="px-2 py-1 bg-card-bg border border-border/60 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                </div>
+
+                {/* Navigation Buttons */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safeCurrentPage <= 1}
+                    className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    title="First Page"
+                  >
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safeCurrentPage <= 1}
+                    className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Numeric Page Buttons */}
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-semibold transition ${
+                        safeCurrentPage === page
+                          ? 'bg-sky-600 text-white shadow-xs'
+                          : 'text-muted hover:text-foreground hover:bg-neutral border border-border/40'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safeCurrentPage >= totalPages}
+                    className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    title="Next Page"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safeCurrentPage >= totalPages}
+                    className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    title="Last Page"
+                  >
+                    <ChevronsRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </AppCard>
 

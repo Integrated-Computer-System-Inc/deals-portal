@@ -24,6 +24,9 @@ import {
   X,
   FileText,
   Sparkles,
+  ArrowUpDown,
+  SlidersHorizontal,
+  Filter,
 } from 'lucide-react';
 import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 import {
@@ -66,18 +69,36 @@ export default function ReportsPage() {
     label: 'All Time',
   });
 
+  // Section 3: Brand Matrix Interactive Filter & Sort States
+  const [brandSearch, setBrandSearch] = useState('');
+  const [brandSort, setBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
+  const [brandStatusFilter, setBrandStatusFilter] = useState<'ALL' | 'ACTIVE' | 'APPROVED' | 'WAITING' | 'LOST'>('ALL');
+
+  // Section 3: BU Matrix Interactive Filter & Sort States
+  const [buSearch, setBuSearch] = useState('');
+  const [buTypeFilter, setBuTypeFilter] = useState<'ALL' | 'OFFICIAL' | 'OTHER'>('ALL');
+  const [buSort, setBuSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
+  const [buStatusFilter, setBuStatusFilter] = useState<'ALL' | 'ACTIVE' | 'APPROVED' | 'WAITING' | 'LOST'>('ALL');
+
   // Modal States for 5 KPI Drilldowns
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
+
+  // Brand Directory Modal States
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [brandSearchInput, setBrandSearchInput] = useState('');
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
+  const [modalBrandSort, setModalBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
   const [selectedBrandForDeals, setSelectedBrandForDeals] = useState<string | null>(null);
   const [isBrandDealsModalOpen, setIsBrandDealsModalOpen] = useState(false);
 
+  // BU Directory Modal States (Displays ALL Official + Specialized BUs)
   const [isOtherBUModalOpen, setIsOtherBUModalOpen] = useState(false);
-  const [otherBUSearchInput, setOtherBUSearchInput] = useState('');
-  const [debouncedOtherBUSearch, setDebouncedOtherBUSearch] = useState('');
+  const [modalBUSearch, setModalBUSearch] = useState('');
+  const [modalBUTypeFilter, setModalBUTypeFilter] = useState<'ALL' | 'OFFICIAL' | 'OTHER'>('ALL');
+  const [modalBUSort, setModalBUSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
+  const [selectedBUForDeals, setSelectedBUForDeals] = useState<string | null>(null);
+  const [isBUDealsModalOpen, setIsBUDealsModalOpen] = useState(false);
 
   const [isLostReportModalOpen, setIsLostReportModalOpen] = useState(false);
 
@@ -103,18 +124,6 @@ export default function ReportsPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [brandSearchInput]);
-
-  // Debounce other BU search in modal
-  useEffect(() => {
-    if (!otherBUSearchInput.trim()) {
-      setDebouncedOtherBUSearch('');
-      return;
-    }
-    const timer = setTimeout(() => {
-      setDebouncedOtherBUSearch(otherBUSearchInput.trim());
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [otherBUSearchInput]);
 
   // Read URL query parameter on mount / navigation and auto-open relevant modal
   useEffect(() => {
@@ -252,17 +261,50 @@ export default function ReportsPage() {
     });
   }, [deals]);
 
-  // Brand Distribution List with Active, Approved, Waiting counts & Revenue
+  // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue
   const brandDistributionList = useMemo(() => {
     return calculateBrandDistribution(deals);
   }, [deals]);
 
-  // BU Distribution List with Active, Approved, Waiting counts & Revenue
+  // Filtered and Sorted Brands List for Section 3
+  const processedBrandList = useMemo(() => {
+    let list = [...brandDistributionList];
+
+    if (brandStatusFilter === 'ACTIVE') {
+      list = list.filter((item) => item.activeCount > 0);
+    } else if (brandStatusFilter === 'APPROVED') {
+      list = list.filter((item) => item.approvedCount > 0);
+    } else if (brandStatusFilter === 'WAITING') {
+      list = list.filter((item) => item.waitingCount > 0);
+    } else if (brandStatusFilter === 'LOST') {
+      list = list.filter((item) => (item.lostCount || 0) > 0);
+    }
+
+    if (brandSearch.trim()) {
+      const q = brandSearch.toLowerCase().trim();
+      list = list.filter((item) => item.brand.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => {
+      if (brandSort === 'count-desc') return b.count - a.count || b.totalValue - a.totalValue;
+      if (brandSort === 'count-asc') return a.count - b.count || a.totalValue - b.totalValue;
+      if (brandSort === 'value-desc') return b.totalValue - a.totalValue || b.count - a.count;
+      if (brandSort === 'value-asc') return a.totalValue - b.totalValue || a.count - b.count;
+      if (brandSort === 'name-asc') return a.brand.localeCompare(b.brand);
+      if (brandSort === 'name-desc') return b.brand.localeCompare(a.brand);
+      return 0;
+    });
+
+    return list;
+  }, [brandDistributionList, brandStatusFilter, brandSearch, brandSort]);
+
+  // Complete BU Distribution List (Includes ALL Official + Specialized BUs)
   const buDistributionList = useMemo(() => {
     const map: Record<
       string,
       {
         bu: string;
+        isOfficial: boolean;
         count: number;
         totalValue: number;
         activeCount: number;
@@ -272,14 +314,31 @@ export default function ReportsPage() {
       }
     > = {};
 
+    // 1. Initialize Official Registered BUs
+    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
+      map[bu] = {
+        bu,
+        isOfficial: true,
+        count: 0,
+        totalValue: 0,
+        activeCount: 0,
+        approvedCount: 0,
+        waitingCount: 0,
+        lostCount: 0,
+      };
+    });
+
+    // 2. Tally deals into respective BUs (including Specialized / Other BUs)
     deals.forEach((d: DealHeaderRecord) => {
       const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
       const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
       const statusNum = Number(d.dealStatus);
+      const isOfficial = (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu);
 
       if (!map[rawBu]) {
         map[rawBu] = {
           bu: rawBu,
+          isOfficial,
           count: 0,
           totalValue: 0,
           activeCount: 0,
@@ -303,8 +362,46 @@ export default function ReportsPage() {
       }
     });
 
-    return Object.values(map).sort((a, b) => b.count - a.count || b.totalValue - a.totalValue);
+    return Object.values(map);
   }, [deals]);
+
+  // Filtered and Sorted BU List for Section 3
+  const processedBuList = useMemo(() => {
+    let list = [...buDistributionList];
+
+    if (buTypeFilter === 'OFFICIAL') {
+      list = list.filter((item) => item.isOfficial);
+    } else if (buTypeFilter === 'OTHER') {
+      list = list.filter((item) => !item.isOfficial);
+    }
+
+    if (buStatusFilter === 'ACTIVE') {
+      list = list.filter((item) => item.activeCount > 0);
+    } else if (buStatusFilter === 'APPROVED') {
+      list = list.filter((item) => item.approvedCount > 0);
+    } else if (buStatusFilter === 'WAITING') {
+      list = list.filter((item) => item.waitingCount > 0);
+    } else if (buStatusFilter === 'LOST') {
+      list = list.filter((item) => item.lostCount > 0);
+    }
+
+    if (buSearch.trim()) {
+      const q = buSearch.toLowerCase().trim();
+      list = list.filter((item) => item.bu.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => {
+      if (buSort === 'count-desc') return b.count - a.count || b.totalValue - a.totalValue;
+      if (buSort === 'count-asc') return a.count - b.count || a.totalValue - b.totalValue;
+      if (buSort === 'value-desc') return b.totalValue - a.totalValue || b.count - a.count;
+      if (buSort === 'value-asc') return a.totalValue - b.totalValue || a.count - b.count;
+      if (buSort === 'name-asc') return a.bu.localeCompare(b.bu);
+      if (buSort === 'name-desc') return b.bu.localeCompare(a.bu);
+      return 0;
+    });
+
+    return list;
+  }, [buDistributionList, buTypeFilter, buStatusFilter, buSearch, buSort]);
 
   // Recent Deals Pipeline computation (Top 6 most recent deals)
   const recentDeals = useMemo(() => {
@@ -325,6 +422,15 @@ export default function ReportsPage() {
     );
   }, [deals, selectedBrandForDeals]);
   const brandDealsFilters = useModalDealFilters(brandDealsList);
+
+  // BU Deals modal list and filter hook
+  const buDealsList = useMemo(() => {
+    if (!selectedBUForDeals) return [];
+    return deals.filter(
+      (d) => normalizeBU(d.BU || d.bu || '').toLowerCase() === selectedBUForDeals.toLowerCase()
+    );
+  }, [deals, selectedBUForDeals]);
+  const buDealsFilters = useModalDealFilters(buDealsList);
 
   // Hook-based Filter & Sort for Modal Deal Tables
   const registeredFilters = useModalDealFilters(registeredDealsList);
@@ -407,21 +513,55 @@ export default function ReportsPage() {
     };
   }, [deals, totalOthersCount, totalOthersValue]);
 
-  // Filtered Brands inside Brand Modal
+  // Filtered Brands inside Brand Modal with Search and Sort
   const filteredBrandsInModal = useMemo(() => {
-    const list = brandAnalytics.brandsList;
-    if (!debouncedBrandSearch.trim()) return list;
-    const q = debouncedBrandSearch.toLowerCase().trim();
-    return list.filter(([brand]) => brand.toLowerCase().includes(q));
-  }, [brandAnalytics.brandsList, debouncedBrandSearch]);
+    let list = [...brandDistributionList];
 
-  // Filtered Other BUs inside Modal
-  const filteredOtherBUsInModal = useMemo(() => {
-    const entries = Object.entries(otherBUsMap).sort((a, b) => b[1].count - a[1].count);
-    if (!debouncedOtherBUSearch.trim()) return entries;
-    const q = debouncedOtherBUSearch.toLowerCase().trim();
-    return entries.filter(([bu]) => bu.toLowerCase().includes(q));
-  }, [otherBUsMap, debouncedOtherBUSearch]);
+    if (debouncedBrandSearch.trim()) {
+      const q = debouncedBrandSearch.toLowerCase().trim();
+      list = list.filter((item) => item.brand.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => {
+      if (modalBrandSort === 'count-desc') return b.count - a.count || b.totalValue - a.totalValue;
+      if (modalBrandSort === 'count-asc') return a.count - b.count || a.totalValue - b.totalValue;
+      if (modalBrandSort === 'value-desc') return b.totalValue - a.totalValue || b.count - a.count;
+      if (modalBrandSort === 'value-asc') return a.totalValue - b.totalValue || a.count - b.count;
+      if (modalBrandSort === 'name-asc') return a.brand.localeCompare(b.brand);
+      if (modalBrandSort === 'name-desc') return b.brand.localeCompare(a.brand);
+      return 0;
+    });
+
+    return list;
+  }, [brandDistributionList, debouncedBrandSearch, modalBrandSort]);
+
+  // Filtered Business Units inside Directory Modal with Search, Type Filter, and Sort
+  const filteredBUsInModal = useMemo(() => {
+    let list = [...buDistributionList];
+
+    if (modalBUTypeFilter === 'OFFICIAL') {
+      list = list.filter((item) => item.isOfficial);
+    } else if (modalBUTypeFilter === 'OTHER') {
+      list = list.filter((item) => !item.isOfficial);
+    }
+
+    if (modalBUSearch.trim()) {
+      const q = modalBUSearch.toLowerCase().trim();
+      list = list.filter((item) => item.bu.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => {
+      if (modalBUSort === 'count-desc') return b.count - a.count || b.totalValue - a.totalValue;
+      if (modalBUSort === 'count-asc') return a.count - b.count || a.totalValue - b.totalValue;
+      if (modalBUSort === 'value-desc') return b.totalValue - a.totalValue || b.count - a.count;
+      if (modalBUSort === 'value-asc') return a.totalValue - b.totalValue || a.count - b.count;
+      if (modalBUSort === 'name-asc') return a.bu.localeCompare(b.bu);
+      if (modalBUSort === 'name-desc') return b.bu.localeCompare(a.bu);
+      return 0;
+    });
+
+    return list;
+  }, [buDistributionList, modalBUTypeFilter, modalBUSearch, modalBUSort]);
 
   // Filtered Deals inside the active Report Studio Modal
   const modalFilteredDeals = useMemo(() => {
@@ -818,6 +958,64 @@ export default function ReportsPage() {
               </span>
             </div>
 
+            {/* Interactive Search, Filter & Sort Toolbar */}
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <div className="flex-1 min-w-[130px]">
+                <AppInput
+                  prefix={<Search className="w-3.5 h-3.5 text-muted" />}
+                  placeholder="Filter brands (e.g. Dell, Cisco)..."
+                  value={brandSearch}
+                  onChange={(e: any) => setBrandSearch(e.target.value)}
+                  allowClear
+                  size="sm"
+                />
+              </div>
+
+              {/* Status Mix Filter */}
+              <select
+                value={brandStatusFilter}
+                onChange={(e: any) => setBrandStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500/50"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="ACTIVE">Has Active Deals</option>
+                <option value="APPROVED">Has Approved</option>
+                <option value="WAITING">Has Waiting</option>
+                <option value="LOST">Has Lost Deals</option>
+              </select>
+
+              {/* Sort Dropdown */}
+              <div className="flex items-center gap-1">
+                <ArrowUpDown className="w-3.5 h-3.5 text-muted" />
+                <select
+                  value={brandSort}
+                  onChange={(e: any) => setBrandSort(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500/50"
+                >
+                  <option value="count-desc">Deals (High → Low)</option>
+                  <option value="count-asc">Deals (Low → High)</option>
+                  <option value="value-desc">Gross Value (High → Low)</option>
+                  <option value="value-asc">Gross Value (Low → High)</option>
+                  <option value="name-asc">Brand Name (A → Z)</option>
+                  <option value="name-desc">Brand Name (Z → A)</option>
+                </select>
+              </div>
+
+              {(brandSearch || brandStatusFilter !== 'ALL' || brandSort !== 'count-desc') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBrandSearch('');
+                    setBrandStatusFilter('ALL');
+                    setBrandSort('count-desc');
+                  }}
+                  className="text-[11px] font-bold text-rose-500 hover:underline px-1"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+
             <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
               <div className="max-h-[380px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse table-auto">
@@ -841,14 +1039,14 @@ export default function ReportsPage() {
                           <td className="p-1.5"></td>
                         </tr>
                       ))
-                    ) : brandDistributionList.length === 0 ? (
+                    ) : processedBrandList.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="p-6 text-center text-xs text-muted">
-                          No brand records found for this date range.
+                          No matching brand records found.
                         </td>
                       </tr>
                     ) : (
-                      brandDistributionList.slice(0, 10).map((item, idx) => {
+                      processedBrandList.map((item, idx) => {
                         const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
                         return (
                           <tr
@@ -913,7 +1111,7 @@ export default function ReportsPage() {
           {!loading && brandDistributionList.length > 0 && (
             <div className="pt-3 border-t border-border/40 flex items-center justify-between">
               <span className="text-[11px] text-muted font-medium">
-                Showing top 10 of {brandDistributionList.length} partner brands
+                Showing {processedBrandList.length} of {brandDistributionList.length} partner brands
               </span>
               <button
                 type="button"
@@ -941,8 +1139,78 @@ export default function ReportsPage() {
                 </div>
               </div>
               <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-neutral border border-border/60 text-muted">
-                {OFFICIAL_REGISTERED_BUS.length} Official BUs
+                {buDistributionList.length} Total BUs
               </span>
+            </div>
+
+            {/* Interactive Search, Filter & Sort Toolbar for BUs */}
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <div className="flex-1 min-w-[130px]">
+                <AppInput
+                  prefix={<Search className="w-3.5 h-3.5 text-muted" />}
+                  placeholder="Filter BU (e.g. BU5, CE01, CAC)..."
+                  value={buSearch}
+                  onChange={(e: any) => setBuSearch(e.target.value)}
+                  allowClear
+                  size="sm"
+                />
+              </div>
+
+              {/* BU Type Filter: All / Official / Other */}
+              <select
+                value={buTypeFilter}
+                onChange={(e: any) => setBuTypeFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+              >
+                <option value="ALL">All Units ({buDistributionList.length})</option>
+                <option value="OFFICIAL">Official BUs ({OFFICIAL_REGISTERED_BUS.length})</option>
+                <option value="OTHER">Specialized & Others ({buDistributionList.filter((b) => !b.isOfficial).length})</option>
+              </select>
+
+              {/* Status Mix Filter */}
+              <select
+                value={buStatusFilter}
+                onChange={(e: any) => setBuStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="ACTIVE">Has Active Deals</option>
+                <option value="APPROVED">Has Approved</option>
+                <option value="WAITING">Has Waiting</option>
+                <option value="LOST">Has Lost Deals</option>
+              </select>
+
+              {/* Sort Dropdown */}
+              <div className="flex items-center gap-1">
+                <ArrowUpDown className="w-3.5 h-3.5 text-muted" />
+                <select
+                  value={buSort}
+                  onChange={(e: any) => setBuSort(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                >
+                  <option value="count-desc">Deals (High → Low)</option>
+                  <option value="count-asc">Deals (Low → High)</option>
+                  <option value="value-desc">Gross Value (High → Low)</option>
+                  <option value="value-asc">Gross Value (Low → High)</option>
+                  <option value="name-asc">BU Name (A → Z)</option>
+                  <option value="name-desc">BU Name (Z → A)</option>
+                </select>
+              </div>
+
+              {(buSearch || buTypeFilter !== 'ALL' || buStatusFilter !== 'ALL' || buSort !== 'count-desc') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuSearch('');
+                    setBuTypeFilter('ALL');
+                    setBuStatusFilter('ALL');
+                    setBuSort('count-desc');
+                  }}
+                  className="text-[11px] font-bold text-rose-500 hover:underline px-1"
+                >
+                  Reset
+                </button>
+              )}
             </div>
 
             <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
@@ -950,7 +1218,7 @@ export default function ReportsPage() {
                 <table className="w-full text-left text-xs border-collapse table-auto">
                   <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
                     <tr>
-                      <th className="py-2.5 px-2.5 w-[90px]">Division</th>
+                      <th className="py-2.5 px-2.5 w-[110px]">Division</th>
                       <th className="py-2.5 px-2 w-[100px]">Quota Share</th>
                       <th className="py-2.5 px-2 min-w-[120px]">Status Mix</th>
                       <th className="py-2.5 px-2.5 text-right w-[110px]">Gross Value</th>
@@ -968,63 +1236,78 @@ export default function ReportsPage() {
                           <td className="p-1.5"></td>
                         </tr>
                       ))
+                    ) : processedBuList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-xs text-muted">
+                          No matching business units found.
+                        </td>
+                      </tr>
                     ) : (
-                      <>
-                        {buDistributionList.slice(0, 8).map((item, idx) => {
-                          const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
-                          return (
-                            <tr key={item.bu} className="hover:bg-neutral/40 transition group">
-                              <td className="py-2.5 px-2.5">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
-                                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                                    {item.bu}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-2">
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between text-[10px] font-mono">
-                                    <span className="font-semibold text-foreground">{item.count} deals</span>
-                                    <span className="text-muted">{percentage}%</span>
-                                  </div>
-                                  <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40">
-                                    <div
-                                      className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 rounded-full"
-                                      style={{ width: `${Math.max(percentage, 4)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-2">
-                                <div className="flex items-center gap-1 text-[10px] font-semibold">
-                                  <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20" title="Active">
-                                    {item.activeCount}
-                                  </span>
-                                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Approved">
-                                    {item.approvedCount}
-                                  </span>
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title="Waiting">
-                                    {item.waitingCount}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
-                                PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                              </td>
-                              <td className="py-2.5 px-1.5 text-center">
-                                <Link
-                                  href={`/deals?search=${encodeURIComponent(item.bu)}`}
-                                  className="p-1 text-muted hover:text-indigo-600 rounded inline-flex transition"
-                                  title={`View ${item.bu} deals in Registry`}
+                      processedBuList.map((item, idx) => {
+                        const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                        return (
+                          <tr
+                            key={item.bu}
+                            onClick={() => {
+                              setSelectedBUForDeals(item.bu);
+                              setIsBUDealsModalOpen(true);
+                            }}
+                            className="hover:bg-neutral/40 transition cursor-pointer group"
+                          >
+                            <td className="py-2.5 px-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
+                                <span
+                                  className={`text-xs font-bold px-2 py-0.5 rounded-md border ${
+                                    item.isOfficial
+                                      ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                                  }`}
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </Link>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </>
+                                  {item.bu}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] font-mono">
+                                  <span className="font-semibold text-foreground">{item.count} deals</span>
+                                  <span className="text-muted">{percentage}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      item.isOfficial
+                                        ? 'bg-gradient-to-r from-indigo-500 to-violet-600'
+                                        : 'bg-gradient-to-r from-amber-500 to-orange-600'
+                                    }`}
+                                    style={{ width: `${Math.max(percentage, 4)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="flex items-center gap-1 text-[10px] font-semibold">
+                                <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20" title="Active">
+                                  {item.activeCount}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Approved">
+                                  {item.approvedCount}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title="Waiting">
+                                  {item.waitingCount}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
+                              PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="py-2.5 px-1.5 text-center">
+                              <ArrowRight className="w-3.5 h-3.5 text-muted group-hover:text-indigo-600 group-hover:translate-x-0.5 transition" />
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1034,7 +1317,7 @@ export default function ReportsPage() {
 
           <div className="pt-3 border-t border-border/40 flex items-center justify-between">
             <span className="text-[11px] text-muted font-medium">
-              +{totalOthersCount} deals categorized under legacy / specialized units
+              Showing {processedBuList.length} of {buDistributionList.length} total business units
             </span>
             <button
               type="button"
@@ -1365,6 +1648,7 @@ export default function ReportsPage() {
           setIsBrandModalOpen(false);
           setBrandSearchInput('');
           setDebouncedBrandSearch('');
+          setModalBrandSort('count-desc');
         }}
         width={1160}
       >
@@ -1372,68 +1656,108 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-sky-600" />
             <div>
-              <AppModal.Title>Active Brand Breakdown</AppModal.Title>
+              <AppModal.Title>Active Brand Breakdown Directory</AppModal.Title>
               <AppModal.Description>
-                Distribution of pipeline value and deal volume across represented brands.
+                Distribution of pipeline value and deal volume across represented brands. Click any brand to view deals.
               </AppModal.Description>
             </div>
           </div>
         </AppModal.Header>
 
         <AppModal.Body className="space-y-4">
-          <div className="relative">
-            <AppInput
-              prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search brand (e.g. Dell, Cisco, HPE, Lenovo)..."
-              value={brandSearchInput}
-              onChange={(e: any) => setBrandSearchInput(e.target.value)}
-              allowClear
-              size="md"
-            />
+          {/* Search and Sort Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <div className="flex-1 min-w-[200px]">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search brand (e.g. Dell, Cisco, HPE, Lenovo)..."
+                value={brandSearchInput}
+                onChange={(e: any) => setBrandSearchInput(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="w-4 h-4 text-muted" />
+              <select
+                value={modalBrandSort}
+                onChange={(e: any) => setModalBrandSort(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-card-bg border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
+              >
+                <option value="count-desc">Deals (High → Low)</option>
+                <option value="count-asc">Deals (Low → High)</option>
+                <option value="value-desc">Gross Value (High → Low)</option>
+                <option value="value-asc">Gross Value (Low → High)</option>
+                <option value="name-asc">Brand Name (A → Z)</option>
+                <option value="name-desc">Brand Name (Z → A)</option>
+              </select>
+            </div>
+
+            {(brandSearchInput || modalBrandSort !== 'count-desc') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBrandSearchInput('');
+                  setDebouncedBrandSearch('');
+                  setModalBrandSort('count-desc');
+                }}
+                className="text-xs font-bold text-rose-500 hover:underline px-1"
+              >
+                Reset
+              </button>
+            )}
           </div>
 
-          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
+          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[420px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
             {filteredBrandsInModal.length === 0 ? (
-              <div className="p-6 text-center text-muted text-xs space-y-1">
-                <Layers className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
+              <div className="p-8 text-center text-muted text-xs space-y-1">
+                <Layers className="w-7 h-7 mx-auto text-muted/50 mb-1.5" />
                 <p className="font-semibold text-foreground">No matching brands found</p>
               </div>
             ) : (
-              filteredBrandsInModal.map(([brand, data], idx) => (
-                <div
-                  key={brand}
-                  className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                >
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <span className="text-[10px] font-mono font-bold text-muted w-5">#{idx + 1}</span>
-                    <span className="font-bold text-foreground truncate">{brand}</span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-500/10 text-sky-600 border border-sky-500/20">
-                      {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 shrink-0 text-right">
-                    <div className="font-mono font-bold text-foreground text-xs">
-                      PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              filteredBrandsInModal.map((item, idx) => {
+                const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                return (
+                  <div
+                    key={item.brand}
+                    onClick={() => {
+                      setSelectedBrandForDeals(item.brand);
+                      setIsBrandDealsModalOpen(true);
+                    }}
+                    className="p-3.5 flex items-center justify-between gap-4 hover:bg-neutral/40 transition cursor-pointer text-xs group"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="text-[10px] font-mono font-bold text-muted w-5 shrink-0">#{idx + 1}</span>
+                      <span className="font-bold text-foreground group-hover:text-sky-600 transition truncate text-sm">
+                        {item.brand}
+                      </span>
+                      <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-600 border border-sky-500/20 shrink-0">
+                        {item.count} {item.count === 1 ? 'deal' : 'deals'} ({percentage}%)
+                      </span>
                     </div>
-                    <Link
-                      href={`/deals?brand=${encodeURIComponent(brand)}`}
-                      onClick={() => setIsBrandModalOpen(false)}
-                      className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition"
-                      title={`View ${brand} deals in registry`}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </Link>
+
+                    <div className="flex items-center gap-4 shrink-0 text-right">
+                      <div className="space-y-0.5">
+                        <div className="font-mono font-bold text-foreground text-sm">
+                          PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                        <div className="text-[10px] text-muted">
+                          {item.activeCount} active • {item.approvedCount} approved • {item.waitingCount} waiting
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted group-hover:text-sky-600 group-hover:translate-x-1 transition" />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredBrandsInModal.length} of {brandAnalytics.brandsList.length} brands
+            Showing {filteredBrandsInModal.length} of {brandDistributionList.length} partner brands
           </span>
           <AppButton
             variant="neutral"
@@ -1442,6 +1766,7 @@ export default function ReportsPage() {
               setIsBrandModalOpen(false);
               setBrandSearchInput('');
               setDebouncedBrandSearch('');
+              setModalBrandSort('count-desc');
             }}
           >
             Close
@@ -1526,13 +1851,14 @@ export default function ReportsPage() {
         </AppModal.Footer>
       </AppModal>
 
-      {/* KPI Modal 4: Business Units Drilldown */}
+      {/* KPI Modal 4: Business Units Portfolio Directory Modal (ALL BUs + Filters) */}
       <AppModal
         open={isOtherBUModalOpen}
         onClose={() => {
           setIsOtherBUModalOpen(false);
-          setOtherBUSearchInput('');
-          setDebouncedOtherBUSearch('');
+          setModalBUSearch('');
+          setModalBUTypeFilter('ALL');
+          setModalBUSort('count-desc');
         }}
         width={1160}
       >
@@ -1540,75 +1866,241 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-indigo-600" />
             <div>
-              <AppModal.Title>Business Units Breakdown</AppModal.Title>
+              <AppModal.Title>Business Units Portfolio Directory</AppModal.Title>
               <AppModal.Description>
-                Breakdown of deals categorized under official and specialized business units.
+                Complete cross-divisional breakdown of all official and specialized business units. Click any unit to view deals.
               </AppModal.Description>
             </div>
           </div>
         </AppModal.Header>
 
         <AppModal.Body className="space-y-4">
-          <div className="relative">
-            <AppInput
-              prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search other business units (e.g. CAC, CSD, ESD)..."
-              value={otherBUSearchInput}
-              onChange={(e: any) => setOtherBUSearchInput(e.target.value)}
-              allowClear
-              size="md"
-            />
+          {/* Search, Filter Tabs & Sort Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <div className="flex-1 min-w-[200px]">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search business unit (e.g. BU5, CE01, CAC, CSD, ESD)..."
+                value={modalBUSearch}
+                onChange={(e: any) => setModalBUSearch(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+
+            {/* Type Filter Pills */}
+            <div className="flex items-center gap-1 bg-neutral/60 p-1 rounded-xl border border-border/60">
+              <button
+                type="button"
+                onClick={() => setModalBUTypeFilter('ALL')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  modalBUTypeFilter === 'ALL'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                All ({buDistributionList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalBUTypeFilter('OFFICIAL')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  modalBUTypeFilter === 'OFFICIAL'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                Official ({OFFICIAL_REGISTERED_BUS.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalBUTypeFilter('OTHER')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                  modalBUTypeFilter === 'OTHER'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                Specialized & Others ({buDistributionList.filter((b) => !b.isOfficial).length})
+              </button>
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="w-4 h-4 text-muted" />
+              <select
+                value={modalBUSort}
+                onChange={(e: any) => setModalBUSort(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-card-bg border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="count-desc">Deals (High → Low)</option>
+                <option value="count-asc">Deals (Low → High)</option>
+                <option value="value-desc">Gross Value (High → Low)</option>
+                <option value="value-asc">Gross Value (Low → High)</option>
+                <option value="name-asc">BU Name (A → Z)</option>
+                <option value="name-desc">BU Name (Z → A)</option>
+              </select>
+            </div>
+
+            {(modalBUSearch || modalBUTypeFilter !== 'ALL' || modalBUSort !== 'count-desc') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setModalBUSearch('');
+                  setModalBUTypeFilter('ALL');
+                  setModalBUSort('count-desc');
+                }}
+                className="text-xs font-bold text-rose-500 hover:underline px-1"
+              >
+                Reset
+              </button>
+            )}
           </div>
 
-          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
-            {filteredOtherBUsInModal.length === 0 ? (
-              <div className="p-6 text-center text-muted text-xs space-y-1">
-                <Building2 className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
+          <div className="border border-border/70 rounded-xl overflow-hidden max-h-[420px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
+            {filteredBUsInModal.length === 0 ? (
+              <div className="p-8 text-center text-muted text-xs space-y-1">
+                <Building2 className="w-7 h-7 mx-auto text-muted/50 mb-1.5" />
                 <p className="font-semibold text-foreground">No matching business units found</p>
               </div>
             ) : (
-              filteredOtherBUsInModal.map(([bu, data]) => (
-                <div
-                  key={bu}
-                  className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                >
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <span className="font-bold text-foreground truncate">{bu}</span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">
-                      {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 shrink-0 text-right">
-                    <div className="font-mono font-bold text-foreground text-xs">
-                      PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              filteredBUsInModal.map((item, idx) => {
+                const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                return (
+                  <div
+                    key={item.bu}
+                    onClick={() => {
+                      setSelectedBUForDeals(item.bu);
+                      setIsBUDealsModalOpen(true);
+                    }}
+                    className="p-3.5 flex items-center justify-between gap-4 hover:bg-neutral/40 transition cursor-pointer text-xs group"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="text-[10px] font-mono font-bold text-muted w-5 shrink-0">#{idx + 1}</span>
+                      <span
+                        className={`text-xs font-bold px-2.5 py-1 rounded-md border ${
+                          item.isOfficial
+                            ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20'
+                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                        }`}
+                      >
+                        {item.bu}
+                      </span>
+                      <span className="text-[11px] text-muted font-medium">
+                        {item.isOfficial ? 'Official BU' : 'Specialized Division'}
+                      </span>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-neutral border border-border/60 shrink-0">
+                        {item.count} {item.count === 1 ? 'deal' : 'deals'} ({percentage}%)
+                      </span>
                     </div>
-                    <Link
-                      href={`/deals?search=${encodeURIComponent(bu)}`}
-                      onClick={() => setIsOtherBUModalOpen(false)}
-                      className="p-1 text-muted hover:text-indigo-600 rounded hover:bg-neutral transition"
-                      title={`View ${bu} deals in registry`}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </Link>
+
+                    <div className="flex items-center gap-4 shrink-0 text-right">
+                      <div className="space-y-0.5">
+                        <div className="font-mono font-bold text-foreground text-sm">
+                          PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                        <div className="text-[10px] text-muted">
+                          {item.activeCount} active • {item.approvedCount} approved • {item.waitingCount} waiting
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted group-hover:text-indigo-600 group-hover:translate-x-1 transition" />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredOtherBUsInModal.length} of {Object.keys(otherBUsMap).length} business units
+            Showing {filteredBUsInModal.length} of {buDistributionList.length} business units
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsOtherBUModalOpen(false);
-              setOtherBUSearchInput('');
-              setDebouncedOtherBUSearch('');
+              setModalBUSearch('');
+              setModalBUTypeFilter('ALL');
+              setModalBUSort('count-desc');
+            }}
+          >
+            Close
+          </AppButton>
+        </AppModal.Footer>
+      </AppModal>
+
+      {/* BU Deals Drilldown Modal (Landscape Table with Filter & Sort) */}
+      <AppModal
+        open={isBUDealsModalOpen}
+        onClose={() => {
+          setIsBUDealsModalOpen(false);
+          setSelectedBUForDeals(null);
+          buDealsFilters.resetFilters();
+        }}
+        width={1160}
+      >
+        <AppModal.Header>
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 shrink-0">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div>
+              <AppModal.Title>
+                {selectedBUForDeals || 'Business Unit'} — Deals Breakdown
+              </AppModal.Title>
+              <AppModal.Description>
+                Detailed overview of opportunities registered under {selectedBUForDeals || 'this business unit'}.
+              </AppModal.Description>
+            </div>
+          </div>
+        </AppModal.Header>
+
+        <AppModal.Body className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder={`Search ${selectedBUForDeals || ''} deals by Customer, Reg ID, Brand, AO, Remarks...`}
+                value={buDealsFilters.searchQuery}
+                onChange={(e: any) => buDealsFilters.setSearchQuery(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+            <DealsFilterPopover
+              buFilters={buDealsFilters.buFilters}
+              onBuFiltersChange={buDealsFilters.setBuFilters}
+              expiryFilters={buDealsFilters.expiryFilters}
+              onExpiryFiltersChange={buDealsFilters.setExpiryFilters}
+              statusFilters={buDealsFilters.statusFilters}
+              onStatusFiltersChange={buDealsFilters.setStatusFilters}
+              officialBUs={OFFICIAL_REGISTERED_BUS}
+            />
+            <DealsSortPopover
+              value={buDealsFilters.sortConfig}
+              onChange={buDealsFilters.setSortConfig}
+            />
+          </div>
+
+          <ModalDealTable
+            deals={buDealsFilters.filteredAndSortedDeals}
+            onCloseModal={() => setIsBUDealsModalOpen(false)}
+          />
+        </AppModal.Body>
+
+        <AppModal.Footer className="flex items-center justify-between pt-2">
+          <span className="text-[11px] text-muted">
+            Showing {buDealsFilters.filteredAndSortedDeals.length} of {buDealsList.length} deals
+          </span>
+          <AppButton
+            variant="neutral"
+            size="sm"
+            onClick={() => {
+              setIsBUDealsModalOpen(false);
+              setSelectedBUForDeals(null);
+              buDealsFilters.resetFilters();
             }}
           >
             Close
