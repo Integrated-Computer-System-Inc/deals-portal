@@ -88,15 +88,23 @@ export async function getScopedDeals(
             : []),
         ],
       });
-    } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      const normalized = normalizeBusinessUnit(accountGroup);
-      andConditions.push({
-        OR: [
-          { BU: accountGroup },
+    } else if ((userRole === 'bu' || userRole === 'bu_admin') && (accountGroup || (filter.assignedBUs && filter.assignedBUs.length > 0))) {
+      const buList = filter.assignedBUs && filter.assignedBUs.length > 0
+        ? filter.assignedBUs
+        : accountGroup.split(',').map((b: string) => b.trim()).filter(Boolean);
+
+      const buConditions: any[] = [];
+      for (const buItem of buList) {
+        const normalized = normalizeBusinessUnit(buItem);
+        buConditions.push(
+          { BU: buItem },
           { BU: normalized },
-          { BU: { contains: accountGroup } },
-        ],
-      });
+          { BU: { contains: buItem } }
+        );
+      }
+      if (buConditions.length > 0) {
+        andConditions.push({ OR: buConditions });
+      }
     }
 
     // Status filter
@@ -1123,14 +1131,23 @@ export async function getDashboardSummary(): Promise<{
         ],
       });
     } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      const normalized = normalizeBusinessUnit(accountGroup);
-      andConditions.push({
-        OR: [
-          { BU: accountGroup },
+      const assignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+      const buList = assignedBUs && assignedBUs.length > 0
+        ? assignedBUs
+        : accountGroup.split(',').map((b: string) => b.trim()).filter(Boolean);
+
+      const buConditions: any[] = [];
+      for (const buItem of buList) {
+        const normalized = normalizeBusinessUnit(buItem);
+        buConditions.push(
+          { BU: buItem },
           { BU: normalized },
-          { BU: { contains: accountGroup } },
-        ],
-      });
+          { BU: { contains: buItem } }
+        );
+      }
+      if (buConditions.length > 0) {
+        andConditions.push({ OR: buConditions });
+      }
     }
 
     const baseWhere = andConditions.length > 0 ? { AND: andConditions } : {};

@@ -48,6 +48,18 @@ import { ModalDealTable } from '@/components/ModalDealTable';
 export default function DashboardPage() {
   const { data: session, status } = useSession();
 
+  // If opened inside Google OAuth popup, close popup and redirect parent window
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.opener && window.name === 'google_oauth_popup') {
+      try {
+        window.opener.location.href = '/dashboard';
+      } catch {
+        // Ignore cross-origin issues if any
+      }
+      window.close();
+    }
+  }, []);
+
   // Date Range Popover State
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     preset: 'ALL',

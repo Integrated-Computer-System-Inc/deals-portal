@@ -81,6 +81,7 @@ export interface ScopedDealsFilter {
   userRole?: UserRole;
   accountName?: string;
   accountGroup?: string;
+  assignedBUs?: string[];
   page?: number;
   pageSize?: number;
   searchQuery?: string;

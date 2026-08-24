@@ -1,21 +1,22 @@
 import { prisma } from './src/index';
 
 async function main() {
-  console.log('Creating UsersTable if it does not exist...');
+  console.log('Creating Users table if it does not exist...');
   
   await prisma.$executeRawUnsafe(`
-    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='UsersTable' and xtype='U')
-    CREATE TABLE UsersTable (
-        AccountID VARCHAR(100) PRIMARY KEY,
-        AccountName VARCHAR(255) NOT NULL,
+    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+    CREATE TABLE Users (
+        AccountID INT PRIMARY KEY,
+        AccountName NVARCHAR(600) NOT NULL,
         Email VARCHAR(255) UNIQUE NOT NULL,
-        UserRole VARCHAR(50) NULL,
+        UserRole VARCHAR(50) NOT NULL,
         RememberToken VARCHAR(MAX) NULL,
-        DateTimeCreation DATETIME DEFAULT GETDATE() NOT NULL
+        DtCreation DATETIME DEFAULT GETDATE() NOT NULL,
+        LastLogin DATETIME NULL
     );
   `);
   
-  console.log('UsersTable created or already exists.');
+  console.log('Users table created or already exists.');
 }
 
 main()

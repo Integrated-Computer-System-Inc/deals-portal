@@ -74,7 +74,7 @@ flowchart TD
 * **Manual Adjustment**: `updateWTN(payload)` allows users to adjust `whenToNotify` via the deal details / WTN modal in the UI.
 * **CURRENT ARCHITECTURAL GAP**:
   * While `dealWTN` stores and updates the target alert date, **there is currently no cron job or worker querying `dealWTN`** to evaluate `whenToNotify <= NOW()` and enqueue an expiration reminder into `deals_reg_notification`.
-  * As a result, scheduled expiration emails are currently dormant and never dispatched.
+  * As a result, scheduled expiration emails are currently dormant and never dispatched."
 
 ---
 

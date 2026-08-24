@@ -42,8 +42,10 @@ export default function Sidebar() {
 
   const getRoleLabel = () => {
     if (userRole === 'admin') return 'Administrator';
-    if (userRole === 'aa') return 'Sales AA';
-    if (userRole === 'bu' || userRole === 'bu_admin') return 'BU Supervisor';
+    if (userRole === 'aa') return 'Admin Assistant';
+    if (userRole === 'bu' || userRole === 'bu_admin') {
+      return userBU && userBU !== 'HQ' ? `BU Head (${userBU})` : 'BU Head';
+    }
     return 'Account Officer';
   };
 
@@ -293,7 +295,11 @@ export default function Sidebar() {
             variant="danger"
             size="sm"
             leftIcon={<LogOut size={14} />}
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={async () => {
+              setShowSignOutConfirm(false);
+              signOut({ redirect: false });
+              router.replace('/login');
+            }}
           >
             Sign Out
           </AppButton>

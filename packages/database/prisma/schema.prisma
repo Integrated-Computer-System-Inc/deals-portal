@@ -131,13 +131,17 @@ model dealWTN {
   @@index([whenToNotify])
 }
 
-model UsersTable {
-  AccountID        String    @id @db.VarChar(100)
-  AccountName      String    @db.VarChar(255)
-  Email            String    @unique @db.VarChar(255)
-  UserRole         String?   @db.VarChar(50)
-  RememberToken    String?   @db.VarChar(Max)
-  DateTimeCreation DateTime  @default(now()) @db.DateTime
+model Users {
+  AccountID     Int       @id
+  AccountName   String    @db.NVarChar(600)
+  Email         String    @unique @db.VarChar(255)
+  UserRole      String    @db.VarChar(50)
+  RememberToken String?   @db.VarChar(Max)
+  DtCreation    DateTime  @default(now()) @db.DateTime
+  LastLogin     DateTime? @db.DateTime
+
+  @@index([AccountName])
+  @@index([Email])
 }
 
 model DealRenewal {

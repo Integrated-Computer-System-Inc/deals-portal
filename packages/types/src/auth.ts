@@ -9,9 +9,11 @@ import { UserRole } from './deals';
 export interface DomainUserClaims {
   DomainAccount: string;
   AccountGroup: string;
-  AccountID: string;
+  AccountID: string | number;
   AccountName: string;
   role: UserRole;
+  assignedBUs?: string[];
+  RememberToken?: string | null;
 }
 
 export interface CustomUserSession extends DomainUserClaims {
