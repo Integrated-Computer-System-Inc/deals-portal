@@ -23,7 +23,12 @@ import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  let pathname: string | null = null;
+  try {
+    pathname = usePathname();
+  } catch {
+    pathname = null;
+  }
   const router = useRouter();
   const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);

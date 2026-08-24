@@ -24,11 +24,71 @@ export const authOptions: NextAuthOptions = {
         accountType: { label: 'Account Type', type: 'text' },
         accountName: { label: 'Account Name', type: 'text' },
         accountGroup: { label: 'Account Group', type: 'text' },
+        email: { label: 'Email', type: 'text' },
       },
       async authorize(credentials) {
         const type = credentials?.accountType || 'admin';
+        const email = credentials?.email?.toLowerCase();
+
+        // Reject non-corporate accounts (e.g. gmail.com) to enforce enterprise policy
+        if (email && !email.endsWith('@ics.com.ph')) {
+          return null;
+        }
 
         switch (type) {
+          case 'google-corporate':
+          case 'corporate': {
+            if (!credentials?.email) {
+              return null;
+            }
+            const userEmail = credentials.email.trim().toLowerCase();
+            const prefix = userEmail.split('@')[0];
+
+            // Derive formatted name dynamically if not explicitly provided (e.g. "first.last" -> "First Last")
+            const derivedName = prefix
+              .split('.')
+              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            const accountName = credentials?.accountName || derivedName;
+
+            // Check if user is configured as Admin via ADMIN_EMAILS env variable
+            const adminEmails = (process.env.ADMIN_EMAILS || 'jdoremon@ics.com.ph,bcandelaria@ics.com.ph')
+              .split(',')
+              .map((e) => e.trim().toLowerCase())
+              .filter(Boolean);
+            const isAdmin = adminEmails.includes(userEmail);
+            const role: UserRole = isAdmin ? 'admin' : ((credentials?.accountGroup === 'HQ' ? 'admin' : 'ao') as UserRole);
+
+            // Automatically register / upsert user into database UsersTable
+            try {
+              await prisma.usersTable.upsert({
+                where: { Email: userEmail },
+                update: {
+                  AccountName: accountName.toUpperCase(),
+                  ...(isAdmin ? { UserRole: 'admin' } : {}),
+                },
+                create: {
+                  AccountID: `ACC-${prefix.toUpperCase()}`,
+                  AccountName: accountName.toUpperCase(),
+                  Email: userEmail,
+                  UserRole: role,
+                },
+              });
+            } catch (dbErr) {
+              console.warn('Could not upsert dynamic Google user into UsersTable:', dbErr);
+            }
+
+            return {
+              id: `usr_${prefix}`,
+              name: accountName,
+              email: userEmail,
+              DomainAccount: `CORP\\${prefix.toUpperCase()}`,
+              AccountGroup: credentials?.accountGroup || (isAdmin ? 'HQ' : 'BU5'),
+              AccountID: `ACC-${prefix.toUpperCase()}`,
+              AccountName: accountName.toUpperCase(),
+              role: role,
+            };
+          }
           case 'bu':
             return {
               id: 'usr_demo_bu5',

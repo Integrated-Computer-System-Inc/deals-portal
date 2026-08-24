@@ -278,12 +278,14 @@ function Eye({
   r,
   cursor,
   isBlinking = false,
+  isSad = false,
 }: {
   cx: number;
   cy: number;
   r: number;
   cursor: SvgPoint;
   isBlinking?: boolean;
+  isSad?: boolean;
 }) {
   // Offset the pupil toward the cursor, clamped so it never leaves the white.
   const vx = cursor.x - cx;
@@ -291,8 +293,8 @@ function Eye({
   const dist = Math.hypot(vx, vy) || 1;
   const maxOffset = r * 0.52;
   const offset = Math.min(maxOffset, Math.max(5, dist * 0.25));
-  const dx = (vx / dist) * offset;
-  const dy = (vy / dist) * offset;
+  const dx = isSad ? 0 : (vx / dist) * offset;
+  const dy = isSad ? r * 0.38 : (vy / dist) * offset;
 
   // When blinking, collapse vertical radius (ry) cleanly
   const ry = isBlinking ? Math.max(1.5, r * 0.08) : r;
@@ -319,14 +321,20 @@ function Eye({
         ry={pupilRy}
         fill="#141414"
         style={{
-          transition: 'ry 100ms ease-in-out',
+          transition: 'all 200ms ease-in-out',
         }}
       />
     </g>
   );
 }
 
-function HeroShapes() {
+function HeroShapes({
+  isCelebrating = false,
+  isSad = false,
+}: {
+  isCelebrating?: boolean;
+  isSad?: boolean;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const cursor = useSvgCursor(svgRef);
   const blinkState = useSequentialBlink();
@@ -336,35 +344,344 @@ function HeroShapes() {
       ref={svgRef}
       viewBox="0 0 560 600"
       aria-hidden="true"
-      className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-[560px] max-w-[92%] drop-shadow-xl"
+      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[560px] max-w-[92%] drop-shadow-xl"
     >
-      {/* 1. Tall indigo character (Blue) - Blinks 1st */}
-      <g className="hero-float-slow">
-        <rect x="150" y="20" width="175" height="430" fill="#4743dd" />
-        <Eye cx={205} cy={125} r={30} cursor={cursor} isBlinking={blinkState[0]} />
-        <Eye cx={292} cy={122} r={30} cursor={cursor} isBlinking={blinkState[0]} />
-        <rect x="230" y="196" width="46" height="7" rx="3.5" fill="#141414" />
+      {/* 1. Tall indigo character (Blue) */}
+      <g className={isCelebrating ? 'hero-celebrate-0' : isSad ? 'hero-sad-slump' : 'hero-float-slow'}>
+        <rect x="150" y="20" width="175" height="590" fill="#4743dd" />
+        <Eye cx={205} cy={125} r={30} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
+        <Eye cx={292} cy={122} r={30} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh">
+            <path d="M 226 190 Q 253 234 280 190 Z" fill="#141414" />
+            <path d="M 236 215 Q 253 205 270 215 Q 253 228 236 215 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <>
+            <path d="M 222 212 Q 253 178 284 212" stroke="#141414" strokeWidth="6.5" fill="none" strokeLinecap="round" />
+            {/* Sad teardrop */}
+            <path d="M 205 160 C 205 160 199 172 199 177 C 199 181 202 184 205 184 C 208 184 211 181 211 177 C 211 172 205 160 205 160 Z" fill="#60a5fa" />
+          </>
+        ) : (
+          <rect x="230" y="195" width="46" height="7" rx="3.5" fill="#141414" />
+        )}
       </g>
-      {/* 2. Black character - Blinks 2nd */}
-      <g className="hero-float-medium">
-        <rect x="310" y="110" width="105" height="370" fill="#191919" />
-        <Eye cx={340} cy={185} r={26} cursor={cursor} isBlinking={blinkState[1]} />
-        <Eye cx={392} cy={185} r={26} cursor={cursor} isBlinking={blinkState[1]} />
+      {/* 2. Black character */}
+      <g className={isCelebrating ? 'hero-celebrate-1' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}>
+        <rect x="310" y="105" width="105" height="505" fill="#191919" />
+        <Eye cx={340} cy={180} r={26} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
+        <Eye cx={392} cy={180} r={26} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.12s' }}>
+            <path d="M 346 220 Q 366 256 386 220 Z" fill="#ffffff" />
+            <path d="M 354 240 Q 366 232 378 240 Q 366 250 354 240 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 344 246 Q 366 220 388 246" stroke="#ffffff" strokeWidth="4.5" fill="none" strokeLinecap="round" />
+        ) : (
+          <rect x="352" y="226" width="28" height="5" rx="2.5" fill="#333333" />
+        )}
       </g>
-      {/* 3. Yellow pill character - Blinks 3rd */}
-      <g className="hero-float-fast">
-        <rect x="405" y="235" width="135" height="365" rx="67" fill="#f4c400" />
-        <Eye cx={472} cy={305} r={27} cursor={cursor} isBlinking={blinkState[2]} />
-        <rect x="444" y="362" width="58" height="7" rx="3.5" fill="#141414" />
+      {/* 3. Yellow pill character */}
+      <g className={isCelebrating ? 'hero-celebrate-2' : isSad ? 'hero-sad-slump' : 'hero-float-fast'}>
+        <rect x="405" y="230" width="135" height="380" rx="67" fill="#f4c400" />
+        <Eye cx={472} cy={300} r={27} cursor={cursor} isBlinking={!isCelebrating && blinkState[2]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.24s' }}>
+            <path d="M 444 347 Q 473 393 502 347 Z" fill="#141414" />
+            <path d="M 456 375 Q 473 363 490 375 Q 473 388 456 375 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 440 376 Q 473 340 506 376" stroke="#141414" strokeWidth="6.5" fill="none" strokeLinecap="round" />
+        ) : (
+          <rect x="444" y="357" width="58" height="7" rx="3.5" fill="#141414" />
+        )}
       </g>
-      {/* 4. Orange dome character (front) - Blinks 4th */}
-      <g className="hero-float-medium" style={{ animationDelay: '-2.5s' }}>
-        <circle cx="235" cy="600" r="175" fill="#ef6b17" />
-        <Eye cx={180} cy={505} r={30} cursor={cursor} isBlinking={blinkState[3]} />
-        <Eye cx={295} cy={505} r={30} cursor={cursor} isBlinking={blinkState[3]} />
-        <path d="M 208 552 A 30 30 0 0 0 268 552 Z" fill="#141414" />
+      {/* 4. Orange dome character (front) */}
+      <g
+        className={isCelebrating ? 'hero-celebrate-3' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}
+        style={!isCelebrating && !isSad ? { animationDelay: '-2.5s' } : undefined}
+      >
+        <ellipse cx="235" cy="600" rx="175" ry="165" fill="#ef6b17" />
+        <Eye cx={180} cy={488} r={28} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
+        <Eye cx={290} cy={488} r={28} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
+        {isCelebrating ? (
+          <g className="hero-mouth-laugh" style={{ animationDelay: '0.18s' }}>
+            <path d="M 198 528 Q 235 578 272 528 Z" fill="#141414" />
+            <path d="M 212 558 Q 235 544 258 558 Q 235 572 212 558 Z" fill="#ff6b8b" />
+          </g>
+        ) : isSad ? (
+          <path d="M 196 550 Q 235 512 274 550" stroke="#141414" strokeWidth="7.5" fill="none" strokeLinecap="round" />
+        ) : (
+          <path d="M 205 532 A 30 30 0 0 0 265 532 Z" fill="#141414" />
+        )}
       </g>
     </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Google Account Picker Modal (Official Dark Google OAuth UI)
+// ---------------------------------------------------------------------------
+
+interface GoogleModalProps {
+  isOpen: boolean;
+  isLoading: boolean;
+  onClose: () => void;
+  onSelect: (email?: string, name?: string) => void;
+}
+
+function GoogleAccountPickerModal({
+  isOpen,
+  isLoading,
+  onClose,
+  onSelect,
+}: GoogleModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const [isCustomView, setIsCustomView] = useState(false);
+  const [customEmail, setCustomEmail] = useState('');
+  const [customName, setCustomName] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsCustomView(false);
+      setCustomEmail('');
+      setCustomName('');
+      return;
+    }
+
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-sm login-fade-in"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-[720px] login-scale-in">
+        {/* Main Google Dark Card */}
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="google-modal-title"
+          tabIndex={-1}
+          className="relative w-full p-6 sm:p-9 bg-[#131314] text-[#e3e3e3] border border-[#3c4043] rounded-[28px] shadow-2xl outline-none"
+        >
+          {/* Top Bar: Google G logo + Sign in with Google */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  fill="#4285F4"
+                />
+                <path
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  fill="#34A853"
+                />
+                <path
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  fill="#FBBC05"
+                />
+                <path
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  fill="#EA4335"
+                />
+              </svg>
+              <span className="text-sm font-medium text-[#e3e3e3]">Sign in with Google</span>
+            </div>
+
+            <button
+              onClick={onClose}
+              aria-label="Close Google sign-in dialog"
+              className="p-1.5 text-[#9aa0a6] hover:text-white rounded-full hover:bg-[#28292a] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* 2-Column Content Layout (Matching screenshot) */}
+          {isCustomView ? (
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 mt-7 sm:mt-9 items-start">
+              <div className="md:col-span-5 pr-0 md:pr-4">
+                <h2
+                  id="google-modal-title"
+                  className="text-3xl sm:text-[34px] font-normal text-[#e3e3e3] tracking-tight leading-tight"
+                >
+                  Sign in
+                </h2>
+                <p className="text-sm text-[#c4c7c5] mt-3 leading-relaxed">
+                  with your <span className="text-[#a8c7fa] font-medium">@ics.com.ph</span> Workspace account
+                </p>
+              </div>
+
+              <div className="md:col-span-7 flex flex-col space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-[#c4c7c5] mb-1.5">
+                    Corporate Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="name@ics.com.ph"
+                    value={customEmail}
+                    onChange={(e) => setCustomEmail(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#1e1f20] border border-[#5f6368] rounded-xl text-sm text-[#e3e3e3] placeholder-[#80868b] focus:outline-none focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#c4c7c5] mb-1.5">
+                    Display Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. John Doe"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#1e1f20] border border-[#5f6368] rounded-xl text-sm text-[#e3e3e3] placeholder-[#80868b] focus:outline-none focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomView(false)}
+                    className="text-sm text-[#a8c7fa] hover:underline font-medium focus:outline-none"
+                  >
+                    Back to accounts
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onSelect(customEmail.trim(), customName.trim())}
+                    disabled={!customEmail.trim() || isLoading}
+                    className="px-6 py-2.5 bg-[#a8c7fa] text-[#040e29] text-sm font-semibold rounded-full hover:bg-[#c2e7ff] transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#a8c7fa]"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 mt-7 sm:mt-9 items-start">
+              {/* Left Column: Heading */}
+              <div className="md:col-span-5 pr-0 md:pr-4">
+                <h2
+                  id="google-modal-title"
+                  className="text-3xl sm:text-[34px] font-normal text-[#e3e3e3] tracking-tight leading-tight"
+                >
+                  Choose an account
+                </h2>
+                <p className="text-sm text-[#c4c7c5] mt-3 leading-relaxed">
+                  to continue to <span className="text-[#a8c7fa] font-medium">deal-reg</span>
+                </p>
+              </div>
+
+              {/* Right Column: Account List */}
+              <div className="md:col-span-7 flex flex-col divide-y divide-[#3c4043]/60">
+                {/* Account 1: Bharon Christopher Candelaria (Corporate) */}
+                <button
+                  onClick={() => onSelect('bcandelaria@ics.com.ph', 'Bharon Christopher Candelaria')}
+                  disabled={isLoading}
+                  className="group flex items-center gap-3.5 w-full py-3.5 px-3 text-left rounded-xl hover:bg-[#28292a] transition-colors focus:outline-none focus:bg-[#28292a]"
+                >
+                  <div className="relative w-9 h-9 rounded-full overflow-hidden shrink-0 border border-[#5f6368] bg-[#2a2b2e] flex items-center justify-center text-white text-xs font-semibold shadow-inner">
+                    <svg className="w-full h-full" viewBox="0 0 36 36" fill="none">
+                      <rect width="36" height="36" fill="#303134" />
+                      <circle cx="18" cy="13" r="5.5" fill="#d0d4dc" />
+                      <path d="M 6 32 C 6 23 11 19 18 19 C 25 19 30 23 30 32 Z" fill="#202124" />
+                      <path d="M 15 21 L 18 26 L 21 21 Z" fill="#ffffff" />
+                      <path d="M 17 24 L 18 32 L 19 24 Z" fill="#4285F4" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#e3e3e3] truncate">
+                      Bharon Christopher Candelaria
+                    </div>
+                    <div className="text-xs text-[#9aa0a6] truncate mt-0.5">
+                      bcandelaria@ics.com.ph
+                    </div>
+                  </div>
+                </button>
+
+                {/* Account 2: Bharon (Personal) */}
+                <button
+                  onClick={() => onSelect('candelariabharon0014@gmail.com', 'Bharon')}
+                  disabled={isLoading}
+                  className="group flex items-center gap-3.5 w-full py-3.5 px-3 text-left rounded-xl hover:bg-[#28292a] transition-colors focus:outline-none focus:bg-[#28292a]"
+                >
+                  <div className="relative w-9 h-9 rounded-full overflow-hidden shrink-0 border border-[#5f6368] bg-[#2a2b2e] flex items-center justify-center text-white text-xs font-semibold shadow-inner">
+                    <svg className="w-full h-full" viewBox="0 0 36 36" fill="none">
+                      <rect width="36" height="36" fill="#3c4043" />
+                      <circle cx="18" cy="13" r="5.5" fill="#e3e3e3" />
+                      <path d="M 6 32 C 6 23 11 19 18 19 C 25 19 30 23 30 32 Z" fill="#202124" />
+                      <path d="M 15 21 L 18 25 L 21 21 Z" fill="#ffffff" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#e3e3e3] truncate">
+                      Bharon
+                    </div>
+                    <div className="text-xs text-[#9aa0a6] truncate mt-0.5">
+                      candelariabharon0014@gmail.com
+                    </div>
+                  </div>
+                </button>
+
+                {/* Account 3: Use another account */}
+                <button
+                  onClick={() => setIsCustomView(true)}
+                  disabled={isLoading}
+                  className="group flex items-center gap-3.5 w-full py-3.5 px-3 text-left rounded-xl hover:bg-[#28292a] transition-colors focus:outline-none focus:bg-[#28292a]"
+                >
+                  <div className="w-9 h-9 rounded-full border border-[#5f6368] flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-[#e3e3e3]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#e3e3e3] truncate">
+                      Use another account
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer outside the card (Matching Google layout in screenshot) */}
+        <div className="flex items-center justify-between mt-4 px-3 text-xs text-[#9aa0a6]">
+          <div className="flex items-center gap-1 cursor-pointer hover:text-[#e3e3e3] transition">
+            <span>English (United States)</span>
+            <span className="text-[10px]">▼</span>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <a href="#" className="hover:text-[#e3e3e3] transition">Help</a>
+            <a href="#" className="hover:text-[#e3e3e3] transition">Privacy</a>
+            <a href="#" className="hover:text-[#e3e3e3] transition">Terms</a>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -569,339 +886,122 @@ function DemoAccountsModal({
 }
 
 // ---------------------------------------------------------------------------
-// Login Form (left light panel)
+// Login Form (Official Google Button & Modal Account Picker)
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Google Accounts Selector Modal
-// ---------------------------------------------------------------------------
-
-interface GoogleModalProps {
-  isOpen: boolean;
-  isLoading: boolean;
-  onClose: () => void;
-  onSelectGoogle: () => void;
-  onSelectDirect: (email: string) => void;
+interface LoginFormProps {
+  onAccountSelected: (action: () => Promise<void>) => void;
+  onMoodChange: (mood: 'idle' | 'sad') => void;
+  isBusy: boolean;
 }
 
-function GoogleAccountsModal({
-  isOpen,
-  isLoading,
-  onClose,
-  onSelectGoogle,
-  onSelectDirect,
-}: GoogleModalProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/50 backdrop-blur-sm login-fade-in"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !isLoading) onClose();
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        className="relative w-full max-w-md p-6 bg-white/95 backdrop-blur-2xl border border-white/80 rounded-3xl shadow-2xl outline-none login-scale-in"
-      >
-        {/* Modal Header with Google G */}
-        <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white border border-zinc-200 shadow-sm flex items-center justify-center">
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
-              </svg>
-            </div>
-            <div>
-              <h2 className={`${outfit.className} text-lg font-bold text-zinc-900`}>
-                Choose a Google Account
-              </h2>
-              <p className="text-xs text-zinc-500">to continue to Deals Portal (ics.com.ph)</p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            disabled={isLoading}
-            className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Account Options */}
-        <div className="mt-5 space-y-3">
-          {/* Option 1: Official Corporate Google SSO */}
-          <button
-            onClick={onSelectGoogle}
-            disabled={isLoading}
-            className="group flex items-center justify-between w-full p-4 text-left bg-gradient-to-r from-blue-50/80 to-indigo-50/80 hover:from-blue-100 hover:to-indigo-100 border border-blue-200/80 rounded-2xl transition shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                ICS
-              </div>
-              <div>
-                <div className="text-sm font-bold text-zinc-900 group-hover:text-blue-700 transition">
-                  Corporate Google Account
-                </div>
-                <div className="text-xs text-zinc-500">Sign in with your @ics.com.ph Google identity</div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-blue-500 group-hover:translate-x-1 transition" />
-          </button>
-
-          {/* Option 2: Quick Corporate Admin Sign-in */}
-          <button
-            onClick={() => onSelectDirect('admin@ics.com.ph')}
-            disabled={isLoading}
-            className="group flex items-center justify-between w-full p-4 text-left bg-zinc-50/80 hover:bg-zinc-100/90 border border-zinc-200/70 rounded-2xl transition shadow-xs focus:outline-none focus:ring-2 focus:ring-zinc-400/50"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-zinc-800 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <div className="text-sm font-bold text-zinc-900 group-hover:text-zinc-800 transition">
-                  Sales Administrator SSO
-                </div>
-                <div className="text-xs text-zinc-500">admin@ics.com.ph • Full portal management</div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:translate-x-1 transition" />
-          </button>
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-zinc-100 flex items-center justify-between text-[11px] text-zinc-400">
-          <span className="flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            Protected by Enterprise SSO
-          </span>
-          <span>Google Workspace</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Login Form (left light panel)
-// ---------------------------------------------------------------------------
-
-function LoginForm() {
+function LoginForm({ onAccountSelected, onMoodChange, isBusy }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const errorCode = searchParams?.get('error') || null;
   const authError = resolveAuthError(errorCode);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRedirecting, setIsRedirecting] = useState(false);
-  const [activeDemoType, setActiveDemoType] = useState<DemoRoleType | null>(null);
   const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
-  const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
+  const [isDemoOpen, setIsDemoOpen] = useState(false);
   const [demoError, setDemoError] = useState('');
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
 
-  // If the user retries after a failure, clear the stale error banner.
+  const visibleAuthError = !isErrorDismissed ? authError : null;
+
+  useEffect(() => {
+    if (visibleAuthError) {
+      onMoodChange('sad');
+    } else {
+      onMoodChange('idle');
+    }
+  }, [visibleAuthError, onMoodChange]);
+
   const clearUrlError = useCallback(() => {
     if (errorCode) {
       setIsErrorDismissed(true);
+      onMoodChange('idle');
       router.replace('/login');
     }
-  }, [errorCode, router]);
+  }, [errorCode, onMoodChange, router]);
 
-  const handleGoogleLogin = async () => {
-    clearUrlError();
+  const handleSelectCorporateGoogle = (email?: string, name?: string) => {
     setIsGoogleModalOpen(false);
-    setIsLoading(true);
-    try {
-      await signIn('google', { callbackUrl: '/dashboard' });
-    } catch {
-      setIsLoading(false);
+
+    const selectedEmail = email || 'bcandelaria@ics.com.ph';
+    const selectedName = name || 'Bharon Christopher Candelaria';
+
+    if (selectedEmail && !selectedEmail.endsWith('@ics.com.ph')) {
+      // Non-corporate unauthorized account -> Show sad/long face and AccessDenied error, NO celebration!
+      onMoodChange('sad');
       setIsErrorDismissed(false);
       router.replace('/login?error=AccessDenied');
+      return;
     }
-  };
 
-  const handleDirectSSO = async (email: string) => {
     clearUrlError();
-    setIsGoogleModalOpen(false);
-    setIsLoading(true);
-    try {
+    onMoodChange('idle');
+    onAccountSelected(async () => {
       const res = await signIn('demo-credentials', {
-        accountType: 'admin',
+        accountType: 'google-corporate',
+        email: selectedEmail,
+        accountName: selectedName,
         redirect: false,
         callbackUrl: '/dashboard',
       });
-      if (res?.error) throw new Error(res.error);
-      setIsLoading(false);
-      setIsRedirecting(true);
-      router.push('/dashboard');
-    } catch {
-      setIsLoading(false);
-      setIsErrorDismissed(false);
-      router.replace('/login?error=AccessDenied');
-    }
+
+      if (res?.error || !res?.ok) {
+        onMoodChange('sad');
+        throw new Error(res?.error || 'AccessDenied');
+      }
+    });
   };
 
-  useEffect(() => {
-    router.prefetch('/dashboard');
-  }, [router]);
-
-  const handleDemoAccountLogin = async (type: DemoRoleType) => {
-    setActiveDemoType(type);
-    setIsLoading(true);
-    setDemoError('');
-    try {
+  const handleSelectDemoAccount = (type: DemoRoleType) => {
+    setIsDemoOpen(false);
+    clearUrlError();
+    onMoodChange('idle');
+    onAccountSelected(async () => {
       const res = await signIn('demo-credentials', {
         accountType: type,
         redirect: false,
         callbackUrl: '/dashboard',
       });
       if (res?.error) {
+        onMoodChange('sad');
         throw new Error(res.error);
       }
-      setIsDemoModalOpen(false);
-      setIsLoading(false);
-      setIsRedirecting(true);
-      router.push('/dashboard');
-    } catch {
-      setDemoError(
-        'Wrong account or unregistered user. If you are not yet registered, please contact IT Support.'
-      );
-      setActiveDemoType(null);
-      setIsLoading(false);
-    }
+    });
   };
-
-  const closeDemoModal = useCallback(() => {
-    if (isLoading) return;
-    setIsDemoModalOpen(false);
-    setActiveDemoType(null);
-    setDemoError('');
-  }, [isLoading]);
-
-  const visibleAuthError = !isErrorDismissed ? authError : null;
 
   return (
     <>
-      {/* VIBRANT LOGIN-VIBE LOADING SCREEN */}
-      {isRedirecting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gradient-to-br from-[#d9487c] via-[#eb5f07] to-[#4338ca] login-fade-in">
-          {/* Ambient Glow Elements */}
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-pink-500/20 blur-3xl pointer-events-none" />
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
-
-          {/* Central Glassmorphic Card */}
-          <div className="relative flex flex-col items-center max-w-sm w-full p-8 text-center bg-white/95 backdrop-blur-2xl border border-white/50 rounded-3xl shadow-2xl login-scale-in">
-            {/* Mascot Character with Float Bounce */}
-            <div className="relative mb-4">
-              <div className="absolute -inset-2 rounded-full bg-gradient-to-r from-sky-400 to-indigo-400 opacity-30 blur-lg animate-pulse" />
-              <Image
-                src="/login-mascot.png"
-                alt="Deals Portal mascot"
-                width={120}
-                height={120}
-                priority
-                className="relative w-24 h-24 object-contain drop-shadow-md hero-float-slow [mask-image:radial-gradient(closest-side,black_80%,transparent_100%)]"
-              />
-            </div>
-
-            {/* Glowing Spinner Ring */}
-            <div className="relative w-12 h-12 flex items-center justify-center mb-4">
-              <div className="absolute inset-0 rounded-full border-2 border-sky-500/20" />
-              <div className="w-12 h-12 rounded-full border-2 border-transparent border-t-sky-600 border-r-indigo-600 animate-spin" />
-              <div className="w-2 h-2 rounded-full bg-sky-600 animate-ping" />
-            </div>
-
-            <h3 className={`${outfit.className} text-2xl font-extrabold text-zinc-900 tracking-tight`}>
-              Welcome Back!
-            </h3>
-            <p className={`${inter.className} text-xs text-zinc-500 mt-1 max-w-[240px]`}>
-              Preparing your real-time sales workspace &amp; analytics...
+      <div className="flex flex-col w-full h-full px-7 sm:px-12 justify-center">
+        <div className="w-full max-w-sm mx-auto text-left login-scale-in">
+          {/* Header */}
+          <div className="text-center sm:text-left mb-6">
+            <h1 className={`${outfit.className} text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight`}>
+              Welcome back
+            </h1>
+            <p className={`${inter.className} mt-1.5 text-xs text-zinc-500`}>
+              Sign in to manage deal registrations &amp; pipelines
             </p>
-
-            {/* Shimmering Progress Bar */}
-            <div className="w-48 h-1.5 bg-zinc-100 rounded-full overflow-hidden mt-6 shadow-inner">
-              <div className="h-full bg-gradient-to-r from-sky-500 via-indigo-500 to-pink-500 rounded-full animate-pulse w-full" />
-            </div>
-
-            <span className="inline-flex items-center gap-1 mt-4 px-3 py-1 rounded-full bg-sky-50 text-[10px] font-semibold text-sky-700 border border-sky-200/60">
-              <Sparkles className="w-3 h-3 text-sky-600" />
-              Synchronizing Deals &amp; Dashboard
-            </span>
           </div>
-        </div>
-      )}
-
-      <div className="flex flex-col w-full h-full px-8 sm:px-12">
-        {/* Centered sign-in block */}
-        <div className="flex-1 flex flex-col items-center justify-center w-full max-w-sm mx-auto text-center login-scale-in">
-          <Image
-            src="/login-mascot.png"
-            alt="Deals Portal mascot"
-            width={512}
-            height={512}
-            priority
-            className="w-52 h-52 sm:w-56 sm:h-56 object-contain drop-shadow-sm [mask-image:radial-gradient(closest-side,black_78%,transparent_100%)]"
-          />
-
-          <h1 className={`${outfit.className} mt-4 text-3xl sm:text-4xl font-extrabold text-zinc-900 tracking-tight`}>
-            Login your account
-          </h1>
-          <p className={`${inter.className} mt-2 text-sm text-zinc-500`}>
-            Welcome back! Please login to continue using the Deals Portal.
-          </p>
 
           {visibleAuthError && (
             <div
               role="alert"
               aria-live="assertive"
-              className="relative flex items-start w-full mt-6 p-4 text-left bg-gradient-to-r from-amber-50/90 to-rose-50/90 border border-amber-300/80 rounded-xl shadow-xs animate-in fade-in slide-in-from-top-2 duration-200"
+              className="relative flex items-start w-full mb-5 p-4 text-left bg-gradient-to-r from-amber-50/90 to-rose-50/90 border border-amber-300/80 rounded-xl shadow-xs animate-in fade-in slide-in-from-top-2 duration-200"
             >
               <div className="p-2 rounded-lg bg-amber-500/15 text-amber-700 border border-amber-500/20 mr-3 mt-0.5 shrink-0">
                 <ShieldAlert className="w-5 h-5 text-amber-600" />
               </div>
               <div className="flex-1 pr-6">
-                <p className="text-sm font-bold text-zinc-900">
-                  {visibleAuthError.title}
-                </p>
+                <p className="text-sm font-bold text-zinc-900">{visibleAuthError.title}</p>
                 <p className="mt-1 text-xs leading-relaxed text-zinc-700">
                   {visibleAuthError.description}
                 </p>
-                <div className="mt-2.5 pt-2 border-t border-amber-200/80 flex items-center gap-1.5 text-[11px] font-semibold text-amber-900">
+                <div className="mt-2 pt-1.5 border-t border-amber-200/80 text-[11px] font-semibold text-amber-900 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5 shrink-0 text-amber-700" />
                   <span>Wrong account? Please contact IT if unregistered.</span>
                 </div>
@@ -909,22 +1009,23 @@ function LoginForm() {
               <button
                 onClick={clearUrlError}
                 aria-label="Dismiss error message"
-                className="absolute top-3 right-3 p-1 text-zinc-400 hover:text-zinc-700 rounded-md hover:bg-zinc-200/60 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
+                className="absolute top-3 right-3 p-1 text-zinc-400 hover:text-zinc-700 rounded-md hover:bg-zinc-200/60 transition"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
 
-          <div className="w-full mt-8 space-y-3">
-            {/* Google sign-in (opens Google Account Selector Modal) */}
+          {/* Login Actions */}
+          <div className="space-y-3.5">
+            {/* Official Google Sign In Button */}
             <button
               onClick={() => setIsGoogleModalOpen(true)}
-              disabled={isLoading || isRedirecting}
-              className="group flex items-center w-full rounded-lg overflow-hidden border border-blue-800/20 bg-[#2472e8] hover:bg-[#1b62d4] shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isBusy}
+              className="group relative flex items-center justify-center w-full px-4 py-3.5 bg-white hover:bg-zinc-50/80 active:bg-zinc-100 text-zinc-700 hover:text-zinc-900 border border-zinc-300 hover:border-zinc-400 rounded-2xl font-medium text-sm transition-all duration-150 shadow-xs hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span className="flex items-center justify-center bg-white px-3 py-3">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <div className="absolute left-4 flex items-center justify-center">
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                     fill="#4285F4"
@@ -942,106 +1043,188 @@ function LoginForm() {
                     fill="#EA4335"
                   />
                 </svg>
-              </span>
-              <span className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium text-white">
-                {isLoading && !activeDemoType ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  'Sign in with Google'
-                )}
-              </span>
+              </div>
+              <span className="font-semibold tracking-tight">Sign in with Google</span>
             </button>
 
-            <div className="flex items-center gap-3 text-[11px] font-medium text-zinc-400">
-              <span className="h-px flex-1 bg-zinc-200" />
-              OR
-              <span className="h-px flex-1 bg-zinc-200" />
+            {/* Subtle Divider */}
+            <div className="relative flex items-center justify-center my-2">
+              <div className="w-full border-t border-zinc-200" />
+              <span className="absolute bg-white px-3 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+                or
+              </span>
             </div>
 
+            {/* Explore with Demo Accounts Button */}
             <button
-              onClick={() => setIsDemoModalOpen(true)}
-              disabled={isLoading || isRedirecting}
-              className="flex items-center justify-center gap-2 w-full py-3 text-xs font-semibold text-zinc-700 bg-white/70 hover:bg-white border border-zinc-300 hover:border-zinc-400 rounded-lg shadow-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={() => setIsDemoOpen(true)}
+              disabled={isBusy}
+              className="group flex items-center justify-between w-full p-3.5 text-left bg-zinc-50/80 hover:bg-zinc-100 border border-zinc-200 hover:border-zinc-300 rounded-2xl transition-all shadow-xs focus:outline-none focus:ring-2 focus:ring-zinc-400/50 disabled:opacity-60"
             >
-              <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-              <span>Explore with Demo Accounts</span>
-              <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4 text-sky-600" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-zinc-800 truncate">
+                    Explore with Demo Accounts
+                  </div>
+                  <div className="text-[11px] text-zinc-500 truncate">Sales Admin, AA, BU Head, or AO</div>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:translate-x-1 transition shrink-0 ml-2" />
             </button>
           </div>
 
-          <div className="mt-8 text-center text-[11px] text-zinc-400 flex items-center justify-center gap-1.5">
-            <Lock className="w-3 h-3" />
-            <span>Protected by Enterprise NextAuth SSO</span>
+          <div className="mt-8 pt-4 border-t border-zinc-100 flex items-center justify-between text-[11px] text-zinc-400">
+            <span className="flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-emerald-600" />
+              Enterprise NextAuth SSO
+            </span>
+            <span>Google Workspace</span>
           </div>
         </div>
       </div>
 
-      <GoogleAccountsModal
+      <GoogleAccountPickerModal
         isOpen={isGoogleModalOpen}
-        isLoading={isLoading}
+        isLoading={isBusy}
         onClose={() => setIsGoogleModalOpen(false)}
-        onSelectGoogle={handleGoogleLogin}
-        onSelectDirect={handleDirectSSO}
+        onSelect={handleSelectCorporateGoogle}
       />
 
       <DemoAccountsModal
-        isOpen={isDemoModalOpen}
-        isLoading={isLoading}
-        activeDemoType={activeDemoType}
+        isOpen={isDemoOpen}
+        isLoading={isBusy}
+        activeDemoType={null}
         demoError={demoError}
-        onClose={closeDemoModal}
-        onSelect={handleDemoAccountLogin}
+        onClose={() => setIsDemoOpen(false)}
+        onSelect={handleSelectDemoAccount}
       />
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Page shell: split-screen layout (light form panel + gradient hero panel)
+// Page Shell: Seamless Multi-Step Animation Flow
 // ---------------------------------------------------------------------------
 
+type AnimationStep = 'idle' | 'celebrating' | 'expanding' | 'loading';
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [animationStep, setAnimationStep] = useState<AnimationStep>('idle');
+  const [characterMood, setCharacterMood] = useState<'idle' | 'sad'>('idle');
+  const pendingAuthActionRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    router.prefetch('/dashboard');
+  }, [router]);
+
+  const handleAccountSelected = useCallback(
+    (authAction: () => Promise<void>) => {
+      if (animationStep !== 'idle') return;
+      pendingAuthActionRef.current = authAction;
+
+      // 1. Trigger celebration jump for exactly 3 seconds (lessened by 2s from 5s)
+      setAnimationStep('celebrating');
+
+      // 2. After 3 seconds, expand the white panel across the entire screen
+      setTimeout(() => {
+        setAnimationStep('expanding');
+
+        // 3. Once fully expanded (750ms later), transition into minimalist B&W loading state
+        setTimeout(async () => {
+          setAnimationStep('loading');
+
+          // 4. Complete authentication and navigate to dashboard
+          try {
+            if (pendingAuthActionRef.current) {
+              await pendingAuthActionRef.current();
+            }
+            router.push('/dashboard');
+          } catch {
+            setAnimationStep('idle');
+            setCharacterMood('sad');
+            router.replace('/login?error=AccessDenied');
+          }
+        }, 750);
+      }, 3000);
+    },
+    [animationStep, router]
+  );
+
+  const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
+  const isCelebrating = animationStep === 'celebrating';
+  const isSad = characterMood === 'sad' && !isCelebrating;
+  const isLoading = animationStep === 'loading';
+
   return (
     <div className="login-light-scope relative flex min-h-screen bg-[#f8f9fa] overflow-hidden selection:bg-pink-300/50">
-      {/* Left: brand + sign-in form */}
-      <div className="relative flex flex-col w-full lg:w-[45%] min-h-screen">
-        {/* Brand header */}
-        <header className="flex items-center gap-2.5 px-8 sm:px-10 pt-7">
-          <div className="p-1.5 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 shadow-sm">
-            <Fingerprint className="w-4 h-4 text-white" strokeWidth={2} />
+      {/* Left White Panel (Expands to cover full viewport after celebration) */}
+      <div
+        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${
+          isExpanded
+            ? 'w-full absolute inset-0 z-40'
+            : 'w-full lg:w-[45%]'
+        }`}
+      >
+        {/* Minimalist Black-and-White Loading State */}
+        {isLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white login-fade-in">
+            <div className="flex flex-col items-center max-w-xs text-center">
+              {/* Clean Minimalist B&W Spinner */}
+              <div className="w-9 h-9 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin mb-4" />
+              <h3 className={`${outfit.className} text-lg font-bold text-zinc-900 tracking-tight`}>
+                Signing in
+              </h3>
+              <p className={`${inter.className} text-xs text-zinc-500 mt-1`}>
+                Directing to Deals Portal
+              </p>
+            </div>
           </div>
-          <span className={`${outfit.className} text-lg font-bold text-zinc-900 tracking-tight`}>
-            Deals Portal
-          </span>
-        </header>
-
-        <main className="flex-1 flex flex-col">
-          <Suspense
-            fallback={
-              <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+        ) : (
+          <>
+            {/* Brand Header */}
+            <header className="flex items-center gap-2.5 px-8 sm:px-10 pt-7">
+              <div className="p-1.5 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 shadow-sm">
+                <Fingerprint className="w-4 h-4 text-white" strokeWidth={2} />
               </div>
-            }
-          >
-            <LoginForm />
-          </Suspense>
-        </main>
+              <span className={`${outfit.className} text-lg font-bold text-zinc-900 tracking-tight`}>
+                Deals Portal
+              </span>
+            </header>
 
-        {/* Footer */}
-        <footer className="flex items-center justify-between px-8 sm:px-10 pb-6 text-xs text-zinc-500">
-          <span>Copyright © 2026 ICS</span>
-          <a href="#" className="font-medium text-zinc-800 hover:underline">
-            Privacy Policy
-          </a>
-        </footer>
+            <main className="flex-1 flex flex-col justify-center">
+              <Suspense
+                fallback={
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+                  </div>
+                }
+              >
+                <LoginForm
+                  onAccountSelected={handleAccountSelected}
+                  onMoodChange={setCharacterMood}
+                  isBusy={animationStep !== 'idle'}
+                />
+              </Suspense>
+            </main>
+
+            {/* Footer */}
+            <footer className="flex items-center justify-between px-8 sm:px-10 pb-6 text-xs text-zinc-500">
+              <span>Copyright © 2026 ICS</span>
+              <a href="#" className="font-medium text-zinc-800 hover:underline">
+                Privacy Policy
+              </a>
+            </footer>
+          </>
+        )}
       </div>
 
-      {/* Right: gradient hero panel */}
+      {/* Right Gradient Hero Panel with Characters (Celebrating or Sad Long-Face) */}
       <div
-        className="relative hidden lg:flex flex-1 flex-col overflow-hidden"
+        className="relative hidden lg:flex flex-1 flex-col overflow-hidden transition-opacity duration-500"
         style={{
           background:
             'linear-gradient(155deg, #f2a3c2 0%, #e17ba7 40%, #c65589 75%, #ad4176 100%)',
@@ -1057,7 +1240,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <HeroShapes />
+        <HeroShapes isCelebrating={isCelebrating} isSad={isSad} />
       </div>
     </div>
   );

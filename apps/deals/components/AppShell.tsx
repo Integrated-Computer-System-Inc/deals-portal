@@ -29,8 +29,14 @@ function DealsCachePrewarmer() {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isLoginPage = pathname === '/login' || pathname?.startsWith('/login') || pathname?.startsWith('/api/auth');
+  let pathname: string | null = null;
+  try {
+    pathname = usePathname();
+  } catch {
+    pathname = null;
+  }
+
+  const isLoginPage = !pathname || pathname === '/login' || pathname.startsWith('/login') || pathname.startsWith('/api/auth');
 
   if (isLoginPage) {
     return (
