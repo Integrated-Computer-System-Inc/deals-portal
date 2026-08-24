@@ -15,7 +15,13 @@ import {
   CurrencyTotals,
 } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
-import { resolveDealEmailRecipients } from '@/lib/notifications';
+import { resolveDealEmailRecipients, processNotifications } from '@/lib/notifications';
+import {
+  generateCreateDealEmail,
+  generateUpdateDealEmail,
+  generateLostDealEmail,
+  generateRenewDealEmail,
+} from '@/lib/email-templates';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { normalizeBrandName } from '@/lib/brandUtils';
 
@@ -524,22 +530,20 @@ export async function createDeal(
       const aoVal = payload.AssignedAO || payload.assignedAO;
       if (buVal !== 'BU6') {
         const recipients = await resolveDealEmailRecipients(aoVal, buVal);
-        const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-
-        const messageHtml = `
-          <h2>Deal Registration: Created Deal Notification</h2>
-          <p>A new deal has been registered for <strong>${payload.custName}</strong> by ${userName} (${domainAccount}).</p>
-          <ul>
-            <li><strong>Project Name:</strong> ${payload.ProjectName || payload.projectName}</li>
-            <li><strong>Brand:</strong> ${payload.brand}</li>
-            <li><strong>Business Unit (BU):</strong> ${buVal}</li>
-            <li><strong>Assigned AO:</strong> ${aoVal}</li>
-            <li><strong>Registration Date:</strong> ${regDate.toLocaleDateString()}</li>
-            <li><strong>Expiration Date:</strong> ${expDate.toLocaleDateString()}</li>
-            <li><strong>Total Amount:</strong> ${totalAmount.toLocaleString()}</li>
-          </ul>
-          <p><a href="${baseUrl}/deals/${nextDealID}/edit" style="display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">View Deal in Portal</a></p>
-        `;
+        const { subject, message } = generateCreateDealEmail({
+          dealID: nextDealID,
+          dealRegID: dealRegID,
+          custName: payload.custName,
+          projectName: payload.ProjectName || payload.projectName,
+          brand: payload.brand,
+          bu: buVal || '',
+          assignedAO: aoVal || '',
+          regDate: regDate,
+          expDate: expDate,
+          totalAmount: totalAmount,
+          creatorName: userName,
+          creatorAccount: domainAccount,
+        });
 
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
@@ -552,8 +556,8 @@ export async function createDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          'Deal Registration: Created Deal Notification',
-          messageHtml,
+          subject,
+          message,
           recipients.sendTo,
           recipients.sendCC,
           recipients.sendBCC,
@@ -568,6 +572,12 @@ export async function createDeal(
     invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath('/dashboard');
+
+    // Trigger immediate non-blocking email dispatch in background
+    processNotifications().catch((err) =>
+      console.error('[createDeal] Background notification dispatch error:', err)
+    );
+
     return { success: true, dealID: result.dealID };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -715,20 +725,19 @@ export async function updateDeal(
       // 5. Target Table: deals_reg_notification: If toEmail is checked and BU != 'BU6', insert an update notification row (status = 0)
       if (payload.toEmail && payload.BU !== 'BU6') {
         const recipients = await resolveDealEmailRecipients(payload.AssignedAO, payload.BU);
-        const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-
-        const messageHtml = `
-          <h2>Deal Registration: Update Notification</h2>
-          <p>The deal for <strong>${payload.custName}</strong> has been updated by ${userName} (${domainAccount}).</p>
-          <ul>
-            <li><strong>Deal Ref ID:</strong> ${currentDeal.dealRegID}</li>
-            <li><strong>Project Name:</strong> ${payload.ProjectName}</li>
-            <li><strong>Brand:</strong> ${payload.brand}</li>
-            <li><strong>Status:</strong> ${newStatus}</li>
-            <li><strong>Total Amount:</strong> ${totalAmount.toLocaleString()}</li>
-          </ul>
-          <p><a href="${baseUrl}/deals/${dealID}/edit" style="display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">View Deal in Portal</a></p>
-        `;
+        const { subject, message } = generateUpdateDealEmail({
+          dealID: dealID,
+          dealRegID: currentDeal.dealRegID,
+          custName: payload.custName,
+          projectName: payload.ProjectName,
+          brand: payload.brand,
+          bu: payload.BU || '',
+          assignedAO: payload.AssignedAO || '',
+          newStatus: newStatus,
+          totalAmount: totalAmount,
+          creatorName: userName,
+          creatorAccount: domainAccount,
+        });
 
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
@@ -741,8 +750,8 @@ export async function updateDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          `Deal Registration: Update Notification (${currentDeal.dealRegID})`,
-          messageHtml,
+          subject,
+          message,
           recipients.sendTo,
           recipients.sendCC,
           recipients.sendBCC,
@@ -755,6 +764,12 @@ export async function updateDeal(
     invalidateServerDealsCache();
     revalidatePath('/deals');
     revalidatePath('/dashboard');
+
+    // Trigger immediate non-blocking email dispatch in background
+    processNotifications().catch((err) =>
+      console.error('[updateDeal] Background notification dispatch error:', err)
+    );
+
     return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -819,6 +834,18 @@ export async function saveLostDeal(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const dealID = Number(payload.dealID);
+    const session = await getServerSession(authOptions);
+    const domainAccount = (session?.user as any)?.DomainAccount || 'SYSTEM';
+    const userName = session?.user?.name || (session?.user as any)?.AccountName || domainAccount;
+    const now = new Date();
+
+    const currentDeal = await prisma.dealHeader.findUnique({
+      where: { dealID: dealID },
+    });
+
+    if (!currentDeal) {
+      throw new Error(`Deal with ID ${dealID} not found.`);
+    }
 
     await prisma.$transaction(async (tx) => {
       // Update DealHeader status to '7' (Lost)
@@ -840,11 +867,62 @@ export async function saveLostDeal(
           otherInformation: payload.otherInformation ? payload.otherInformation.trim() : null,
         },
       });
+
+      // Target Table: deals_reg_notification (Skip if BU == 'BU6')
+      const buVal = currentDeal.BU || '';
+      if (buVal !== 'BU6') {
+        const aoVal = currentDeal.AssignedAO || '';
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const { subject, message } = generateLostDealEmail({
+          dealID: dealID,
+          dealRegID: currentDeal.dealRegID,
+          custName: currentDeal.custName || '',
+          projectName: currentDeal.ProjectName,
+          brand: currentDeal.brand || '',
+          bu: buVal,
+          assignedAO: aoVal,
+          competitorVendor: payload.competitorVendor,
+          competitorBrand: payload.competitorBrand,
+          icsOffer: payload.icsOffer != null ? String(payload.icsOffer) : 'N/A',
+          competitorOffer: payload.competitorOffer != null ? String(payload.competitorOffer) : 'N/A',
+          reason: payload.reason,
+          otherInformation: payload.otherInformation,
+          creatorName: userName,
+          creatorAccount: domainAccount,
+        });
+
+        const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
+          `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
+        );
+        const nextNotifId = Number(maxNotifResult?.[0]?.maxId || 0) + 1;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO [dbo].[deals_reg_notification] (
+            [email_id], [creator], [subject], [message], [sendTo], [sendCC], [sendBCC], [dateCreated], [status]
+          ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
+          nextNotifId,
+          domainAccount,
+          subject,
+          message,
+          recipients.sendTo,
+          recipients.sendCC,
+          recipients.sendBCC,
+          now,
+          0
+        );
+      }
     });
 
     invalidateServerDealsCache();
     revalidatePath('/deals');
+    revalidatePath(`/deals/${dealID}`);
     revalidatePath('/dashboard');
+
+    // Trigger immediate non-blocking email dispatch in background
+    processNotifications().catch((err) =>
+      console.error('[saveLostDeal] Background notification dispatch error:', err)
+    );
+
     return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -954,22 +1032,21 @@ export async function saveDealRenewal(
       const aoVal = currentDeal.AssignedAO || 'Unassigned';
       if (payload.toEmail !== false && buVal !== 'BU6') {
         const recipients = await resolveDealEmailRecipients(aoVal, buVal);
-        const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-
-        const messageHtml = `
-          <h2>Deal Registration: Renewal Notification</h2>
-          <p>The deal for <strong>${currentDeal.custName}</strong> (Ref: <strong>${currentDeal.dealRegID || currentDeal.dealID}</strong>) has been <strong>renewed</strong> by ${userName} (${domainAccount}).</p>
-          <ul>
-            <li><strong>Project Name:</strong> ${currentDeal.ProjectName || 'N/A'}</li>
-            <li><strong>Brand:</strong> ${currentDeal.brand}</li>
-            <li><strong>Business Unit (BU):</strong> ${buVal}</li>
-            <li><strong>Assigned AO:</strong> ${aoVal}</li>
-            <li><strong>Renewal Date:</strong> ${renewalDate.toLocaleDateString()}</li>
-            <li><strong>New Expiration Date:</strong> ${rexpDate.toLocaleDateString()} (${validityDays} days validity)</li>
-            <li><strong>Remarks:</strong> ${payload.remarks || 'No remarks provided'}</li>
-          </ul>
-          <p><a href="${baseUrl}/deals/${dealID}" style="display:inline-block;padding:8px 16px;background:#059669;color:#fff;text-decoration:none;border-radius:4px;">View Renewed Deal</a></p>
-        `;
+        const { subject, message } = generateRenewDealEmail({
+          dealID: dealID,
+          dealRegID: currentDeal.dealRegID,
+          custName: currentDeal.custName || '',
+          projectName: currentDeal.ProjectName,
+          brand: currentDeal.brand || '',
+          bu: buVal,
+          assignedAO: aoVal,
+          renewalDate: renewalDate,
+          newExpirationDate: rexpDate,
+          validityDays: validityDays,
+          remarks: payload.remarks,
+          creatorName: userName,
+          creatorAccount: domainAccount,
+        });
 
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
@@ -982,8 +1059,8 @@ export async function saveDealRenewal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          `Deal Registration: Renewal Notification (${currentDeal.dealRegID || currentDeal.dealID})`,
-          messageHtml,
+          subject,
+          message,
           recipients.sendTo,
           recipients.sendCC,
           recipients.sendBCC,
@@ -997,6 +1074,12 @@ export async function saveDealRenewal(
     revalidatePath('/deals');
     revalidatePath(`/deals/${dealID}`);
     revalidatePath('/dashboard');
+
+    // Trigger immediate non-blocking email dispatch in background
+    processNotifications().catch((err) =>
+      console.error('[saveDealRenewal] Background notification dispatch error:', err)
+    );
+
     return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

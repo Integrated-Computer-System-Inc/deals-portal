@@ -630,11 +630,10 @@ export default function LoginPage() {
     <div className="login-light-scope relative flex min-h-screen bg-[#f8f9fa] overflow-hidden selection:bg-pink-300/50">
       {/* Left White Panel */}
       <div
-        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${
-          isExpanded
+        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${isExpanded
             ? 'w-full absolute inset-0 z-40'
             : 'w-full lg:w-[45%]'
-        }`}
+          }`}
       >
         {/* Minimalist Black-and-White Loading State */}
         {isLoading ? (

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processNotifications } from '@/lib/notifications';
+import { runNotificationCron } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Route: /api/cron/dispatch-emails (TSK-006)
- * Scheduled task that reads deals_reg_notification where status = 0,
- * sends emails via SMTP, and marks them status = 1 with dateSent = now()
+ * Route: /api/cron/dispatch-emails
+ * Unified scheduled worker that:
+ * 1. Scans active deals for expiration milestones (30d, 15d, 7d, <=3d daily) and enqueues warning emails.
+ * 2. Reads dbo.deals_reg_notification where status = 0, dispatches via SMTP, and marks status = 1 (Sent) or 2 (Failed).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -19,11 +20,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const results = await processNotifications();
+    const results = await runNotificationCron();
 
     return NextResponse.json({
       success: true,
-      timestamp: new Date().toISOString(),
       ...results,
     });
   } catch (error) {

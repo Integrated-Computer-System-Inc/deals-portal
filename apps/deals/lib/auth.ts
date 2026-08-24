@@ -58,6 +58,38 @@ export const authOptions: NextAuthOptions = {
             const userEmail = credentials.email.trim().toLowerCase();
             const isAdmin = isConfiguredAdminEmail(userEmail);
 
+            // Fast-path: Check Users table first
+            try {
+              const existingUser = await prisma.$queryRawUnsafe<any[]>(`
+                IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                  SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken
+                  FROM Users
+                  WHERE LOWER(Email) = '${userEmail.replace(/'/g, "''")}';
+              `);
+              if (Array.isArray(existingUser) && existingUser.length > 0 && existingUser[0].UserRole) {
+                const u = existingUser[0];
+                const accountId = Number(u.AccountID);
+                const userRole = u.UserRole as UserRole;
+                const accountName = u.AccountName || userEmail.split('@')[0].toUpperCase();
+                const userAccess = resolveUserRoleAndBUs(accountId, userEmail, 'HQ', 'AO', 1);
+
+                return {
+                  id: `usr_${accountId}`,
+                  name: accountName,
+                  email: userEmail,
+                  DomainAccount: `CORP\\${userEmail.split('@')[0].toUpperCase()}`,
+                  AccountGroup: userAccess.assignedBUs.join(',') || 'BU5',
+                  AccountID: String(accountId),
+                  AccountName: accountName,
+                  role: userRole,
+                  assignedBUs: userAccess.assignedBUs,
+                  RememberToken: u.RememberToken || rememberToken,
+                };
+              }
+            } catch (err) {
+              console.warn('[Credentials Fast-Path] Fallback to directory lookup:', err);
+            }
+
             // Match against cdbAccounts with lightweight projection
             const cdbAccount = await prisma.cdbAccounts.findFirst({
               where: {
@@ -209,10 +241,62 @@ export const authOptions: NextAuthOptions = {
             return '/login?error=AccessDenied';
           }
 
-          // 2. Check if user is an Admin configured in ADMIN_EMAILS
+          // 2. FAST-PATH: Check if user is already registered in dbo.Users table with valid RememberToken
+          try {
+            const usersQueryResult = await prisma.$queryRawUnsafe<any[]>(`
+              IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin
+                FROM Users
+                WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';
+            `);
+
+            if (Array.isArray(usersQueryResult) && usersQueryResult.length > 0 && usersQueryResult[0].UserRole) {
+              const existingUser = usersQueryResult[0];
+              const accountId = Number(existingUser.AccountID);
+              const userRole = existingUser.UserRole as UserRole;
+              const accountName = existingUser.AccountName || user.name || emailLower.split('@')[0].toUpperCase();
+              const rememberToken = existingUser.RememberToken || randomUUID();
+
+              // Resolve BU scopes
+              const userAccess = resolveUserRoleAndBUs(
+                accountId,
+                emailLower,
+                'HQ',
+                'AO',
+                1
+              );
+
+              const assignedBUs = userAccess.assignedBUs.length > 0
+                ? userAccess.assignedBUs
+                : (userRole === 'admin' ? ['ALL'] : ['BU5']);
+
+              // Asynchronously update LastLogin in the background
+              prisma.$executeRawUnsafe(`
+                UPDATE Users 
+                SET LastLogin = GETDATE(), RememberToken = '${rememberToken}' 
+                WHERE AccountID = ${accountId};
+              `).catch((e) => console.warn('[Fast-Path] Non-blocking LastLogin update error:', e));
+
+              const domainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
+
+              (user as any).AccountID = String(accountId);
+              (user as any).AccountName = accountName;
+              (user as any).AccountGroup = assignedBUs.join(',');
+              (user as any).DomainAccount = domainAccount;
+              (user as any).role = userRole;
+              (user as any).assignedBUs = assignedBUs;
+              (user as any).RememberToken = rememberToken;
+
+              return true;
+            }
+          } catch (fastPathError) {
+            console.warn('[Google Sign-In] Fast-path lookup skipped, proceeding with directory verification:', fastPathError);
+          }
+
+          // 3. Check if user is an Admin configured in ADMIN_EMAILS
           const isAdmin = isConfiguredAdminEmail(emailLower) || isConfiguredAdminEmail(user.email);
 
-          // 3. Query cdbAccounts with lightweight scalar projection (skipping binary blobs)
+          // 4. Query cdbAccounts with lightweight scalar projection (skipping binary blobs)
           let cdbAccount = await prisma.cdbAccounts.findFirst({
             where: {
               OR: [
@@ -233,7 +317,7 @@ export const authOptions: NextAuthOptions = {
             });
           }
 
-          // 4. Block access if user does not exist in corporate directory AND is not in ADMIN_EMAILS
+          // 5. Block access if user does not exist in corporate directory AND is not in ADMIN_EMAILS
           if (!cdbAccount && !isAdmin) {
             console.warn(
               `[Google Sign-In] Access Denied: User ${user.email} (${user.name}) not found in cdbAccounts and not in ADMIN_EMAILS.`
@@ -241,7 +325,7 @@ export const authOptions: NextAuthOptions = {
             return '/login?error=AccessDenied';
           }
 
-          // 5. Resolve Role, Assigned Business Units & Authorization Status
+          // 6. Resolve Role, Assigned Business Units & Authorization Status
           const accountId = cdbAccount ? cdbAccount.AccountID : 99999;
           const accountName = cdbAccount ? cdbAccount.AccountName : (user.name || emailLower.split('@')[0].toUpperCase());
           const accountGroup = cdbAccount ? cdbAccount.AccountGroup : 'HQ';
@@ -270,7 +354,7 @@ export const authOptions: NextAuthOptions = {
             ? `CORP\\${cdbAccount.DomainAccount}`
             : `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
 
-          // 6. Persist / upsert session details into dbo.Users table if table exists
+          // 7. Persist / upsert session details into dbo.Users table if table exists
           try {
             await prisma.$executeRawUnsafe(`
               IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
@@ -292,7 +376,7 @@ export const authOptions: NextAuthOptions = {
             console.warn('[Google Sign-In] Could not persist into Users table. Continuing login:', dbError);
           }
 
-          // 7. Attach claims to NextAuth user object
+          // 8. Attach claims to NextAuth user object
           (user as any).AccountID = String(accountId);
           (user as any).AccountName = accountName;
           (user as any).AccountGroup = assignedBUsStr;
@@ -342,6 +426,8 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
+    maxAge: 30 * 24 * 60 * 60, // 30 Days "Remember Me" persistent session
+    updateAge: 24 * 60 * 60,    // Update token once per day
   },
   debug: process.env.NODE_ENV === 'development',
   secret: process.env.NEXTAUTH_SECRET || 'super-secret-deals-reg-portal-key',
