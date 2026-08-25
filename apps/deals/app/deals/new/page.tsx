@@ -292,25 +292,10 @@ export default function NewDealPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
               Register New Deal
             </h1>
+            <p className="text-xs text-muted">
+              Fill in customer account, project scope, validity timeline, and line items.
+            </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Link
-            href="/deals"
-            className="flex-1 sm:flex-initial text-center px-4 py-2 text-xs font-semibold text-foreground hover:bg-neutral rounded-xl border border-border transition shadow-xs"
-          >
-            Cancel
-          </Link>
-          <button
-            type="button"
-            onClick={handleSubmit(onSubmit)}
-            disabled={loading}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-5 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-xs disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>Submit Registration</span>
-          </button>
         </div>
       </div>
 
