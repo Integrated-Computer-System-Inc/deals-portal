@@ -573,6 +573,7 @@ export async function createDeal(
       const aoVal = payload.AssignedAO || payload.assignedAO;
       if (buVal !== 'BU6') {
         const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const currencyVal = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
         const { subject, message } = generateCreateDealEmail({
           dealID: nextDealID,
           dealRegID: dealRegID,
@@ -581,6 +582,8 @@ export async function createDeal(
           brand: payload.brand,
           bu: buVal || '',
           assignedAO: aoVal || '',
+          aoNickName: recipients.aoNickName,
+          currency: currencyVal,
           regDate: regDate,
           expDate: expDate,
           totalAmount: totalAmount,
@@ -659,6 +662,15 @@ export async function updateDeal(
       if (!currentDeal) {
         throw new Error(`Deal ID ${dealID} not found.`);
       }
+
+      // Query existing items to compute previous total amount for diff tracking
+      const existingItems = await tx.dealItems.findMany({
+        where: { dealID: dealID },
+      });
+      const previousTotalAmount = existingItems.reduce(
+        (acc, it) => acc + Number(it.totalAmt || 0),
+        0
+      );
 
       const oldStatus = currentDeal.dealStatus;
       const newStatus = String(payload.dealStatus);
@@ -767,19 +779,142 @@ export async function updateDeal(
 
       // 5. Target Table: deals_reg_notification: If toEmail is checked and BU != 'BU6', insert an update notification row (status = 0)
       if (payload.toEmail && payload.BU !== 'BU6') {
+        // Track field-level modifications for email diff
+        const normalizeStr = (val?: string | null) => (val || '').trim();
+        const formatDateStr = (d?: Date | string | null) => {
+          if (!d) return '';
+          const dateObj = typeof d === 'string' ? new Date(d) : d;
+          return isNaN(dateObj.getTime())
+            ? ''
+            : dateObj.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+        };
+        const formatMoney = (amt?: number | null) =>
+          amt != null
+            ? `PHP ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : 'PHP 0.00';
+
+        const changes: Array<{ label: string; from: string; to: string }> = [];
+
+        // Customer Name
+        if (normalizeStr(currentDeal.custName) !== normalizeStr(payload.custName)) {
+          changes.push({
+            label: 'Customer Name',
+            from: currentDeal.custName || '',
+            to: payload.custName || '',
+          });
+        }
+
+        // Project Name
+        if (normalizeStr(currentDeal.ProjectName) !== normalizeStr(payload.ProjectName)) {
+          changes.push({
+            label: 'Project Name',
+            from: currentDeal.ProjectName || '',
+            to: payload.ProjectName || '',
+          });
+        }
+
+        // Brand
+        if (normalizeStr(currentDeal.brand).toUpperCase() !== normalizeStr(normalizedBrand).toUpperCase()) {
+          changes.push({
+            label: 'Brand',
+            from: currentDeal.brand || '',
+            to: normalizedBrand || '',
+          });
+        }
+
+        // BU
+        if (normalizeStr(currentDeal.BU) !== normalizeStr(payload.BU)) {
+          changes.push({
+            label: 'Business Unit (BU)',
+            from: currentDeal.BU || '',
+            to: payload.BU || '',
+          });
+        }
+
+        // Assigned AO
+        if (normalizeStr(currentDeal.AssignedAO) !== normalizeStr(payload.AssignedAO)) {
+          changes.push({
+            label: 'Assigned AO',
+            from: currentDeal.AssignedAO || '',
+            to: payload.AssignedAO || '',
+          });
+        }
+
+        // Registration Date
+        const oldReg = formatDateStr(currentDeal.dtRegistered);
+        const newReg = formatDateStr(regDate);
+        if (oldReg && newReg && oldReg !== newReg) {
+          changes.push({
+            label: 'Registration Date',
+            from: oldReg,
+            to: newReg,
+          });
+        }
+
+        // Expiration Date
+        const oldExp = formatDateStr(currentDeal.expDt || currentDeal.expiration);
+        const newExp = formatDateStr(expDate);
+        if (oldExp && newExp && oldExp !== newExp) {
+          changes.push({
+            label: 'Expiration Date',
+            from: oldExp,
+            to: newExp,
+          });
+        }
+
+        // Currency
+        const prevCurrency = existingItems?.[0]?.currency || 'PHP';
+        const newCurrency = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
+        if (normalizeStr(prevCurrency).toUpperCase() !== normalizeStr(newCurrency).toUpperCase()) {
+          changes.push({
+            label: 'Currency',
+            from: prevCurrency,
+            to: newCurrency,
+          });
+        }
+
+        // Deal Amount
+        if (Math.abs(previousTotalAmount - totalAmount) > 0.01) {
+          changes.push({
+            label: 'Deal Amount',
+            from: Number(previousTotalAmount).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
+            to: Number(totalAmount).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
+          });
+        }
+
+        // Remarks
+        if (normalizeStr(currentDeal.remarks) !== normalizeStr(payload.remarks)) {
+          changes.push({
+            label: 'Remarks',
+            from: currentDeal.remarks || '',
+            to: payload.remarks || '',
+          });
+        }
+
         const recipients = await resolveDealEmailRecipients(payload.AssignedAO, payload.BU);
         const { subject, message } = generateUpdateDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
           custName: payload.custName,
           projectName: payload.ProjectName,
-          brand: payload.brand,
+          brand: normalizedBrand,
           bu: payload.BU || '',
           assignedAO: payload.AssignedAO || '',
-          newStatus: newStatus,
+          aoNickName: recipients.aoNickName,
+          currency: newCurrency,
+          regDate: regDate,
+          expDate: expDate,
+          remarks: payload.remarks,
           totalAmount: totalAmount,
           creatorName: userName,
           creatorAccount: domainAccount,
+          changes: changes,
         });
 
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
@@ -924,6 +1059,7 @@ export async function saveLostDeal(
           brand: currentDeal.brand || '',
           bu: buVal,
           assignedAO: aoVal,
+          aoNickName: recipients.aoNickName,
           competitorVendor: payload.competitorVendor,
           competitorBrand: payload.competitorBrand,
           icsOffer: payload.icsOffer != null ? String(payload.icsOffer) : 'N/A',
@@ -1083,6 +1219,7 @@ export async function saveDealRenewal(
           brand: currentDeal.brand || '',
           bu: buVal,
           assignedAO: aoVal,
+          aoNickName: recipients.aoNickName,
           renewalDate: renewalDate,
           newExpirationDate: rexpDate,
           validityDays: validityDays,

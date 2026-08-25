@@ -103,6 +103,8 @@ export interface CreateDealEmailData {
   brand: string;
   bu: string;
   assignedAO: string;
+  aoNickName?: string;
+  currency?: string;
   regDate?: Date | string | null;
   expDate?: Date | string | null;
   totalAmount?: number | null;
@@ -118,16 +120,26 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
   const dealLink = `${portalUrl}/deals/${data.dealID}/edit`;
   const regFormatted = data.regDate ? new Date(data.regDate).toLocaleDateString() : 'N/A';
   const expFormatted = data.expDate ? new Date(data.expDate).toLocaleDateString() : 'N/A';
-  const totalFormatted = data.totalAmount != null ? `PHP ${Number(data.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A';
+  const amountFormatted =
+    data.totalAmount != null
+      ? Number(data.totalAmount).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : 'N/A';
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
+  const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `Deal Registration: Created Deal Notification (${dealRef} - ${data.custName})`;
+  const subject = `TEST ONLY!!! Deal Registration: Created Deal Notification (${dealRef} - ${data.custName})`;
 
   const content = `
     <div style="margin-bottom: 16px;">
       <span class="status-badge badge-green">Deal Registered</span>
     </div>
-    <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">New Deal Registration</h2>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">New Deal Registration</h2>
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
+      Hi ${aoGreeting},
+    </p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       A new deal has been successfully registered for <strong>${data.custName}</strong> by 
       ${data.creatorName || data.creatorAccount || 'Portal User'}.
@@ -135,28 +147,16 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
 
     <table class="data-table">
       <tr>
-        <td class="label">Deal Reference ID</td>
+        <td class="label">Deal Registration ID</td>
         <td class="value"><strong>${dealRef}</strong></td>
-      </tr>
-      <tr>
-        <td class="label">Customer Name</td>
-        <td class="value">${data.custName}</td>
-      </tr>
-      <tr>
-        <td class="label">Project Name</td>
-        <td class="value">${data.projectName || 'N/A'}</td>
       </tr>
       <tr>
         <td class="label">Brand</td>
         <td class="value">${data.brand}</td>
       </tr>
       <tr>
-        <td class="label">Business Unit (BU)</td>
-        <td class="value">${data.bu}</td>
-      </tr>
-      <tr>
-        <td class="label">Assigned AO</td>
-        <td class="value"><strong>${data.assignedAO}</strong></td>
+        <td class="label">Project Name</td>
+        <td class="value">${data.projectName || 'N/A'}</td>
       </tr>
       <tr>
         <td class="label">Registration Date</td>
@@ -167,8 +167,12 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
         <td class="value">${expFormatted}</td>
       </tr>
       <tr>
-        <td class="label">Total Amount</td>
-        <td class="value" style="color: #047857; font-weight: 700;">${totalFormatted}</td>
+        <td class="label">Currency</td>
+        <td class="value">${data.currency || 'PHP'}</td>
+      </tr>
+      <tr>
+        <td class="label">Deal Amount</td>
+        <td class="value" style="color: #047857; font-weight: 700;">${amountFormatted}</td>
       </tr>
     </table>
 
@@ -187,6 +191,12 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
 // 2. Update Deal Email
 // --------------------------------------------------------------------------------
 
+export interface DealFieldChange {
+  label: string;
+  from: string;
+  to: string;
+}
+
 export interface UpdateDealEmailData {
   dealID: number | string;
   dealRegID?: string | null;
@@ -195,10 +205,21 @@ export interface UpdateDealEmailData {
   brand: string;
   bu: string;
   assignedAO: string;
-  newStatus?: string | null;
+  aoNickName?: string;
+  currency?: string;
+  regDate?: Date | string | null;
+  expDate?: Date | string | null;
+  remarks?: string | null;
   totalAmount?: number | null;
   creatorName?: string | null;
   creatorAccount?: string | null;
+  changes?: DealFieldChange[];
+}
+
+function formatTemplateDate(d?: Date | string | null): string {
+  if (!d) return '';
+  const dateObj = typeof d === 'string' ? new Date(d) : d;
+  return isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleDateString();
 }
 
 export function generateUpdateDealEmail(data: UpdateDealEmailData): {
@@ -208,53 +229,75 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
   const portalUrl = getPortalBaseUrl();
   const dealLink = `${portalUrl}/deals/${data.dealID}/edit`;
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
-  const totalFormatted = data.totalAmount != null ? `PHP ${Number(data.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A';
+  const amountFormatted =
+    data.totalAmount != null
+      ? Number(data.totalAmount).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : 'N/A';
+  const regFormatted = formatTemplateDate(data.regDate);
+  const expFormatted = formatTemplateDate(data.expDate);
+  const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `Deal Registration: Update Notification (${dealRef} - ${data.custName})`;
+  const subject = `TEST ONLY!!! Deal Registration: Update Notification (${dealRef} - ${data.custName})`;
+
+  // Index changes by field label
+  const changesMap = new Map<string, DealFieldChange>();
+  if (data.changes && data.changes.length > 0) {
+    for (const c of data.changes) {
+      changesMap.set(c.label.trim().toLowerCase(), c);
+    }
+  }
+
+  const renderRow = (
+    label: string,
+    currentValueHtml: string,
+    isBoldDefault: boolean = false
+  ): string => {
+    const change = changesMap.get(label.trim().toLowerCase());
+    if (change) {
+      return `
+      <tr style="background-color: #fffbeb;">
+        <td class="label" style="background-color: #fef3c7; color: #92400e; font-weight: 600;">${label}</td>
+        <td class="value">
+          <del style="color: #dc2626; text-decoration: line-through;">${change.from || '(empty)'}</del>
+          <span style="color: #6b7280; margin: 0 6px; font-weight: 700;">&#10140;</span>
+          <strong style="color: #16a34a;">${change.to || '(empty)'}</strong>
+        </td>
+      </tr>`;
+    }
+
+    const valueDisplay = isBoldDefault ? `<strong>${currentValueHtml}</strong>` : currentValueHtml;
+    return `
+      <tr>
+        <td class="label">${label}</td>
+        <td class="value">${valueDisplay}</td>
+      </tr>`;
+  };
 
   const content = `
     <div style="margin-bottom: 16px;">
       <span class="status-badge badge-blue">Deal Updated</span>
     </div>
-    <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Deal Update Notification</h2>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">Deal Update Notification</h2>
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
+      Hi ${aoGreeting},
+    </p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       The deal for <strong>${data.custName}</strong> has been updated by 
       ${data.creatorName || data.creatorAccount || 'Portal User'}.
     </p>
 
     <table class="data-table">
-      <tr>
-        <td class="label">Deal Reference ID</td>
-        <td class="value"><strong>${dealRef}</strong></td>
-      </tr>
-      <tr>
-        <td class="label">Customer Name</td>
-        <td class="value">${data.custName}</td>
-      </tr>
-      <tr>
-        <td class="label">Project Name</td>
-        <td class="value">${data.projectName || 'N/A'}</td>
-      </tr>
-      <tr>
-        <td class="label">Brand</td>
-        <td class="value">${data.brand}</td>
-      </tr>
-      <tr>
-        <td class="label">Business Unit (BU)</td>
-        <td class="value">${data.bu}</td>
-      </tr>
-      <tr>
-        <td class="label">Assigned AO</td>
-        <td class="value"><strong>${data.assignedAO}</strong></td>
-      </tr>
-      <tr>
-        <td class="label">Status</td>
-        <td class="value"><span class="status-badge badge-blue">${data.newStatus || 'Updated'}</span></td>
-      </tr>
-      <tr>
-        <td class="label">Total Amount</td>
-        <td class="value" style="font-weight: 700;">${totalFormatted}</td>
-      </tr>
+      ${renderRow('Deal Registration ID', dealRef, true)}
+      ${renderRow('Brand', data.brand)}
+      ${renderRow('Project Name', data.projectName || 'N/A')}
+      ${regFormatted ? renderRow('Registration Date', regFormatted) : ''}
+      ${expFormatted ? renderRow('Expiration Date', expFormatted) : ''}
+      ${renderRow('Currency', data.currency || 'PHP')}
+      ${renderRow('Deal Amount', amountFormatted, true)}
+      ${data.remarks || changesMap.has('remarks') ? renderRow('Remarks', data.remarks || 'N/A') : ''}
     </table>
 
     <div class="btn-container">
@@ -280,6 +323,7 @@ export interface LostDealEmailData {
   brand: string;
   bu: string;
   assignedAO: string;
+  aoNickName?: string;
   competitorVendor?: string | null;
   competitorBrand?: string | null;
   icsOffer?: string | null;
@@ -297,14 +341,17 @@ export function generateLostDealEmail(data: LostDealEmailData): {
   const portalUrl = getPortalBaseUrl();
   const dealLink = `${portalUrl}/deals/${data.dealID}`;
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
+  const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `Deal Registration: Deal Closed as Lost (${dealRef} - ${data.custName})`;
+  const subject = `TEST ONLY!!! Deal Closed as Lost: ${dealRef} - ${data.custName}`;
 
   const content = `
     <div style="margin-bottom: 16px;">
       <span class="status-badge badge-red">Deal Closed as Lost</span>
     </div>
-    <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Deal Closed as Lost - Competitor Intelligence</h2>
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
+      Hi ${aoGreeting},
+    </p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       The opportunity for <strong>${data.custName}</strong> has been tagged as <strong>Closed / Lost</strong> by 
       ${data.creatorName || data.creatorAccount || 'Portal User'}.
@@ -312,24 +359,16 @@ export function generateLostDealEmail(data: LostDealEmailData): {
 
     <table class="data-table">
       <tr>
-        <td class="label">Deal Reference ID</td>
+        <td class="label">Deal Registration ID</td>
         <td class="value"><strong>${dealRef}</strong></td>
       </tr>
       <tr>
-        <td class="label">Customer Name</td>
-        <td class="value">${data.custName}</td>
+        <td class="label">Brand</td>
+        <td class="value">${data.brand}</td>
       </tr>
       <tr>
         <td class="label">Project Name</td>
         <td class="value">${data.projectName || 'N/A'}</td>
-      </tr>
-      <tr>
-        <td class="label">Brand & BU</td>
-        <td class="value">${data.brand} (${data.bu})</td>
-      </tr>
-      <tr>
-        <td class="label">Assigned AO</td>
-        <td class="value"><strong>${data.assignedAO}</strong></td>
       </tr>
       <tr>
         <td class="label">Competitor Vendor</td>
@@ -347,11 +386,15 @@ export function generateLostDealEmail(data: LostDealEmailData): {
         <td class="label">Lost Reason</td>
         <td class="value" style="color: #b91c1c; font-weight: 600;">${data.reason || 'No reason provided'}</td>
       </tr>
-      ${data.otherInformation ? `
+      ${
+        data.otherInformation
+          ? `
       <tr>
         <td class="label">Additional Remarks</td>
         <td class="value" style="white-space: pre-wrap;">${data.otherInformation}</td>
-      </tr>` : ''}
+      </tr>`
+          : ''
+      }
     </table>
 
     <div class="btn-container">
@@ -377,6 +420,7 @@ export interface RenewDealEmailData {
   brand: string;
   bu: string;
   assignedAO: string;
+  aoNickName?: string;
   renewalDate: Date | string;
   newExpirationDate: Date | string;
   validityDays?: number | string | null;
@@ -394,14 +438,18 @@ export function generateRenewDealEmail(data: RenewDealEmailData): {
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
   const renewalFormatted = new Date(data.renewalDate).toLocaleDateString();
   const expFormatted = new Date(data.newExpirationDate).toLocaleDateString();
+  const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `Deal Registration: Renewal Notification (${dealRef} - ${data.custName})`;
+  const subject = `TEST ONLY!!!Deal Registration: Renewal Notification (${dealRef} - ${data.custName})`;
 
   const content = `
     <div style="margin-bottom: 16px;">
       <span class="status-badge badge-green">Deal Renewed</span>
     </div>
-    <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Deal Renewal Notification</h2>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">Deal Renewal Notification</h2>
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
+      Hi ${aoGreeting},
+    </p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       The deal for <strong>${data.custName}</strong> has been successfully <strong>renewed</strong> by 
       ${data.creatorName || data.creatorAccount || 'Portal User'}.
@@ -409,24 +457,16 @@ export function generateRenewDealEmail(data: RenewDealEmailData): {
 
     <table class="data-table">
       <tr>
-        <td class="label">Deal Reference ID</td>
+        <td class="label">Deal Registration ID</td>
         <td class="value"><strong>${dealRef}</strong></td>
       </tr>
       <tr>
-        <td class="label">Customer Name</td>
-        <td class="value">${data.custName}</td>
+        <td class="label">Brand</td>
+        <td class="value">${data.brand}</td>
       </tr>
       <tr>
         <td class="label">Project Name</td>
         <td class="value">${data.projectName || 'N/A'}</td>
-      </tr>
-      <tr>
-        <td class="label">Brand & BU</td>
-        <td class="value">${data.brand} (${data.bu})</td>
-      </tr>
-      <tr>
-        <td class="label">Assigned AO</td>
-        <td class="value"><strong>${data.assignedAO}</strong></td>
       </tr>
       <tr>
         <td class="label">Renewal Date</td>
@@ -436,10 +476,15 @@ export function generateRenewDealEmail(data: RenewDealEmailData): {
         <td class="label">New Expiration Date</td>
         <td class="value" style="color: #047857; font-weight: 700;">${expFormatted} (${data.validityDays || 'N/A'} days validity)</td>
       </tr>
+      ${
+        data.remarks
+          ? `
       <tr>
         <td class="label">Renewal Remarks</td>
-        <td class="value">${data.remarks || 'No remarks provided'}</td>
-      </tr>
+        <td class="value">${data.remarks}</td>
+      </tr>`
+          : ''
+      }
     </table>
 
     <div class="btn-container">
@@ -467,6 +512,7 @@ export interface ExpiringDealEmailData {
   brand: string;
   bu: string;
   assignedAO: string;
+  aoNickName?: string;
   expirationDate: Date | string;
   daysRemaining: number;
   warningLevel: ExpirationWarningLevel;
@@ -480,6 +526,7 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
   const dealLink = `${portalUrl}/deals/${data.dealID}`;
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
   const expFormatted = new Date(data.expirationDate).toLocaleDateString();
+  const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
   let badgeHtml = '';
   let warningTitle = '';
@@ -487,9 +534,15 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
 
   switch (data.warningLevel) {
     case '30d':
-      badgeHtml = `<span class="status-badge badge-amber">1st Warning - 30 Days Left</span>`;
-      warningTitle = `Deal Expiring in 30 Days (1st Warning)`;
-      subjectPrefix = `Deal Registration: 30-Day Expiration Warning`;
+      if (data.daysRemaining > 30) {
+        badgeHtml = `<span class="status-badge badge-amber">Expiration Reminder - ${data.daysRemaining} Days Left</span>`;
+        warningTitle = `Deal Expiration Reminder (${data.daysRemaining} Days Left)`;
+        subjectPrefix = `Deal Registration: Expiration Reminder`;
+      } else {
+        badgeHtml = `<span class="status-badge badge-amber">1st Warning - 30 Days Left</span>`;
+        warningTitle = `Deal Expiring in 30 Days (1st Warning)`;
+        subjectPrefix = `Deal Registration: 30-Day Expiration Warning`;
+      }
       break;
     case '15d':
       badgeHtml = `<span class="status-badge badge-amber">2nd Warning - 15 Days Left</span>`;
@@ -515,7 +568,10 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
     <div style="margin-bottom: 16px;">
       ${badgeHtml}
     </div>
-    <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #991b1b;">${warningTitle}</h2>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #991b1b;">${warningTitle}</h2>
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
+      Hi ${aoGreeting},
+    </p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       This is an automated reminder that the deal registration for <strong>${data.custName}</strong> is approaching its expiration date.
       Please take necessary action to <strong>renew</strong> or update the deal status in the portal before it lapses.
@@ -523,24 +579,16 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
 
     <table class="data-table">
       <tr>
-        <td class="label">Deal Reference ID</td>
+        <td class="label">Deal Registration ID</td>
         <td class="value"><strong>${dealRef}</strong></td>
       </tr>
       <tr>
-        <td class="label">Customer Name</td>
-        <td class="value">${data.custName}</td>
+        <td class="label">Brand</td>
+        <td class="value">${data.brand}</td>
       </tr>
       <tr>
         <td class="label">Project Name</td>
         <td class="value">${data.projectName || 'N/A'}</td>
-      </tr>
-      <tr>
-        <td class="label">Brand & BU</td>
-        <td class="value">${data.brand} (${data.bu})</td>
-      </tr>
-      <tr>
-        <td class="label">Assigned AO</td>
-        <td class="value"><strong>${data.assignedAO}</strong></td>
       </tr>
       <tr>
         <td class="label">Expiration Date</td>

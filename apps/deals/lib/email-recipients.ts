@@ -9,6 +9,7 @@ export interface DealEmailRecipients {
   toEmailList: string[];
   ccEmailList: string[];
   bccEmailList: string[];
+  aoNickName?: string;
 }
 
 /**
@@ -66,8 +67,9 @@ export async function resolveDealEmailRecipients(
   bu: string = ''
 ): Promise<DealEmailRecipients> {
   let aoEmail = '';
+  let aoNickName = '';
 
-  // 1. Resolve Assigned AO email from cdbAccounts
+  // 1. Resolve Assigned AO email and NickName from cdbAccounts
   try {
     const cleanAO = (assignedAO || '').trim();
     if (cleanAO) {
@@ -78,13 +80,17 @@ export async function resolveDealEmailRecipients(
             { DomainAccount: cleanAO },
             { NickName: cleanAO },
           ],
-          Email: { not: '' },
         },
-        select: { Email: true },
+        select: { Email: true, NickName: true, AccountName: true },
       });
 
       if (aoUser?.Email && aoUser.Email.trim()) {
         aoEmail = aoUser.Email.trim().toLowerCase();
+      }
+      if (aoUser?.NickName && aoUser.NickName.trim()) {
+        aoNickName = aoUser.NickName.trim();
+      } else if (aoUser?.AccountName && aoUser.AccountName.trim()) {
+        aoNickName = aoUser.AccountName.trim().split(' ')[0];
       }
     }
   } catch (err) {
@@ -96,37 +102,41 @@ export async function resolveDealEmailRecipients(
     const sanitized = assignedAO.replace(/[^a-zA-Z0-9]/g, '.').toLowerCase();
     aoEmail = `${sanitized}@ics.com.ph`;
   }
-
-  // 2. Resolve BU Head email
-  let buHeadEmail = resolveBuHeadEmail(bu);
-
-  // Fallback: Query cdbAccounts for AccountGroup = bu
-  if (!buHeadEmail && bu) {
-    try {
-      const buUser = await prisma.cdbAccounts.findFirst({
-        where: {
-          AccountGroup: bu,
-          AccountType: { not: 'CUSTOMER' },
-          Email: { not: '' },
-        },
-        select: { Email: true },
-      });
-      if (buUser?.Email && buUser.Email.trim()) {
-        buHeadEmail = buUser.Email.trim().toLowerCase();
-      }
-    } catch (err) {
-      console.warn('[resolveDealEmailRecipients] Error querying BU Head email from cdbAccounts:', err);
-    }
+  if (!aoNickName && assignedAO) {
+    aoNickName = assignedAO.split(' ')[0];
   }
 
-  // 3. Resolve Admin and AA emails
-  const { adminEmail, aaEmail } = resolveAdminAndAssistantEmails();
+  // 2. Resolve BU Head email (Commented out for QA testing)
+  // let buHeadEmail = resolveBuHeadEmail(bu);
+  // if (!buHeadEmail && bu) {
+  //   try {
+  //     const buUser = await prisma.cdbAccounts.findFirst({
+  //       where: {
+  //         AccountGroup: bu,
+  //         AccountType: { not: 'CUSTOMER' },
+  //         Email: { not: '' },
+  //       },
+  //       select: { Email: true },
+  //     });
+  //     if (buUser?.Email && buUser.Email.trim()) {
+  //       buHeadEmail = buUser.Email.trim().toLowerCase();
+  //     }
+  //   } catch (err) {
+  //     console.warn('[resolveDealEmailRecipients] Error querying BU Head email from cdbAccounts:', err);
+  //   }
+  // }
 
-  // 4. Construct CC List: BU Head + Admin + Admin Assistant + any MANAGEMENT_CC_EMAILS
+  // 3. Resolve Admin and AA emails (Commented out for QA testing)
+  // const { adminEmail, aaEmail } = resolveAdminAndAssistantEmails();
+
+  // 4. Construct CC List (Hardcoded for manual QA testing)
   const ccSet = new Set<string>();
-  if (buHeadEmail) ccSet.add(buHeadEmail);
-  if (adminEmail) ccSet.add(adminEmail);
-  if (aaEmail) ccSet.add(aaEmail);
+  // if (buHeadEmail) ccSet.add(buHeadEmail);
+  // if (adminEmail) ccSet.add(adminEmail);
+  // if (aaEmail) ccSet.add(aaEmail);
+
+  // Hardcoded QA CC email(s) - modify as needed
+  ccSet.add('bcandelaria@ics.com.ph');
 
   // Optional management CC override from environment
   if (process.env.MANAGEMENT_CC_EMAILS) {
@@ -141,8 +151,11 @@ export async function resolveDealEmailRecipients(
     ccSet.delete(aoEmail);
   }
 
-  // 5. Construct BCC List: AppsDev Team
-  const bccList = getAppsDevBccEmails();
+  // 5. Construct BCC List (Hardcoded for manual QA testing)
+  // const bccList = getAppsDevBccEmails();
+  const bccList = [
+    'jdoremon@ics.com.ph', // Hardcoded QA BCC email(s) - modify as needed
+  ];
 
   const toList = aoEmail ? [aoEmail] : [];
   const ccList = Array.from(ccSet);
@@ -154,5 +167,6 @@ export async function resolveDealEmailRecipients(
     toEmailList: toList,
     ccEmailList: ccList,
     bccEmailList: bccList,
+    aoNickName: aoNickName || assignedAO,
   };
 }

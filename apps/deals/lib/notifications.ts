@@ -59,20 +59,33 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
   };
 
   try {
-    // 1. Fetch active deals with an expiration date, excluding BU6 and closed/lost/expired statuses
-    // Status '6': Closed, '7': Lost, '8': Expired/Cancelled
+    // 1. Fetch active deals due for notification or expiring soon
+    // Matches deals with explicit whenToNotify <= now, OR deals expiring within 30 days
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const activeDeals = await prisma.dealHeader.findMany({
       where: {
-        OR: [
-          { expDt: { not: null } },
-          { dtValidTo: { not: null } },
-        ],
         BU: { not: 'BU6' },
         dealStatus: { notIn: ['6', '7', '8'] },
+        OR: [
+          // Explicit WTN that has arrived
+          {
+            DealWTN: {
+              whenToNotify: { lte: now },
+            },
+          },
+          // Or upcoming expiration within 30 days
+          {
+            expDt: { lte: thirtyDaysFromNow, gte: now },
+          },
+          {
+            dtValidTo: { lte: thirtyDaysFromNow, gte: now },
+          },
+        ],
       },
       include: {
         DealWTN: true,
       },
+      orderBy: { dealID: 'desc' },
       take: 200,
     });
 
@@ -105,7 +118,15 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
       let warningLevel: ExpirationWarningLevel | null = null;
       let nextWhenToNotify: Date | null = null;
 
-      if (daysRemaining > 15 && daysRemaining <= 30) {
+      if (daysRemaining > 30) {
+        warningLevel = '30d';
+        // Next warning at 30 days before expiry (or 15 days if already closer)
+        const thirtyDaysBefore = new Date(expDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        nextWhenToNotify =
+          thirtyDaysBefore.getTime() > now.getTime()
+            ? thirtyDaysBefore
+            : new Date(expDate.getTime() - 15 * 24 * 60 * 60 * 1000);
+      } else if (daysRemaining > 15 && daysRemaining <= 30) {
         warningLevel = '30d';
         // Next warning at 15 days before expiry
         nextWhenToNotify = new Date(expDate.getTime() - 15 * 24 * 60 * 60 * 1000);
@@ -121,11 +142,6 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
         warningLevel = 'daily';
         // Next warning tomorrow at same time
         nextWhenToNotify = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      }
-
-      // If more than 30 days remaining, schedule initial check at 30 days before expiry
-      if (daysRemaining > 30) {
-        nextWhenToNotify = new Date(expDate.getTime() - 30 * 24 * 60 * 60 * 1000);
       }
 
       // 3. If a warning milestone was reached, check for duplicate and enqueue notification
@@ -163,6 +179,7 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
               brand: deal.brand || '',
               bu: deal.BU || '',
               assignedAO: deal.AssignedAO || '',
+              aoNickName: recipients.aoNickName,
               expirationDate: expDate,
               daysRemaining,
               warningLevel,
