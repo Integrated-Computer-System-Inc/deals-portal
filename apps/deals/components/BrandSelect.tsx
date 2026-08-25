@@ -93,8 +93,9 @@ export default function BrandSelect({
           value={selectedCategory}
           onChange={handleCategoryChange}
           disabled={disabled}
-          className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground appearance-none transition focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 disabled:bg-neutral/40 ${error ? 'border-rose-500 ring-1 ring-rose-500/20' : 'border-border'
-            }`}
+          className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground appearance-none transition focus:outline-none focus:ring-2 disabled:opacity-60 disabled:bg-neutral/40 ${
+            error ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+          }`}
         >
           <option value="">{placeholder}</option>
           <optgroup label="Brands">
@@ -115,7 +116,7 @@ export default function BrandSelect({
 
       {/* Expandable Custom Brand Field when 'Others' is chosen */}
       {isOthersSelected && (
-        <div className="relative animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="relative animate-in fade-in slide-from-top-2 duration-150">
           <div className="relative flex items-center">
             <div className="absolute left-3 text-muted pointer-events-none">
               <PenLine className="w-3.5 h-3.5" />
@@ -127,8 +128,9 @@ export default function BrandSelect({
               onChange={handleCustomBrandChange}
               disabled={disabled}
               placeholder="e.g. ARISTA, ACER, SPLUNK..."
-              className={`w-full pl-9 pr-3.5 py-2 bg-background border rounded-lg text-sm font-medium uppercase tracking-wide text-foreground placeholder:text-muted placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-primary/20 ${error && !customBrand.trim() ? 'border-rose-500 ring-1 ring-rose-500/20' : 'border-border'
-                }`}
+              className={`w-full pl-9 pr-3.5 py-2 bg-background border rounded-lg text-sm font-medium uppercase tracking-wide text-foreground placeholder:text-muted placeholder:normal-case focus:outline-none focus:ring-2 ${
+                error && !customBrand.trim() ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+              }`}
               autoFocus
             />
           </div>

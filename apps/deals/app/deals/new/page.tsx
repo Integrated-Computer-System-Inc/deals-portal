@@ -31,6 +31,7 @@ import { addDaysToDateString, getDaysDifference, formatDateLong } from '../../..
 import CustomerSearchModal from '../../../components/CustomerSearchModal';
 import LostDealModal from '../../../components/LostDealModal';
 import BrandSelect from '../../../components/BrandSelect';
+import FormattedAmountInput from '../../../components/FormattedAmountInput';
 import {
   ArrowLeft,
   Search,
@@ -68,7 +69,7 @@ const createDealSchema = z.object({
   assignedAO: z.string().min(2, 'Assigned AO is required'),
   bu: z.string().min(1, 'Business Unit is required'),
   dealStatus: z.union([z.string(), z.number()]).default(4),
-  remarks: z.string().optional(),
+  remarks: z.string().min(1, 'Remarks / Partner notes are required'),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
 });
 
@@ -344,7 +345,9 @@ export default function NewDealPage() {
               <input
                 {...register('custName')}
                 placeholder="e.g. HEALTHPROOF (MANILA) INC."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                  errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
@@ -376,7 +379,9 @@ export default function NewDealPage() {
                   }
                 }}
                 placeholder="e.g. CUST-3184 or leave blank"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                  errors.customerID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
             </div>
@@ -405,7 +410,9 @@ export default function NewDealPage() {
                 {...register('bu')}
                 value={watchBu || ''}
                 onChange={(e) => setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true })}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 ${
+                  errors.bu ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               >
                 <option value="">Select Business Unit...</option>
                 {dynamicBuOptions.map((bu: string) => (
@@ -422,7 +429,9 @@ export default function NewDealPage() {
               <input
                 {...register('assignedAO')}
                 placeholder="e.g. Juan Dela Cruz (AO-104)"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                  errors.assignedAO ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
             </div>
@@ -442,7 +451,9 @@ export default function NewDealPage() {
               <input
                 {...register('dealRegID')}
                 placeholder="e.g. 31842219 or REGI-0005491402"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                  errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
@@ -485,7 +496,9 @@ export default function NewDealPage() {
             <input
               {...register('projectName')}
               placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 input-autocaps"
+              className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                errors.projectName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+              }`}
             />
             {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
@@ -498,7 +511,9 @@ export default function NewDealPage() {
                 type="date"
                 value={watch('dtRegistered') || ''}
                 onChange={(e) => handleRegDateChange(e.target.value)}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={`w-full px-3.5 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 ${
+                  errors.dtRegistered ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {watch('dtRegistered') && (
                 <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
@@ -525,7 +540,9 @@ export default function NewDealPage() {
                 type="date"
                 value={watch('expDt') || ''}
                 onChange={(e) => handleExpDateChange(e.target.value)}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={`w-full px-3.5 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 ${
+                  errors.expDt ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {watch('expDt') && (
                 <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
@@ -537,9 +554,11 @@ export default function NewDealPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-foreground mb-1">Remarks & Partner Notes</label>
+            <label className="block text-xs font-semibold text-foreground mb-1">Remarks & Partner Notes *</label>
             <AppTextarea
               {...register('remarks')}
+              required
+              error={errors.remarks?.message}
               placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
               rows={2}
             />
@@ -583,18 +602,30 @@ export default function NewDealPage() {
                   <input
                     {...register(`items.${index}.itemDesc` as const)}
                     placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 ${
+                      errors.items?.[index]?.itemDesc ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                    }`}
                   />
+                  {errors.items?.[index]?.itemDesc && (
+                    <p className="text-[10px] text-rose-500 mt-0.5">{errors.items[index]?.itemDesc?.message}</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 sm:contents">
                   <div className="sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-muted mb-1">Qty *</label>
-                    <input
-                      type="number"
-                      min="1"
-                      {...register(`items.${index}.qty` as const)}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    <Controller
+                      control={control}
+                      name={`items.${index}.qty` as const}
+                      render={({ field }) => (
+                        <FormattedAmountInput
+                          allowDecimals={false}
+                          value={field.value}
+                          onChange={(val) => field.onChange(val || 1)}
+                          placeholder="1"
+                          error={!!errors.items?.[index]?.qty}
+                        />
+                      )}
                     />
                   </div>
 
@@ -602,7 +633,9 @@ export default function NewDealPage() {
                     <label className="block text-[11px] font-semibold text-muted mb-1">Currency *</label>
                     <select
                       {...register(`items.${index}.currency` as const)}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 ${
+                        errors.items?.[index]?.currency ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                      }`}
                     >
                       <option value="PHP">PHP</option>
                       <option value="USD">USD</option>
@@ -616,11 +649,18 @@ export default function NewDealPage() {
                 <div className="flex items-end gap-2 sm:contents">
                   <div className="flex-1 sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-muted mb-1">Total Amount *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      {...register(`items.${index}.totalAmt` as const)}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    <Controller
+                      control={control}
+                      name={`items.${index}.totalAmt` as const}
+                      render={({ field }) => (
+                        <FormattedAmountInput
+                          allowDecimals={true}
+                          value={field.value}
+                          onChange={(val) => field.onChange(val)}
+                          placeholder="0.00"
+                          error={!!errors.items?.[index]?.totalAmt}
+                        />
+                      )}
                     />
                   </div>
 

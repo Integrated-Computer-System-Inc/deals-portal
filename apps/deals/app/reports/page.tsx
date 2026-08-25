@@ -51,12 +51,17 @@ import {
 } from '@/components/DateRangeFilterPopover';
 import { normalizeBrandName, calculateBrandDistribution } from '@/lib/brandUtils';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
-import { formatDateLong } from '@/components/utils/time';
+import dynamic from 'next/dynamic';
 import DealsFilterPopover from '@/components/DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 import { useModalDealFilters } from '@/components/useModalDealFilters';
-import { ModalDealTable } from '@/components/ModalDealTable';
-import DealLostListModal from '@/components/DealLostListModal';
+import { formatDateLong } from '@/components/utils/time';
+
+const DealLostListModal = dynamic(() => import('@/components/DealLostListModal'), { ssr: false });
+const ModalDealTable = dynamic(
+  () => import('@/components/ModalDealTable').then((mod) => mod.ModalDealTable),
+  { ssr: false }
+);
 
 type ActiveReportType = 'EXPIRY_RISK' | 'BRAND_ANALYTICS' | 'BU_MATRIX' | null;
 
@@ -155,11 +160,20 @@ export default function ReportsPage() {
     }
   }, []);
 
-  // Normalized Deals based on global date range
+  // Normalized Deals based on global date range with precomputed totals
   const deals = useMemo(() => {
-    return allDeals.filter((d: DealHeaderRecord) =>
-      filterDealByDateRange(d.dtRegistered || d.dtCreated, globalDateRange)
-    );
+    return allDeals
+      .filter((d: DealHeaderRecord) =>
+        filterDealByDateRange(d.dtRegistered || d.dtCreated, globalDateRange)
+      )
+      .map((d: DealHeaderRecord) => {
+        if ((d as any)._computedTotal === undefined) {
+          const total = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
+          (d as any)._computedTotal = total;
+          (d as any)._cachedTotal = total;
+        }
+        return d;
+      });
   }, [allDeals, globalDateRange]);
 
   const formatAmounts = (deal: DealHeaderRecord) => {
@@ -169,22 +183,20 @@ export default function ReportsPage() {
         .join(' | ');
     }
     if (deal.items && deal.items.length > 0) {
-      const total = deal.items.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0);
+      const total = (deal as any)._computedTotal !== undefined
+        ? (deal as any)._computedTotal
+        : deal.items.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0);
       const curr = deal.items[0]?.currency || 'PHP';
       return `${curr} ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return 'PHP 0.00';
   };
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-
   const getDaysRemaining = (expDt: Date | string | null | undefined): number | null => {
     if (!expDt) return null;
     const exp = new Date(expDt);
     if (isNaN(exp.getTime())) return null;
-    return Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.ceil((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   };
 
   // 1. KPI Computations
@@ -195,13 +207,14 @@ export default function ReportsPage() {
   const totalRegistered = registeredDealsList.length;
 
   const expiredDealsList = useMemo(() => {
+    const nowMs = Date.now();
     return deals.filter((d: DealHeaderRecord) => {
       const rawExp = d.expDt || d.expiration;
       if (!rawExp) return false;
       const exp = new Date(rawExp);
-      return !isNaN(exp.getTime()) && exp < now;
+      return !isNaN(exp.getTime()) && exp.getTime() < nowMs;
     });
-  }, [deals, now]);
+  }, [deals]);
 
   const renewedDealsList = useMemo(() => {
     return deals
@@ -217,21 +230,24 @@ export default function ReportsPage() {
       });
   }, [deals]);
 
-  const renewedFilters = useModalDealFilters(renewedDealsList);
+  const renewedFilters = useModalDealFilters(renewedDealsList, isRenewedModalOpen);
 
   const expiredThisMonth = useMemo(() => {
+    const now = new Date();
+    const cMonth = now.getMonth();
+    const cYear = now.getFullYear();
+    const nowMs = now.getTime();
     return deals.filter((d: DealHeaderRecord) => {
       const rawExp = d.expDt || d.expiration;
       if (!rawExp) return false;
       const exp = new Date(rawExp);
-      return exp.getMonth() === currentMonth && exp.getFullYear() === currentYear && exp < now;
+      return exp.getMonth() === cMonth && exp.getFullYear() === cYear && exp.getTime() < nowMs;
     }).length;
-  }, [deals, currentMonth, currentYear, now]);
+  }, [deals]);
 
   const grandTotalPipelineValue = useMemo(() => {
-    return deals.reduce((acc: number, deal: DealHeaderRecord) => {
-      const dealSum = deal.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
-      return acc + dealSum;
+    return deals.reduce((acc: number, deal: any) => {
+      return acc + (deal._computedTotal || 0);
     }, 0);
   }, [deals]);
 
@@ -246,9 +262,9 @@ export default function ReportsPage() {
     let othersCount = 0;
     let othersValue = 0;
 
-    deals.forEach((d: DealHeaderRecord) => {
+    deals.forEach((d: any) => {
       const rawBu = normalizeBU(d.BU || d.bu || '');
-      const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
+      const amt = d._computedTotal || 0;
 
       if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
@@ -349,9 +365,9 @@ export default function ReportsPage() {
     });
 
     // 2. Tally deals into respective BUs (including Specialized / Other BUs)
-    deals.forEach((d: DealHeaderRecord) => {
+    deals.forEach((d: any) => {
       const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
-      const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
+      const amt = d._computedTotal || 0;
       const statusNum = Number(d.dealStatus);
       const isOfficial = (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu);
 
@@ -434,27 +450,27 @@ export default function ReportsPage() {
       .slice(0, 6);
   }, [deals]);
 
-  // Brand Deals modal list and filter hook
+  // Brand Deals modal list and filter hook (evaluated only when modal is open)
   const brandDealsList = useMemo(() => {
-    if (!selectedBrandForDeals) return [];
+    if (!selectedBrandForDeals || !isBrandDealsModalOpen) return [];
     return deals.filter(
       (d) => normalizeBrandName(d.brand).toLowerCase() === selectedBrandForDeals.toLowerCase()
     );
-  }, [deals, selectedBrandForDeals]);
-  const brandDealsFilters = useModalDealFilters(brandDealsList);
+  }, [deals, selectedBrandForDeals, isBrandDealsModalOpen]);
+  const brandDealsFilters = useModalDealFilters(brandDealsList, isBrandDealsModalOpen);
 
-  // BU Deals modal list and filter hook
+  // BU Deals modal list and filter hook (evaluated only when modal is open)
   const buDealsList = useMemo(() => {
-    if (!selectedBUForDeals) return [];
+    if (!selectedBUForDeals || !isBUDealsModalOpen) return [];
     return deals.filter(
       (d) => normalizeBU(d.BU || d.bu || '').toLowerCase() === selectedBUForDeals.toLowerCase()
     );
-  }, [deals, selectedBUForDeals]);
-  const buDealsFilters = useModalDealFilters(buDealsList);
+  }, [deals, selectedBUForDeals, isBUDealsModalOpen]);
+  const buDealsFilters = useModalDealFilters(buDealsList, isBUDealsModalOpen);
 
-  // Hook-based Filter & Sort for Modal Deal Tables
-  const registeredFilters = useModalDealFilters(registeredDealsList);
-  const expiredFilters = useModalDealFilters(expiredDealsList);
+  // Hook-based Filter & Sort for Modal Deal Tables (evaluated only when modal is open)
+  const registeredFilters = useModalDealFilters(registeredDealsList, isRegisteredModalOpen);
+  const expiredFilters = useModalDealFilters(expiredDealsList, isExpiredModalOpen);
 
   // 2. Expiry Risk Analytics
   const expiryAnalytics = useMemo(() => {
@@ -484,14 +500,13 @@ export default function ReportsPage() {
   // 3. Brand Analytics
   const brandAnalytics = useMemo(() => {
     const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
-    deals.forEach((d) => {
+    deals.forEach((d: any) => {
       const b = normalizeBrandName(d.brand);
       if (!map[b]) {
         map[b] = { count: 0, totalValue: 0, deals: [] };
       }
       map[b].count++;
-      const amt = d.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-      map[b].totalValue += amt;
+      map[b].totalValue += d._computedTotal || 0;
       map[b].deals.push(d);
     });
 
@@ -510,14 +525,13 @@ export default function ReportsPage() {
   // 4. BU Performance Analytics
   const buAnalytics = useMemo(() => {
     const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
-    deals.forEach((d) => {
+    deals.forEach((d: any) => {
       const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
       if (!map[rawBu]) {
         map[rawBu] = { count: 0, totalValue: 0, deals: [] };
       }
       map[rawBu].count++;
-      const amt = d.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-      map[rawBu].totalValue += amt;
+      map[rawBu].totalValue += d._computedTotal || 0;
       map[rawBu].deals.push(d);
     });
 

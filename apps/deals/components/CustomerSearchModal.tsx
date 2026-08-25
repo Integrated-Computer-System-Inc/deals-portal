@@ -140,7 +140,10 @@ export default function CustomerSearchModal({
     }
   };
 
+  const [hasAttemptedManualSave, setHasAttemptedManualSave] = useState(false);
+
   const handleSaveManual = () => {
+    setHasAttemptedManualSave(true);
     if (!manualName.trim()) return;
     const newCustomer: CustomerLookupResult = {
       customerID: '',
@@ -153,6 +156,7 @@ export default function CustomerSearchModal({
     onSelectCustomer(newCustomer);
     setIsManualEntry(false);
     setManualName('');
+    setHasAttemptedManualSave(false);
     onClose();
   };
 
@@ -461,9 +465,14 @@ export default function CustomerSearchModal({
               <div>
                 <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
                 <AppInput
+                  required
                   placeholder="e.g. Acme Philippines Corporation"
                   value={manualName}
-                  onChange={(e: any) => setManualName(e.target.value)}
+                  onChange={(e: any) => {
+                    setManualName(e.target.value);
+                    if (hasAttemptedManualSave) setHasAttemptedManualSave(false);
+                  }}
+                  error={hasAttemptedManualSave && !manualName.trim() ? 'Company / Customer Name is required' : undefined}
                   size="md"
                 />
               </div>

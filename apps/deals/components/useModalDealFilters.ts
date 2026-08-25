@@ -5,7 +5,14 @@ import { DealHeaderRecord } from '@my-app/types';
 import { SortConfig } from './DealsSortPopover';
 import { normalizeBU } from '@/lib/buUtils';
 
-export function useModalDealFilters(initialDeals: DealHeaderRecord[]) {
+const getDealTotal = (d: DealHeaderRecord): number => {
+  if ((d as any)._cachedTotal !== undefined) return (d as any)._cachedTotal;
+  const sum = d.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
+  (d as any)._cachedTotal = sum;
+  return sum;
+};
+
+export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: boolean = true) {
   const [searchQuery, setSearchQuery] = useState('');
   const [buFilters, setBuFilters] = useState<string[]>([]);
   const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
@@ -16,6 +23,7 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[]) {
   });
 
   const filteredAndSortedDeals = useMemo(() => {
+    if (!enabled) return initialDeals;
     let result = initialDeals;
 
     // 1. Search Query
@@ -64,11 +72,11 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[]) {
 
     // 4. Expiry Filter
     if (expiryFilters.length > 0) {
-      const now = new Date();
+      const nowMs = Date.now();
       result = result.filter((d) => {
         const expDate = d.expDt || d.expiration;
         if (!expDate) return false;
-        const days = Math.ceil((new Date(expDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const days = Math.ceil((new Date(expDate).getTime() - nowMs) / (1000 * 60 * 60 * 24));
         return expiryFilters.some((filterKey) => {
           if (filterKey === 'EXPIRED') return days < 0;
           if (filterKey === 'CRITICAL_3') return days >= 0 && days <= 3;
@@ -110,9 +118,7 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[]) {
           comparison = (a.brand || '').localeCompare(b.brand || '');
           break;
         case 'totalAmt': {
-          const valA = a.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
-          const valB = b.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
-          comparison = valA - valB;
+          comparison = getDealTotal(a) - getDealTotal(b);
           break;
         }
         default:
@@ -120,7 +126,7 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[]) {
       }
       return sortConfig.order === 'asc' ? comparison : -comparison;
     });
-  }, [initialDeals, searchQuery, statusFilters, buFilters, expiryFilters, sortConfig]);
+  }, [enabled, initialDeals, searchQuery, statusFilters, buFilters, expiryFilters, sortConfig]);
 
   const resetFilters = () => {
     setSearchQuery('');

@@ -1,7 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Palette, Moon, Sun, Check, Sparkles } from 'lucide-react';
+import {
+  Palette,
+  Moon,
+  Sun,
+  Check,
+  Sparkles,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Sliders,
+} from 'lucide-react';
 import {
   AppModal,
   AppModalHeader,
@@ -99,18 +109,32 @@ const THEME_TILES: ThemeTile[] = [
   },
 ];
 
+const SCALE_PRESETS = [
+  { label: 'Compact', value: 85 },
+  { label: 'Slim', value: 95 },
+  { label: 'Default', value: 100 },
+  { label: 'Comfortable', value: 110 },
+  { label: 'Large', value: 120 },
+  { label: 'X-Large', value: 130 },
+];
+
 export default function ThemeSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState('dark-default');
   const [isDark, setIsDark] = useState(true);
+  const [fontScale, setFontScale] = useState(100);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('dealreg-color-theme') || 'dark-default';
     const savedDark = localStorage.getItem('dealreg-dark-mode') !== 'false';
+    const savedScale = parseInt(localStorage.getItem('dealreg-font-scale') || '100', 10);
 
     setCurrentTheme(savedTheme);
     setIsDark(savedDark);
+    setFontScale(isNaN(savedScale) ? 100 : savedScale);
+
     applyTheme(savedTheme, savedDark);
+    applyFontScale(isNaN(savedScale) ? 100 : savedScale);
   }, []);
 
   const applyTheme = (themeId: string, darkState: boolean) => {
@@ -143,6 +167,11 @@ export default function ThemeSwitcher() {
     }
   };
 
+  const applyFontScale = (scaleValue: number) => {
+    const clamped = Math.min(140, Math.max(75, scaleValue));
+    document.documentElement.style.fontSize = `${clamped}%`;
+  };
+
   const handleSelectTheme = (theme: ThemeTile) => {
     setCurrentTheme(theme.id);
     localStorage.setItem('dealreg-color-theme', theme.id);
@@ -152,6 +181,17 @@ export default function ThemeSwitcher() {
     localStorage.setItem('dealreg-dark-mode', String(isThemeDark));
 
     applyTheme(theme.id, isThemeDark);
+  };
+
+  const handleScaleChange = (scaleValue: number) => {
+    const clamped = Math.min(140, Math.max(75, scaleValue));
+    setFontScale(clamped);
+    localStorage.setItem('dealreg-font-scale', String(clamped));
+    applyFontScale(clamped);
+  };
+
+  const resetScale = () => {
+    handleScaleChange(100);
   };
 
   const toggleQuickDark = () => {
@@ -187,8 +227,8 @@ export default function ThemeSwitcher() {
         variant="ghost"
         size="icon"
         onClick={() => setIsOpen(true)}
-        className="text-muted hover:text-foreground hover:bg-neutral shrink-0 h-9 w-9 flex items-center justify-center rounded-lg relative transition mx-auto"
-        title="Change Theme & Appearance"
+        className="text-muted hover:text-foreground hover:bg-neutral shrink-0 h-9 w-9 flex items-center justify-center rounded-lg relative transition mx-auto cursor-pointer"
+        title="Change Theme, Font Size & UI Scale"
         aria-label="Change Theme"
         leftIcon={
           <div className="relative flex items-center justify-center">
@@ -201,38 +241,121 @@ export default function ThemeSwitcher() {
         }
       />
 
-      {/* Enlarged, Viewable Theme Picker Modal */}
-      <AppModal open={isOpen} onClose={() => setIsOpen(false)} width={640}>
+      {/* Unified Single-View Theme & Font Scaling Modal */}
+      <AppModal open={isOpen} onClose={() => setIsOpen(false)} width={660}>
         <AppModalHeader>
-            <div className="flex items-center justify-between w-full pr-8">
-              <AppModalTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
-                <Sparkles className="w-5 h-5 text-sky-500" />
-                <span>Theme & Appearance</span>
-              </AppModalTitle>
+          <div className="flex items-center justify-between w-full pr-8">
+            <AppModalTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <Sparkles className="w-5 h-5 text-sky-500" />
+              <span>Theme & Appearance</span>
+            </AppModalTitle>
 
-              {/* Mode Toggle Button */}
+            {/* Mode Toggle Button */}
+            <button
+              type="button"
+              onClick={toggleQuickDark}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral border border-border text-xs font-semibold text-foreground hover:border-sky-500 transition shadow-xs cursor-pointer"
+            >
+              {isDark ? (
+                <>
+                  <Moon className="w-4 h-4 text-sky-400" />
+                  <span>Dark Mode</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-4 h-4 text-amber-500" />
+                  <span>Light Mode</span>
+                </>
+              )}
+            </button>
+          </div>
+        </AppModalHeader>
+
+        <AppModalBody className="pt-3 pb-3 space-y-4">
+          {/* Real-time Font & Page Scaling Adjuster */}
+          <div className="p-3.5 rounded-2xl bg-neutral/40 border border-border/70 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-sky-500" />
+                <span className="text-xs font-bold text-foreground">Page & Font Scale</span>
+                <span className="px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-300 font-mono font-bold text-[11px] border border-sky-500/20">
+                  {fontScale}%
+                </span>
+              </div>
+
               <button
                 type="button"
-                onClick={toggleQuickDark}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral border border-border text-xs font-semibold text-foreground hover:border-sky-500 transition shadow-xs cursor-pointer"
+                onClick={resetScale}
+                disabled={fontScale === 100}
+                className="flex items-center gap-1 text-[11px] font-semibold text-muted hover:text-foreground disabled:opacity-40 transition cursor-pointer"
+                title="Reset to 100% default"
               >
-                {isDark ? (
-                  <>
-                    <Moon className="w-4 h-4 text-sky-400" />
-                    <span>Dark Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <Sun className="w-4 h-4 text-amber-500" />
-                    <span>Light Mode</span>
-                  </>
-                )}
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset (100%)</span>
               </button>
             </div>
-          </AppModalHeader>
 
-          <AppModalBody className="pt-4 pb-2">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {/* Range Slider */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleScaleChange(fontScale - 5)}
+                disabled={fontScale <= 75}
+                className="p-1.5 rounded-lg bg-background border border-border hover:bg-neutral text-foreground transition disabled:opacity-30 cursor-pointer"
+                title="Decrease font size"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+
+              <input
+                type="range"
+                min="75"
+                max="135"
+                step="5"
+                value={fontScale}
+                onChange={(e) => handleScaleChange(parseInt(e.target.value, 10))}
+                className="w-full h-2 bg-neutral rounded-lg appearance-none cursor-pointer accent-sky-500"
+              />
+
+              <button
+                type="button"
+                onClick={() => handleScaleChange(fontScale + 5)}
+                disabled={fontScale >= 135}
+                className="p-1.5 rounded-lg bg-background border border-border hover:bg-neutral text-foreground transition disabled:opacity-30 cursor-pointer"
+                title="Increase font size"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Scale Presets Grid */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              {SCALE_PRESETS.map((preset) => {
+                const isActive = fontScale === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => handleScaleChange(preset.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-sky-500 text-white font-bold shadow-xs'
+                        : 'bg-background hover:bg-neutral border border-border text-muted hover:text-foreground'
+                    }`}
+                  >
+                    {preset.label} ({preset.value}%)
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Color Themes Grid */}
+          <div className="space-y-2">
+            <span className="text-[11px] font-bold text-muted uppercase tracking-wider block px-0.5">
+              Color Themes
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {THEME_TILES.map((theme) => {
                 const isSelected = currentTheme === theme.id;
 
@@ -248,9 +371,9 @@ export default function ThemeSwitcher() {
                     }`}
                     title={theme.name}
                   >
-                    {/* Enlarged Miniature Window Mockup */}
+                    {/* Miniature Window Mockup */}
                     <div
-                      className="w-full h-24 rounded-xl overflow-hidden border flex flex-col select-none shadow-xs group-hover:scale-[1.02] transition-transform"
+                      className="w-full h-20 rounded-xl overflow-hidden border flex flex-col select-none shadow-xs group-hover:scale-[1.02] transition-transform"
                       style={{
                         backgroundColor: theme.bg,
                         borderColor: theme.border,
@@ -258,7 +381,7 @@ export default function ThemeSwitcher() {
                     >
                       {/* Window Titlebar */}
                       <div
-                        className="h-5 px-2 flex items-center justify-between border-b shrink-0"
+                        className="h-4 px-2 flex items-center justify-between border-b shrink-0"
                         style={{
                           backgroundColor: theme.sidebar,
                           borderColor: theme.border,
@@ -270,63 +393,52 @@ export default function ThemeSwitcher() {
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         </div>
                         <div
-                          className="w-2 h-2 rounded-full"
+                          className="w-1.5 h-1.5 rounded-full"
                           style={{ backgroundColor: theme.accent }}
                         />
                       </div>
 
-                      {/* Window Body: Mini Sidebar + Mini Content Tile */}
+                      {/* Window Body */}
                       <div className="flex-1 flex overflow-hidden">
                         <div
-                          className="w-6 p-1 border-r shrink-0 flex flex-col gap-1"
+                          className="w-5 p-1 border-r shrink-0 flex flex-col gap-1"
                           style={{
                             backgroundColor: theme.sidebar,
                             borderColor: theme.border,
                           }}
                         >
                           <div
-                            className="h-1.5 rounded"
+                            className="h-1 rounded"
                             style={{ backgroundColor: theme.accent }}
                           />
                           <div
-                            className="h-1.5 rounded opacity-40"
-                            style={{ backgroundColor: theme.text }}
-                          />
-                          <div
-                            className="h-1.5 rounded opacity-25"
+                            className="h-1 rounded opacity-40"
                             style={{ backgroundColor: theme.text }}
                           />
                         </div>
 
-                        <div className="flex-1 p-2 space-y-1.5 overflow-hidden">
+                        <div className="flex-1 p-1.5 space-y-1 overflow-hidden">
                           <div className="grid grid-cols-2 gap-1">
                             <div
-                              className="h-5 rounded-md border"
+                              className="h-4 rounded border"
                               style={{
                                 backgroundColor: theme.card,
                                 borderColor: theme.border,
                               }}
                             />
                             <div
-                              className="h-5 rounded-md border"
+                              className="h-4 rounded border"
                               style={{
                                 backgroundColor: theme.card,
                                 borderColor: theme.border,
                               }}
                             />
                           </div>
-                          <div
-                            className="h-4 rounded-md border"
-                            style={{
-                              backgroundColor: theme.card,
-                              borderColor: theme.border,
-                            }}
-                          />
                         </div>
                       </div>
                     </div>
 
-                    {/* Theme Label & Selected Checkmark */}
+                    {/* Theme Label */}
                     <div className="w-full flex items-center justify-between px-1">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span
@@ -339,8 +451,8 @@ export default function ThemeSwitcher() {
                       </div>
 
                       {isSelected ? (
-                        <div className="h-5 w-5 rounded-full bg-sky-500 flex items-center justify-center text-white shrink-0 shadow-xs">
-                          <Check className="w-3 h-3 stroke-[3]" />
+                        <div className="h-4 w-4 rounded-full bg-sky-500 flex items-center justify-center text-white shrink-0 shadow-xs">
+                          <Check className="w-2.5 h-2.5 stroke-[3]" />
                         </div>
                       ) : (
                         <span className="text-[10px] text-muted font-medium capitalize">
@@ -352,7 +464,8 @@ export default function ThemeSwitcher() {
                 );
               })}
             </div>
-          </AppModalBody>
+          </div>
+        </AppModalBody>
       </AppModal>
     </>
   );

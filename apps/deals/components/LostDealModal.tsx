@@ -86,13 +86,6 @@ export default function LostDealModal({
   };
 
   const loading = lostMutation.isPending;
-  const isFormValid =
-    competitorVendor.trim() !== '' &&
-    competitorBrand.trim() !== '' &&
-    icsOffer.trim() !== '' &&
-    competitorOffer.trim() !== '' &&
-    reason.trim() !== '' &&
-    otherInformation.trim() !== '';
 
   return (
     <>
@@ -123,7 +116,11 @@ export default function LostDealModal({
                 <AppInput
                   required
                   value={competitorVendor}
-                  onChange={(e: any) => setCompetitorVendor(e.target.value)}
+                  onChange={(e: any) => {
+                    setCompetitorVendor(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  error={error && !competitorVendor.trim() ? 'Required' : undefined}
                   placeholder="e.g. Trend Micro, Dell Direct, or N/A"
                   size="md"
                 />
@@ -136,7 +133,11 @@ export default function LostDealModal({
                 <AppInput
                   required
                   value={competitorBrand}
-                  onChange={(e: any) => setCompetitorBrand(e.target.value)}
+                  onChange={(e: any) => {
+                    setCompetitorBrand(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  error={error && !competitorBrand.trim() ? 'Required' : undefined}
                   placeholder="e.g. Cisco, Lenovo, or N/A"
                   size="md"
                 />
@@ -153,7 +154,11 @@ export default function LostDealModal({
                   type="text"
                   prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                   value={icsOffer}
-                  onChange={(e: any) => setIcsOffer(e.target.value)}
+                  onChange={(e: any) => {
+                    setIcsOffer(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  error={error && !icsOffer.trim() ? 'Required' : undefined}
                   placeholder="e.g. 150,000.00 or N/A"
                   size="md"
                 />
@@ -168,7 +173,11 @@ export default function LostDealModal({
                   type="text"
                   prefix={<DollarSign className="w-3.5 h-3.5 text-muted" />}
                   value={competitorOffer}
-                  onChange={(e: any) => setCompetitorOffer(e.target.value)}
+                  onChange={(e: any) => {
+                    setCompetitorOffer(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  error={error && !competitorOffer.trim() ? 'Required' : undefined}
                   placeholder="e.g. 135,000.00 or N/A"
                   size="md"
                 />
@@ -182,7 +191,11 @@ export default function LostDealModal({
               <AppInput
                 required
                 value={reason}
-                onChange={(e: any) => setReason(e.target.value)}
+                onChange={(e: any) => {
+                  setReason(e.target.value);
+                  if (error) setError(null);
+                }}
+                error={error && !reason.trim() ? 'Required' : undefined}
                 placeholder="e.g. Price difference, Lead time issue, Client budget cancelled, or N/A"
                 size="md"
               />
@@ -195,9 +208,16 @@ export default function LostDealModal({
               <textarea
                 required
                 value={otherInformation}
-                onChange={(e: any) => setOtherInformation(e.target.value)}
+                onChange={(e: any) => {
+                  setOtherInformation(e.target.value);
+                  if (error) setError(null);
+                }}
                 rows={3}
-                className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                className={`w-full px-3 py-2 bg-background border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 ${
+                  error && !otherInformation.trim()
+                    ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5'
+                    : 'border-border focus:ring-rose-500/20'
+                }`}
                 placeholder="Provide context regarding competitor bundles, partner discounts, client feedback, or type N/A..."
               />
             </div>
@@ -214,7 +234,7 @@ export default function LostDealModal({
             </AppButton>
             <button
               type="submit"
-              disabled={loading || !isFormValid}
+              disabled={loading}
               className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-sm transition disabled:opacity-50"
             >
               <span>Continue &rarr;</span>

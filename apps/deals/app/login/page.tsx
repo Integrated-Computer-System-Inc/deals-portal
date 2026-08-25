@@ -708,48 +708,76 @@ export default function LoginPage() {
   }, [isPopup, searchParams, router]);
 
   const queryClient = useQueryClient();
+  const [loadingStatus, setLoadingStatus] = useState<string>('Preparing your Deals Workspace...');
 
+  // Prefetch main navigation routes on mount
   useEffect(() => {
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
+    router.prefetch('/deals/new');
   }, [router]);
 
   // Trigger celebration animation and data prewarming on successful authentication
-  const handleAuthSuccess = useCallback(() => {
+  const handleAuthSuccess = useCallback(async () => {
     setAnimationStep('celebrating');
 
-    // 1. Prefetch Next.js route chunks
+    // 1. Prefetch Next.js route chunks immediately
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
+    router.prefetch('/deals/new');
 
-    // 2. Background pre-warm TanStack Query caches
-    queryClient.prefetchQuery({
-      queryKey: DEAL_QUERY_KEYS.dashboard(),
-      queryFn: async () => {
-        const res = await getDashboardSummary();
-        return res.data || null;
-      },
-      staleTime: 1000 * 60 * 5,
-    });
-
-    queryClient.prefetchQuery({
-      queryKey: DEAL_QUERY_KEYS.list({}),
-      queryFn: async () => {
-        const res = await getScopedDeals({});
-        return res.data || [];
-      },
-      staleTime: 1000 * 60 * 5,
-    });
-
-    // 3. Smooth transition to dashboard after 2.2s prewarming buffer
-    setTimeout(() => {
+    // 2. Transition smoothly to loading state after brief celebration
+    setTimeout(async () => {
       setAnimationStep('loading');
+      setLoadingStatus('Authenticating session...');
+
+      try {
+        // Fetch fresh authenticated session
+        const session = await getSession();
+        const role = (session?.user as any)?.role || 'admin';
+        const accountName = (session?.user as any)?.AccountName || session?.user?.name;
+        const accountGroup = (session?.user as any)?.AccountGroup;
+
+        const scopedFilter = {
+          userRole: role,
+          accountName: accountName || undefined,
+          accountGroup: accountGroup || undefined,
+        };
+
+        setLoadingStatus('Pre-loading dashboard metrics & deals...');
+
+        // Pre-warm TanStack Query caches with exact scoped keys
+        await Promise.allSettled([
+          queryClient.prefetchQuery({
+            queryKey: DEAL_QUERY_KEYS.dashboard(),
+            queryFn: async () => {
+              const res = await getDashboardSummary();
+              return res.data || null;
+            },
+            staleTime: 1000 * 60 * 5,
+          }),
+          queryClient.prefetchQuery({
+            queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
+            queryFn: async () => {
+              const res = await getScopedDeals(scopedFilter);
+              return res.data || [];
+            },
+            staleTime: 1000 * 60 * 5,
+          }),
+        ]);
+
+        setLoadingStatus('Workspace ready! Redirecting...');
+      } catch (e) {
+        console.warn('Pre-warming cache warning:', e);
+      }
+
+      // Smooth handoff to dashboard
       setTimeout(() => {
         router.replace('/dashboard');
-      }, 700);
-    }, 1500);
+      }, 400);
+    }, 1200);
   }, [router, queryClient]);
 
   const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
@@ -773,22 +801,31 @@ export default function LoginPage() {
     <div className="login-light-scope relative flex min-h-screen bg-[#f8f9fa] overflow-hidden selection:bg-pink-300/50">
       {/* Left White Panel */}
       <div
-        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${isExpanded
+        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${
+          isExpanded
             ? 'w-full absolute inset-0 z-40'
             : 'w-full lg:w-[45%]'
-          }`}
+        }`}
       >
-        {/* Minimalist Black-and-White Loading State */}
+        {/* Polished Black-and-White Loading State */}
         {isLoading ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white login-fade-in">
-            <div className="flex flex-col items-center max-w-xs text-center">
-              <div className="w-9 h-9 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin mb-4" />
-              <h3 className={`${outfit.className} text-lg font-bold text-zinc-900 tracking-tight`}>
-                Signing in
+            <div className="flex flex-col items-center max-w-sm text-center">
+              <div className="relative flex items-center justify-center mb-6">
+                <div className="w-12 h-12 border-3 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
+                </div>
+              </div>
+              <h3 className={`${outfit.className} text-xl font-bold text-zinc-900 tracking-tight`}>
+                Signing In
               </h3>
-              <p className={`${inter.className} text-xs text-zinc-500 mt-1`}>
-                Preparing &amp; pre-loading your Deals Workspace...
+              <p className={`${inter.className} text-xs font-medium text-zinc-500 mt-1.5 transition-all duration-200`}>
+                {loadingStatus}
               </p>
+              <div className="w-48 h-1 bg-zinc-100 rounded-full overflow-hidden mt-5">
+                <div className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full animate-pulse w-3/4" />
+              </div>
             </div>
           </div>
         ) : (

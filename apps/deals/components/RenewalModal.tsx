@@ -118,6 +118,10 @@ export default function RenewalModal({
       setError('Calculated expiration date is missing.');
       return;
     }
+    if (!remarks.trim()) {
+      setError('Renewal remarks / reason is required.');
+      return;
+    }
     setShowConfirm(true);
   };
 
@@ -217,9 +221,14 @@ export default function RenewalModal({
                   <input
                     type="date"
                     value={dtRenewal}
-                    onChange={(e) => setDtRenewal(e.target.value)}
+                    onChange={(e) => {
+                      setDtRenewal(e.target.value);
+                      if (error) setError(null);
+                    }}
                     required
-                    className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 ${
+                      error && !dtRenewal ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-emerald-500/20'
+                    }`}
                   />
                   {dtRenewal && (
                     <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
@@ -243,10 +252,17 @@ export default function RenewalModal({
                       min={1}
                       max={730}
                       value={validityDays || ''}
-                      onChange={(e) => setValidityDays(parseInt(e.target.value, 10) || 0)}
+                      onChange={(e) => {
+                        setValidityDays(parseInt(e.target.value, 10) || 0);
+                        if (error) setError(null);
+                      }}
                       required
                       placeholder="90"
-                      className="w-24 px-3 py-2 bg-background border border-border rounded-xl text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                      className={`w-24 px-3 py-2 bg-background border rounded-xl text-sm font-bold text-foreground focus:outline-none focus:ring-2 ${
+                        error && (!validityDays || validityDays <= 0)
+                          ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5'
+                          : 'border-border focus:ring-emerald-500/20'
+                      }`}
                     />
                     <div className="flex items-center gap-1 flex-wrap">
                       {[30, 60, 90, 180, 365].map((preset) => (
@@ -295,7 +311,11 @@ export default function RenewalModal({
                   </label>
                   <AppTextarea
                     value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
+                    onChange={(e) => {
+                      setRemarks(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    error={error && !remarks.trim() ? 'Renewal remarks / reason is required' : undefined}
                     placeholder="e.g. Principal approved 90-day extension due to customer delayed bidding schedule..."
                     rows={3}
                     className="text-xs"

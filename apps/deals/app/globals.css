@@ -9,6 +9,18 @@ body {
   min-height: 100vh;
 }
 
+/* Remove spin buttons and wheel scroll from number inputs */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .dark,
 .dark *,
 .dark *::before,

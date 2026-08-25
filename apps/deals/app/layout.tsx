@@ -17,6 +17,7 @@ const themeScript = `
     var t = localStorage.getItem('dealreg-color-theme') || 'dark-default';
     var d = localStorage.getItem('dealreg-dark-mode');
     var isDark = d === null ? true : (d !== 'false');
+    var scale = localStorage.getItem('dealreg-font-scale');
     
     if (t && t !== 'dark-default' && t !== 'default') {
       document.documentElement.setAttribute('data-color-theme', t);
@@ -30,6 +31,10 @@ const themeScript = `
     } else {
       document.documentElement.classList.remove('dark');
       document.documentElement.removeAttribute('data-theme');
+    }
+
+    if (scale) {
+      document.documentElement.style.fontSize = scale + '%';
     }
   } catch(e) {}
 })();

@@ -81,6 +81,16 @@ export default function Sidebar() {
 
   const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao');
 
+  // Pre-load all main navigation route chunks in background on mount
+  React.useEffect(() => {
+    router.prefetch('/dashboard');
+    router.prefetch('/deals');
+    router.prefetch('/reports');
+    if (!isViewOnly) {
+      router.prefetch('/deals/new');
+    }
+  }, [router, isViewOnly]);
+
   const menuItems = [
     {
       title: 'Home',

@@ -42,10 +42,15 @@ import {
   normalizeBrandName,
   calculateBrandDistribution,
 } from '@/lib/brandUtils';
+import dynamic from 'next/dynamic';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
-import DealLostListModal from '@/components/DealLostListModal';
-import { ModalDealTable } from '@/components/ModalDealTable';
 import { formatDateLong } from '@/components/utils/time';
+
+const DealLostListModal = dynamic(() => import('@/components/DealLostListModal'), { ssr: false });
+const ModalDealTable = dynamic(
+  () => import('@/components/ModalDealTable').then((mod) => mod.ModalDealTable),
+  { ssr: false }
+);
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();

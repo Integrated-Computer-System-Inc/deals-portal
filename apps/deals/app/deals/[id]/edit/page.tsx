@@ -1,9 +1,7 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -58,6 +56,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import RenewalModal from '../../../../components/RenewalModal';
+import FormattedAmountInput from '../../../../components/FormattedAmountInput';
 
 const dealItemSchema = z.object({
   dealItemID: z.number().optional(),
@@ -79,17 +78,18 @@ const updateDealSchema = z.object({
   assignedAO: z.string().min(2, 'Assigned AO is required'),
   bu: z.string().min(1, 'Business Unit is required'),
   dealStatus: z.union([z.string(), z.number()]),
-  remarks: z.string().optional(),
+  remarks: z.string().min(1, 'Remarks / Partner notes are required'),
   toEmail: z.boolean().default(true),
   items: z.array(dealItemSchema).min(1, 'At least one line item is required'),
 });
 
 type UpdateDealFormData = z.infer<typeof updateDealSchema>;
 
-export default function EditDealPage({ params }: { params: { id: string } }) {
+export default function EditDealPage() {
   const router = useRouter();
+  const params = useParams();
   const { data: session } = useSession();
-  const dealID = parseInt(params.id, 10);
+  const dealID = params?.id ? parseInt(params.id as string, 10) : 0;
 
   const { data: deal, isLoading: fetching } = useDealQuery(dealID);
   const updateMutation = useUpdateDealMutation();
@@ -178,6 +178,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
     );
 
     const initialBu = normalizeBusinessUnit(deal.BU || deal.bu || 'BU5');
+    const dealRemarks = deal.remarks || (deal as any).Remarks || (deal as any).remark || (deal as any).Remark || '';
 
     reset({
       dtRegistered: regStr,
@@ -191,7 +192,7 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
       assignedAO: deal.AssignedAO || deal.assignedAO || '',
       bu: initialBu,
       dealStatus: deal.dealStatus ?? 1,
-      remarks: deal.remarks || '',
+      remarks: dealRemarks,
       toEmail: true,
       items:
         deal.items && deal.items.length > 0
@@ -205,12 +206,13 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
           : [{ itemDesc: 'Standard Item', qty: 1, currency: 'PHP', totalAmt: 0 }],
     });
 
+    setValue('remarks', dealRemarks);
     setIsCustomerFromIceCream(Boolean(deal.customerID));
 
     if (deal.wtn?.whenToNotify) {
       setCurrentWtnDate(deal.wtn.whenToNotify);
     }
-  }, [deal, reset]);
+  }, [deal, reset, setValue]);
 
   const handleRegDateChange = (regDateStr: string) => {
     setValue('dtRegistered', regDateStr, { shouldValidate: true });
@@ -457,7 +459,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('custName')}
                 disabled={isViewOnly}
                 placeholder="e.g. San Miguel Corporation or Department of Agriculture"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                  errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
@@ -474,7 +478,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 }}
                 disabled={isViewOnly}
                 placeholder="e.g. CUST-3184 or leave blank"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                  errors.customerID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.customerID && <p className="text-[11px] text-rose-500 mt-1">{errors.customerID.message}</p>}
             </div>
@@ -504,7 +510,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 value={watchBu || ''}
                 onChange={(e) => setValue('bu', e.target.value, { shouldValidate: true, shouldDirty: true })}
                 disabled={isViewOnly}
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
+                  errors.bu ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               >
                 <option value="">Select Business Unit...</option>
                 {dynamicBuOptions.map((bu: string) => (
@@ -522,8 +530,11 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('assignedAO')}
                 disabled={isViewOnly}
                 placeholder="e.g. Juan Dela Cruz (AO-104)"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                  errors.assignedAO ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
+              {errors.assignedAO && <p className="text-[11px] text-rose-500 mt-1">{errors.assignedAO.message}</p>}
             </div>
           </div>
         </AppCard>
@@ -542,7 +553,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 {...register('dealRegID')}
                 disabled={isViewOnly}
                 placeholder="e.g. 31842219 or REGI-0005491402"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                  errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
@@ -588,7 +601,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
               {...register('projectName')}
               disabled={isViewOnly}
               placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
-              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75 input-autocaps"
+              className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                errors.projectName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+              }`}
             />
             {errors.projectName && <p className="text-[11px] text-rose-500 mt-1">{errors.projectName.message}</p>}
           </div>
@@ -602,7 +617,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 value={watch('dtRegistered') || ''}
                 onChange={(e) => handleRegDateChange(e.target.value)}
                 disabled={isViewOnly}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className={`w-full px-3.5 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
+                  errors.dtRegistered ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {watch('dtRegistered') && (
                 <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
@@ -631,21 +648,30 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 value={watch('expDt') || ''}
                 onChange={(e) => handleExpDateChange(e.target.value)}
                 disabled={isViewOnly}
-                className="w-full px-3.5 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                className={`w-full px-3.5 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
+                  errors.expDt ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {watch('expDt') && (
                 <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1">
                   {formatDateLong(watch('expDt'))}
                 </p>
               )}
+              {errors.expDt && <p className="text-[11px] text-rose-500 mt-1">{errors.expDt.message}</p>}
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-foreground mb-1">Remarks & Partner Notes</label>
+            <label className="block text-xs font-semibold text-foreground mb-1">
+              Remarks & Partner Notes {!isViewOnly && '*'}
+            </label>
             <AppTextarea
               {...register('remarks')}
+              value={watch('remarks') || ''}
+              onChange={(e) => setValue('remarks', e.target.value, { shouldValidate: true, shouldDirty: true })}
               disabled={isViewOnly}
+              required={!isViewOnly}
+              error={errors.remarks?.message}
               placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
               rows={2}
             />
@@ -787,19 +813,31 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                     {...register(`items.${index}.itemDesc` as const)}
                     disabled={isViewOnly}
                     placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
-                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
+                      errors.items?.[index]?.itemDesc ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                    }`}
                   />
+                  {errors.items?.[index]?.itemDesc && (
+                    <p className="text-[10px] text-rose-500 mt-0.5">{errors.items[index]?.itemDesc?.message}</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 sm:contents">
                   <div className="sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-muted mb-1">Qty *</label>
-                    <input
-                      type="number"
-                      min="1"
-                      {...register(`items.${index}.qty` as const)}
-                      disabled={isViewOnly}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    <Controller
+                      control={control}
+                      name={`items.${index}.qty` as const}
+                      render={({ field }) => (
+                        <FormattedAmountInput
+                          allowDecimals={false}
+                          value={field.value}
+                          onChange={(val) => field.onChange(val || 1)}
+                          disabled={isViewOnly}
+                          placeholder="1"
+                          error={!!errors.items?.[index]?.qty}
+                        />
+                      )}
                     />
                   </div>
 
@@ -808,7 +846,9 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                     <select
                       {...register(`items.${index}.currency` as const)}
                       disabled={isViewOnly}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                      className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
+                        errors.items?.[index]?.currency ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                      }`}
                     >
                       <option value="PHP">PHP</option>
                       <option value="USD">USD</option>
@@ -822,12 +862,19 @@ export default function EditDealPage({ params }: { params: { id: string } }) {
                 <div className="flex items-end gap-2 sm:contents">
                   <div className="flex-1 sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-muted mb-1">Total Amount *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      {...register(`items.${index}.totalAmt` as const)}
-                      disabled={isViewOnly}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-75"
+                    <Controller
+                      control={control}
+                      name={`items.${index}.totalAmt` as const}
+                      render={({ field }) => (
+                        <FormattedAmountInput
+                          allowDecimals={true}
+                          value={field.value}
+                          onChange={(val) => field.onChange(val)}
+                          disabled={isViewOnly}
+                          placeholder="0.00"
+                          error={!!errors.items?.[index]?.totalAmt}
+                        />
+                      )}
                     />
                   </div>
 

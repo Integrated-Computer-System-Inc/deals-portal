@@ -27,10 +27,12 @@ import {
   AppModal,
   AppButton,
 } from '../../components/ui';
-import WTNModal from '../../components/WTNModal';
-import LostDealModal from '../../components/LostDealModal';
-import DealDetailsModal from '../../components/DealDetailsModal';
-import RenewalModal from '../../components/RenewalModal';
+import dynamic from 'next/dynamic';
+
+const WTNModal = dynamic(() => import('../../components/WTNModal'), { ssr: false });
+const LostDealModal = dynamic(() => import('../../components/LostDealModal'), { ssr: false });
+const DealDetailsModal = dynamic(() => import('../../components/DealDetailsModal'), { ssr: false });
+const RenewalModal = dynamic(() => import('../../components/RenewalModal'), { ssr: false });
 import {
   Search,
   Edit,

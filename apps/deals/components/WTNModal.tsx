@@ -101,9 +101,14 @@ export default function WTNModal({
               <input
                 type="date"
                 value={wtnDate}
-                onChange={(e) => setWtnDate(e.target.value)}
+                onChange={(e) => {
+                  setWtnDate(e.target.value);
+                  if (error) setError(null);
+                }}
                 required
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 ${
+                  error && !wtnDate ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                }`}
               />
               {wtnDate && (
                 <p className="text-[11px] text-sky-600 dark:text-sky-400 font-medium">
