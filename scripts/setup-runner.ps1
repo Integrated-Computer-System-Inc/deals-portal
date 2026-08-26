@@ -14,7 +14,7 @@
 param (
     [string]$RunnerDir = "C:\actions-runner",
     [string]$RepoUrl = "https://github.com/Integrated-Computer-System-Inc/deals-portal",
-    [string]$Token = "CKVSHBTUJJVJCCBFI45X2ADKRZU7U",
+    [string]$Token = "CKVSHBXE7ZFVLY6FQH5AUX3KR2C2W",
     [string]$RunnerName = "action-runner-dealsreg",
     [string]$RunnerLabels = "action-runner-dealsreg,deals-portal,windows,production",
     [string]$RunnerVersion = "2.336.0",

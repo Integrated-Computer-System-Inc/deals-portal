@@ -50,7 +50,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/actions-runner-win-x64-2.336.0.zip", "$PWD")
 
 # 4. Configure runner unattended (as action-runner-dealsreg)
-cmd.exe /c "config.cmd --url https://github.com/Integrated-Computer-System-Inc/deals-portal --token CKVSHBTUJJVJCCBFI45X2ADKRZU7U --name action-runner-dealsreg --labels action-runner-dealsreg,deals-portal,windows,production --work _work --unattended --replace"
+cmd.exe /c "config.cmd --url https://github.com/Integrated-Computer-System-Inc/dealregportal --token <YOUR_TOKEN> --name action-runner-dealsreg --labels action-runner-dealsreg,deals-portal,windows,production --work _work --unattended --replace"
 
 # 5. Install and Start as 24/7 Windows Background Service
 cmd.exe /c "svc.cmd install"
