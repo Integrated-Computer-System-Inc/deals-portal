@@ -15,9 +15,7 @@ import {
   DEAL_STATUS_MAP,
   ACTIVE_BUSINESS_UNITS,
   ALL_BUSINESS_UNITS,
-  MOCK_DEALS,
 } from '@my-app/types';
-import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
 import { formatDateLong } from '@/components/utils/time';
 import {
   AppTable,
@@ -64,6 +62,7 @@ import {
 } from '@/components/DateRangeFilterPopover';
 import DealsFilterPopover from '@/components/DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU, filterOfficialDeals } from '@/lib/buUtils';
 
 function DealsContent() {
   const router = useRouter();
@@ -105,7 +104,12 @@ function DealsContent() {
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
 
   const scopedFilter = useCurrentUserFilter();
-  const { data: deals = [], isLoading: loading, refetch: fetchDeals } = useDealsQuery(scopedFilter);
+  const { data: rawDeals = [], isLoading: loading, refetch: fetchDeals } = useDealsQuery(scopedFilter);
+
+  // Filter deals registry strictly to the 7 official BUs (BU1, BU2, BU5, BU8, BU10, BU12, CE01)
+  const deals = useMemo(() => {
+    return filterOfficialDeals(rawDeals);
+  }, [rawDeals]);
 
   // Handle URL navigation parameters (e.g. /deals?view=123 or /deals?brand=Dell)
   useEffect(() => {
@@ -138,21 +142,10 @@ function DealsContent() {
   // Official Registered Business Units
   const OFFICIAL_BUS = useMemo(() => [...OFFICIAL_REGISTERED_BUS], []);
 
-  // Non-standard / other BUs aggregated map
+  // Non-standard / other BUs aggregated map (omitted since non-BUs are filtered out)
   const otherBUsMap = useMemo(() => {
-    const map: Record<string, { count: number; totalValue: number }> = {};
-    deals.forEach((deal) => {
-      const bu = normalizeBU(deal.BU || deal.bu || '');
-      if (!bu || (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(bu)) return;
-      if (!map[bu]) {
-        map[bu] = { count: 0, totalValue: 0 };
-      }
-      map[bu].count += 1;
-      const amt = deal.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-      map[bu].totalValue += amt;
-    });
-    return map;
-  }, [deals]);
+    return {};
+  }, []);
 
   const dealsCountByBU = useMemo(() => {
     const map: Record<string, number> = {};
