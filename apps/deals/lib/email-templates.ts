@@ -69,7 +69,7 @@ function wrapEmailHtml(content: string, previewText: string = ''): string {
       <tr>
         <td class="footer-bottom-cell">
           <div class="footer-bottom-links">
-            <a href="https://deals.ics.com.ph/">Deals Portal</a>
+            <a href="${getPortalBaseUrl()}">Deals Portal</a>
             <span>|</span>
             <a href="https://www.ics.com.ph">ICS Website</a>
             <span>|</span>
@@ -209,6 +209,7 @@ export interface UpdateDealEmailData {
   currency?: string;
   regDate?: Date | string | null;
   expDate?: Date | string | null;
+  newStatus?: string;
   remarks?: string | null;
   totalAmount?: number | null;
   creatorName?: string | null;

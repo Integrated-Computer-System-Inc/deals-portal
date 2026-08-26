@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import {
   FileText,
   Calendar,
@@ -45,6 +46,10 @@ export default function DealDetailsModal({
   isOpen,
   onClose,
 }: DealDetailsModalProps) {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role || 'admin';
+  const canEdit = role === 'admin' || role === 'aa';
+
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<any>(null);
   const [showAllRenewals, setShowAllRenewals] = useState(false);
@@ -451,7 +456,7 @@ export default function DealDetailsModal({
         </AppButton>
 
         <div className="flex items-center gap-2">
-          {deal && canRenew && (
+          {canEdit && deal && canRenew && (
             <button
               type="button"
               onClick={() => setIsRenewalModalOpen(true)}
@@ -462,7 +467,7 @@ export default function DealDetailsModal({
             </button>
           )}
 
-          {deal && (
+          {canEdit && deal && (
             <Link href={`/deals/${deal.dealID}/edit`}>
               <AppButton variant="primary" size="sm" leftIcon={<Edit className="w-3.5 h-3.5" />}>
                 Edit Deal

@@ -34,8 +34,8 @@ import {
 // ──────────────────────────────────────────────────────────
 // Hardcoded smoke test recipients (NOT production routing)
 // ──────────────────────────────────────────────────────────
-const SMOKE_TO  = 'jdoremon@ics.com.ph';
-const SMOKE_CC  = 'jesurena@ics.com.ph, bcandelaria@ics.com.ph';
+const SMOKE_TO = 'jdoremon@ics.com.ph';
+const SMOKE_CC = 'jesurena@ics.com.ph, bcandelaria@ics.com.ph';
 const SMOKE_BCC = 'dramos@ics.com.ph, mescario@ics.com.ph';
 const SMOKE_CREATOR = 'SMOKE_TEST';
 
@@ -87,7 +87,7 @@ function buildTestPayloads() {
     brand: 'Fortinet',
     bu: 'BU5',
     assignedAO: 'Maria Santos',
-    changes: [{ label: 'Status', from: 'Pending', to: 'Approved' }],
+    newStatus: 'Approved',
     totalAmount: 3_800_000,
     creatorName: 'System Administrator',
     creatorAccount: SMOKE_CREATOR,
@@ -132,8 +132,8 @@ function buildTestPayloads() {
   return [
     { label: 'Create Deal', ...create },
     { label: 'Update Deal', ...update },
-    { label: 'Lost Deal',   ...lost },
-    { label: 'Renew Deal',  ...renew },
+    { label: 'Lost Deal', ...lost },
+    { label: 'Renew Deal', ...renew },
   ];
 }
 
@@ -261,8 +261,8 @@ async function main() {
   for (const row of verifyResults) {
     const statusLabel =
       row.status === 1 ? '✅ SENT' :
-      row.status === 2 ? '❌ FAILED' :
-      '⏳ PENDING';
+        row.status === 2 ? '❌ FAILED' :
+          '⏳ PENDING';
     if (row.status !== 1) allPassed = false;
     console.log(`  ${statusLabel}  ID ${row.email_id}  →  ${row.sendTo}  (dateSent: ${row.dateSent?.toISOString() || 'null'})`);
   }

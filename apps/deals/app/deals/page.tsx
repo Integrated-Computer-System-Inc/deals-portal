@@ -139,14 +139,6 @@ function DealsContent() {
     }
   }, [searchParams]);
 
-  // Official Registered Business Units
-  const OFFICIAL_BUS = useMemo(() => [...OFFICIAL_REGISTERED_BUS], []);
-
-  // Non-standard / other BUs aggregated map (omitted since non-BUs are filtered out)
-  const otherBUsMap = useMemo(() => {
-    return {};
-  }, []);
-
   const dealsCountByBU = useMemo(() => {
     const map: Record<string, number> = {};
     deals.forEach((d) => {
@@ -155,6 +147,20 @@ function DealsContent() {
     });
     return map;
   }, [deals]);
+
+  // Official Registered Business Units (dynamically filtered for AO and BU Heads to only show BUs present in their scoped deals)
+  const OFFICIAL_BUS = useMemo(() => {
+    if (role === 'ao' || role === 'bu' || role === 'bu_admin') {
+      const activeOfficial = OFFICIAL_REGISTERED_BUS.filter((bu) => (dealsCountByBU[bu] || 0) > 0);
+      return activeOfficial.length > 0 ? activeOfficial : [...OFFICIAL_REGISTERED_BUS];
+    }
+    return [...OFFICIAL_REGISTERED_BUS];
+  }, [role, dealsCountByBU]);
+
+  // Non-standard / other BUs aggregated map (omitted since non-BUs are filtered out)
+  const otherBUsMap = useMemo(() => {
+    return {};
+  }, []);
 
   const dealsCountByStatus = useMemo(() => {
     const map: Record<string, number> = {};

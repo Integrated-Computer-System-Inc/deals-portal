@@ -30,11 +30,13 @@ import {
  * Normalizes filter parameters to prevent cache key fragmentations across pages
  */
 export function normalizeScopedFilter(filter?: ScopedDealsFilter): ScopedDealsFilter {
-  if (!filter) return { userRole: 'admin' };
+  if (!filter) return { userRole: 'ao' };
   return {
-    userRole: filter.userRole || 'admin',
+    userRole: filter.userRole || 'ao',
     accountName: filter.accountName || undefined,
+    domainAccount: filter.domainAccount || undefined,
     accountGroup: filter.accountGroup || undefined,
+    assignedBUs: filter.assignedBUs && filter.assignedBUs.length > 0 ? filter.assignedBUs : undefined,
     searchQuery: filter.searchQuery ? filter.searchQuery.trim() : undefined,
     statusFilter: filter.statusFilter && filter.statusFilter !== 'ALL' ? filter.statusFilter : undefined,
     buFilter: filter.buFilter && filter.buFilter !== 'ALL' ? filter.buFilter : undefined,
@@ -57,18 +59,22 @@ export const DEAL_QUERY_KEYS = {
  * Shared hook to get consistent current user filter for Dashboard, Deals, and Reports
  */
 export function useCurrentUserFilter(): ScopedDealsFilter {
-  const { data: session } = useSession();
-  const role: UserRole = (session?.user as any)?.role || 'admin';
+  const { data: session, status } = useSession();
+  const role: UserRole = (session?.user as any)?.role || (status === 'loading' ? 'ao' : 'admin');
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
+  const domainAccount = (session?.user as any)?.DomainAccount;
   const accountGroup = (session?.user as any)?.AccountGroup;
+  const assignedBUs = (session?.user as any)?.assignedBUs;
 
   return useMemo(
     () => ({
       userRole: role,
       accountName: accountName || undefined,
+      domainAccount: domainAccount || undefined,
       accountGroup: accountGroup || undefined,
+      assignedBUs: assignedBUs || undefined,
     }),
-    [role, accountName, accountGroup]
+    [role, accountName, domainAccount, accountGroup, assignedBUs]
   );
 }
 

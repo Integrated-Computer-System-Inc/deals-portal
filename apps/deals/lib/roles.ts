@@ -1,4 +1,5 @@
 import { UserRole } from '@my-app/types';
+import { normalizeBusinessUnit } from './searchUtils';
 
 /**
  * Interface representing resolved role and access scope for an account
@@ -224,3 +225,136 @@ export function getUserAssignedBUs(accountId: number | string, accountGroupFallb
   const res = resolveUserRoleAndBUs(accountId, undefined, accountGroupFallback);
   return res.assignedBUs;
 }
+
+/**
+ * Builds Prisma OR conditions for an Account Officer (AO).
+ * Matches:
+ * 1. AssignedAO exact match
+ * 2. AssignedAO contains accountName
+ * 3. AssignedAO contains all multi-word name tokens
+ * 4. createdBy matches domainAccount, CORP\user, username, or email prefix
+ */
+export function buildAOScopingConditions(
+  accountName?: string | null,
+  domainAccount?: string | null,
+  email?: string | null
+): any[] {
+  const orConditions: any[] = [];
+  const trimmedName = (accountName || '').trim();
+
+  if (trimmedName) {
+    orConditions.push({ AssignedAO: trimmedName });
+    orConditions.push({ AssignedAO: { contains: trimmedName } });
+
+    const nameParts = trimmedName.split(/\s+/).filter((p) => p.length > 1);
+    if (nameParts.length > 1) {
+      orConditions.push({
+        AND: nameParts.map((part) => ({
+          AssignedAO: { contains: part },
+        })),
+      });
+    }
+  }
+
+  // Check createdBy for domain account, email prefix, or raw account name
+  const rawDomain = (domainAccount || '').trim();
+  const domainUser = rawDomain.replace(/^CORP\\/i, '').trim();
+  const emailPrefix = email ? email.split('@')[0].trim() : '';
+
+  const creatorIdentifiers = Array.from(
+    new Set([rawDomain, domainUser, `CORP\\${domainUser}`, emailPrefix, trimmedName].filter(Boolean))
+  );
+
+  for (const ident of creatorIdentifiers) {
+    if (ident) {
+      orConditions.push({ createdBy: ident });
+      orConditions.push({ createdBy: { contains: ident } });
+    }
+  }
+
+  return orConditions.length > 0 ? orConditions : [{ AssignedAO: '__NO_MATCH__' }];
+}
+
+/**
+ * Builds Prisma OR conditions for a Business Unit (BU) Head.
+ * Matches any assigned BUs with exact match, normalized format, and substring variations.
+ */
+export function buildBUScopingConditions(assignedBUs?: string[] | string | null): any[] {
+  const buList = Array.isArray(assignedBUs)
+    ? assignedBUs
+    : (assignedBUs || '').split(',').map((b) => b.trim()).filter(Boolean);
+
+  const orConditions: any[] = [];
+  for (const buItem of buList) {
+    const trimmed = buItem.trim();
+    if (!trimmed) continue;
+    const normalized = normalizeBusinessUnit(trimmed);
+    orConditions.push(
+      { BU: trimmed },
+      { BU: normalized },
+      { BU: { contains: trimmed } },
+      { BU: { contains: normalized } }
+    );
+  }
+
+  return orConditions.length > 0 ? orConditions : [{ BU: '__NO_MATCH__' }];
+}
+
+/**
+ * Validates if an individual deal is accessible to a user based on their role and claims.
+ */
+export function isDealAccessibleByUser(
+  deal: { AssignedAO?: string | null; createdBy?: string | null; BU?: string | null } | null | undefined,
+  user: {
+    role?: UserRole | string | null;
+    accountName?: string | null;
+    domainAccount?: string | null;
+    email?: string | null;
+    assignedBUs?: string[] | null;
+  }
+): boolean {
+  if (!deal) return false;
+  const role = user.role || 'ao';
+  if (role === 'admin' || role === 'aa') {
+    return true;
+  }
+
+  if (role === 'bu' || role === 'bu_admin') {
+    const userBUs = (user.assignedBUs || []).map((b) => b.trim().toUpperCase());
+    const dealBU = (deal.BU || '').trim().toUpperCase();
+    if (!dealBU) return false;
+    return userBUs.some((bu) => dealBU === bu || dealBU.includes(bu) || bu.includes(dealBU));
+  }
+
+  if (role === 'ao') {
+    const userAccName = (user.accountName || '').trim().toLowerCase();
+    const dealAO = (deal.AssignedAO || '').trim().toLowerCase();
+    const dealCreatedBy = (deal.createdBy || '').trim().toLowerCase();
+
+    // 1. Check AssignedAO match
+    if (userAccName && dealAO) {
+      if (dealAO === userAccName || dealAO.includes(userAccName) || userAccName.includes(dealAO)) {
+        return true;
+      }
+      const parts = userAccName.split(/\s+/).filter((p) => p.length > 1);
+      if (parts.length > 1 && parts.every((p) => dealAO.includes(p))) {
+        return true;
+      }
+    }
+
+    // 2. Check createdBy match
+    const rawDomain = (user.domainAccount || '').trim().toLowerCase();
+    const domainUser = rawDomain.replace(/^corp\\/i, '');
+    const emailPrefix = (user.email || '').split('@')[0].trim().toLowerCase();
+
+    const creatorIds = [rawDomain, domainUser, `corp\\${domainUser}`, emailPrefix, userAccName].filter(Boolean);
+    if (dealCreatedBy && creatorIds.some((id) => dealCreatedBy === id || dealCreatedBy.includes(id))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+

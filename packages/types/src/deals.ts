@@ -80,6 +80,7 @@ export type UserRole = 'admin' | 'bu' | 'ao' | 'aa' | 'bu_admin';
 export interface ScopedDealsFilter {
   userRole?: UserRole;
   accountName?: string;
+  domainAccount?: string;
   accountGroup?: string;
   assignedBUs?: string[];
   page?: number;

@@ -25,6 +25,7 @@ import {
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { normalizeBrandName } from '@/lib/brandUtils';
 import { serverCache } from '@/lib/serverCache';
+import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -64,9 +65,20 @@ export async function getScopedDeals(
 }> {
   try {
     const session = await getServerSession(authOptions);
-    const userRole = filter.userRole || (session?.user as any)?.role || 'admin';
-    const accountName = (filter.accountName || (session?.user as any)?.AccountName || session?.user?.name || '').trim();
-    const accountGroup = (filter.accountGroup || (session?.user as any)?.AccountGroup || '').trim();
+    const sessionRole = (session?.user as any)?.role as string | undefined;
+    const sessionAccountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
+    const sessionDomainAccount = ((session?.user as any)?.DomainAccount || '').trim();
+    const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
+    const sessionAccountGroup = ((session?.user as any)?.AccountGroup || '').trim();
+    const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+
+    // Security: Only allow client role override if session is admin/aa, otherwise enforce session claims strictly
+    const isSuperRole = sessionRole === 'admin' || sessionRole === 'aa';
+    const userRole = isSuperRole ? (filter.userRole || sessionRole || 'admin') : (sessionRole || 'ao');
+    const accountName = isSuperRole ? (filter.accountName || sessionAccountName) : sessionAccountName;
+    const domainAccount = isSuperRole ? (filter.domainAccount || sessionDomainAccount) : sessionDomainAccount;
+    const accountGroup = isSuperRole ? (filter.accountGroup || sessionAccountGroup) : sessionAccountGroup;
+    const assignedBUs = isSuperRole ? (filter.assignedBUs || sessionAssignedBUs) : sessionAssignedBUs;
 
     const page = Math.max(1, filter.page || 1);
     const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
@@ -78,8 +90,9 @@ export async function getScopedDeals(
     const cacheKey = serverCache.generateKey('scoped_deals', {
       userRole,
       accountName,
+      domainAccount,
       accountGroup,
-      assignedBUs: filter.assignedBUs,
+      assignedBUs,
       page,
       pageSize,
       searchQuery,
@@ -103,41 +116,13 @@ export async function getScopedDeals(
 
     const andConditions: any[] = [];
 
-    // Role-based scoping (handles case insensitivity, whitespace, and BU formatting variations)
-    if (userRole === 'ao' && accountName) {
-      const nameParts = accountName.split(/\s+/).filter((p: string) => p.length > 1);
-      andConditions.push({
-        OR: [
-          { AssignedAO: accountName },
-          { AssignedAO: { contains: accountName } },
-          ...(nameParts.length > 1
-            ? [
-                {
-                  AND: nameParts.map((part: string) => ({
-                    AssignedAO: { contains: part },
-                  })),
-                },
-              ]
-            : []),
-        ],
-      });
-    } else if ((userRole === 'bu' || userRole === 'bu_admin') && (accountGroup || (filter.assignedBUs && filter.assignedBUs.length > 0))) {
-      const buList = filter.assignedBUs && filter.assignedBUs.length > 0
-        ? filter.assignedBUs
-        : accountGroup.split(',').map((b: string) => b.trim()).filter(Boolean);
-
-      const buConditions: any[] = [];
-      for (const buItem of buList) {
-        const normalized = normalizeBusinessUnit(buItem);
-        buConditions.push(
-          { BU: buItem },
-          { BU: normalized },
-          { BU: { contains: buItem } }
-        );
-      }
-      if (buConditions.length > 0) {
-        andConditions.push({ OR: buConditions });
-      }
+    // Role-based scoping (handles case insensitivity, whitespace, createdBy, and BU formatting variations)
+    if (userRole === 'ao') {
+      const aoConditions = buildAOScopingConditions(accountName, domainAccount, sessionEmail);
+      andConditions.push({ OR: aoConditions });
+    } else if (userRole === 'bu' || userRole === 'bu_admin') {
+      const buConditions = buildBUScopingConditions(assignedBUs && assignedBUs.length > 0 ? assignedBUs : accountGroup);
+      andConditions.push({ OR: buConditions });
     }
 
     // Status filter
@@ -352,11 +337,12 @@ export async function getDealById(
     const id = Number(dealID);
     if (!id || isNaN(id)) return { success: true, data: null };
 
-    const cacheKey = `deal_detail:${id}`;
-    const cached = serverCache.get<DealHeaderRecord | null>(cacheKey);
-    if (cached !== null) {
-      return { success: true, data: cached };
-    }
+    const session = await getServerSession(authOptions);
+    const sessionRole = (session?.user as any)?.role as string | undefined;
+    const sessionAccountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
+    const sessionDomainAccount = ((session?.user as any)?.DomainAccount || '').trim();
+    const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
+    const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
 
     const rawDeal = await prisma.dealHeader.findUnique({
       where: { dealID: id },
@@ -373,6 +359,24 @@ export async function getDealById(
 
     if (!rawDeal) {
       return { success: true, data: null };
+    }
+
+    // Role-based authorization check
+    if (sessionRole) {
+      const isAllowed = isDealAccessibleByUser(rawDeal, {
+        role: sessionRole,
+        accountName: sessionAccountName,
+        domainAccount: sessionDomainAccount,
+        email: sessionEmail,
+        assignedBUs: sessionAssignedBUs,
+      });
+
+      if (!isAllowed) {
+        return {
+          success: false,
+          error: 'Access Denied: You are not authorized to view this deal.',
+        };
+      }
     }
 
     const deal: any = rawDeal;
@@ -455,6 +459,7 @@ export async function getDealById(
       aggregatedTotals: totalsByCurrency,
     };
 
+    const cacheKey = `deal_detail:${id}`;
     serverCache.set(cacheKey, formatted, 300_000, ['deals']);
 
     return { success: true, data: formatted };
@@ -476,6 +481,13 @@ export async function createDeal(
 ): Promise<{ success: boolean; dealID?: number; error?: string }> {
   try {
     const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role as string | undefined;
+    if (userRole === 'ao' || userRole === 'bu' || userRole === 'bu_admin') {
+      return {
+        success: false,
+        error: 'Access Denied: Account Officers and BU Heads have view-only access. Deal registrations are managed by Administrators.',
+      };
+    }
     const domainAccount = (session?.user as any)?.DomainAccount || createdByParam || 'CORP\\DEMOUSER';
     const userName = (session?.user as any)?.AccountName || 'Portal User';
 
@@ -642,6 +654,13 @@ export async function updateDeal(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role as string | undefined;
+    if (userRole === 'ao' || userRole === 'bu' || userRole === 'bu_admin') {
+      return {
+        success: false,
+        error: 'Access Denied: Account Officers and BU Heads have view-only access. Deal modifications are managed by Administrators.',
+      };
+    }
     const domainAccount = (session?.user as any)?.DomainAccount || 'CORP\\DEMOUSER';
     const userName = (session?.user as any)?.AccountName || 'Portal User';
     const dealID = Number(payload.dealID);
@@ -966,6 +985,14 @@ export async function updateWTN(
   _token?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role as string | undefined;
+    if (userRole === 'ao' || userRole === 'bu' || userRole === 'bu_admin') {
+      return {
+        success: false,
+        error: 'Access Denied: Account Officers and BU Heads have view-only access.',
+      };
+    }
     const dealID = Number(payload.wtn_dealID || (payload as any).dealID);
     const rawDate = payload.dtwtn || payload.whenToNotify;
     const wtnDate = rawDate ? new Date(rawDate) : new Date();
@@ -1011,8 +1038,15 @@ export async function saveLostDeal(
   _token?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const dealID = Number(payload.dealID);
     const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role as string | undefined;
+    if (userRole === 'ao' || userRole === 'bu' || userRole === 'bu_admin') {
+      return {
+        success: false,
+        error: 'Access Denied: Account Officers and BU Heads have view-only access.',
+      };
+    }
+    const dealID = Number(payload.dealID);
     const domainAccount = (session?.user as any)?.DomainAccount || 'SYSTEM';
     const userName = session?.user?.name || (session?.user as any)?.AccountName || domainAccount;
     const now = new Date();
@@ -1121,6 +1155,13 @@ export async function saveDealRenewal(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await getServerSession(authOptions);
+    const userRole = (session?.user as any)?.role as string | undefined;
+    if (userRole === 'ao' || userRole === 'bu' || userRole === 'bu_admin') {
+      return {
+        success: false,
+        error: 'Access Denied: Account Officers and BU Heads have view-only access.',
+      };
+    }
     const domainAccount = (session?.user as any)?.DomainAccount || 'CORP\\DEMOUSER';
     const userName = (session?.user as any)?.AccountName || 'Portal User';
     const dealID = Number(payload.dealID);
@@ -1372,53 +1413,28 @@ export async function getDashboardSummary(): Promise<{
 }> {
   try {
     const session = await getServerSession(authOptions);
-    const userRole = (session?.user as any)?.role || 'admin';
+    const userRole = ((session?.user as any)?.role as string) || 'admin';
     const accountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
+    const domainAccount = ((session?.user as any)?.DomainAccount || '').trim();
+    const email = ((session?.user as any)?.Email || session?.user?.email || '').trim();
     const accountGroup = ((session?.user as any)?.AccountGroup || '').trim();
+    const assignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
 
     const andConditions: any[] = [];
-    if (userRole === 'ao' && accountName) {
-      const nameParts = accountName.split(/\s+/).filter((p: string) => p.length > 1);
-      andConditions.push({
-        OR: [
-          { AssignedAO: accountName },
-          { AssignedAO: { contains: accountName } },
-          ...(nameParts.length > 1
-            ? [
-                {
-                  AND: nameParts.map((part: string) => ({
-                    AssignedAO: { contains: part },
-                  })),
-                },
-              ]
-            : []),
-        ],
-      });
-    } else if ((userRole === 'bu' || userRole === 'bu_admin') && accountGroup) {
-      const assignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
-      const buList = assignedBUs && assignedBUs.length > 0
-        ? assignedBUs
-        : accountGroup.split(',').map((b: string) => b.trim()).filter(Boolean);
-
-      const buConditions: any[] = [];
-      for (const buItem of buList) {
-        const normalized = normalizeBusinessUnit(buItem);
-        buConditions.push(
-          { BU: buItem },
-          { BU: normalized },
-          { BU: { contains: buItem } }
-        );
-      }
-      if (buConditions.length > 0) {
-        andConditions.push({ OR: buConditions });
-      }
+    if (userRole === 'ao') {
+      const aoConditions = buildAOScopingConditions(accountName, domainAccount, email);
+      andConditions.push({ OR: aoConditions });
+    } else if (userRole === 'bu' || userRole === 'bu_admin') {
+      const buConditions = buildBUScopingConditions(assignedBUs && assignedBUs.length > 0 ? assignedBUs : accountGroup);
+      andConditions.push({ OR: buConditions });
     }
 
     const cacheKey = serverCache.generateKey('dashboard_summary', {
       userRole,
       accountName,
+      domainAccount,
       accountGroup,
-      assignedBUs: (session?.user as any)?.assignedBUs,
+      assignedBUs,
     });
 
     const cached = serverCache.get<DashboardSummaryData>(cacheKey);

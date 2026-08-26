@@ -107,6 +107,12 @@ export default function EditDealPage() {
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
 
+  React.useEffect(() => {
+    if (session && isViewOnly) {
+      router.replace(dealID ? `/deals?view=${dealID}` : '/deals');
+    }
+  }, [session, isViewOnly, dealID, router]);
+
   const defaultRegDate = new Date().toISOString().split('T')[0];
   const defaultExpDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
