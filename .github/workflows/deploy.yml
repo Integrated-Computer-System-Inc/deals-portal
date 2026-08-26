@@ -1,0 +1,169 @@
+name: Production Deployment (Windows Desktop Runner)
+
+on:
+  push:
+    branches:
+      - prod
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Deals Portal on Windows Desktop
+    runs-on: [self-hosted, Windows, action-runner-dealsreg]
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🚀 Sync & Deploy to C:\apps\deals-portal
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $targetDir = "C:\apps\deals-portal"
+          $sourceDir = $env:GITHUB_WORKSPACE
+
+          Write-Host "============================================================" -ForegroundColor Cyan
+          Write-Host " Starting Production Deployment to $targetDir" -ForegroundColor Cyan
+          Write-Host "============================================================" -ForegroundColor Cyan
+
+          # 1. Ensure target deployment directory exists
+          if (-not (Test-Path $targetDir)) {
+              Write-Host "Creating target directory: $targetDir" -ForegroundColor Yellow
+              New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          }
+
+          # 2. Sync codebase from runner workspace to target deployment directory
+          # Robocopy options: /MIR (mirror), /XD (exclude dirs: .git, node_modules, .next, logs), /XF (exclude files)
+          Write-Host "`n[1/5] Syncing repository files to $targetDir..." -ForegroundColor Yellow
+          robocopy $sourceDir $targetDir /E /XD .git node_modules .next logs /XF .env .env.local /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) {
+              Write-Error "Robocopy failed with exit code $LASTEXITCODE"
+              exit 1
+          }
+          Write-Host "  [OK] Codebase synced." -ForegroundColor Green
+
+          # 3. Check environment file
+          Write-Host "`n[2/5] Checking environment configuration..." -ForegroundColor Yellow
+          $envFile = Join-Path $targetDir "apps\deals\.env.local"
+          $envFallback = Join-Path $targetDir "apps\deals\.env"
+          if (-not (Test-Path $envFile) -and -not (Test-Path $envFallback)) {
+              Write-Host "  [WARNING] Neither apps\deals\.env.local nor apps\deals\.env was found!" -ForegroundColor Red
+              Write-Host "  Creating template .env.local from .env.production.example..." -ForegroundColor Yellow
+              $templateFile = Join-Path $targetDir "apps\deals\.env.production.example"
+              if (Test-Path $templateFile) {
+                  Copy-Item $templateFile $envFile
+                  Write-Host "  [NOTICE] Created $envFile from template. Please ensure secrets are configured." -ForegroundColor Yellow
+              }
+          } else {
+              Write-Host "  [OK] Environment file found." -ForegroundColor Green
+          }
+
+          # Ensure logs directory exists
+          $logsDir = Join-Path $targetDir "logs"
+          if (-not (Test-Path $logsDir)) {
+              New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+          }
+
+          # Change directory to target production location
+          Push-Location $targetDir
+
+          try {
+              # 4. Install Dependencies
+              Write-Host "`n[3/5] Installing dependencies..." -ForegroundColor Yellow
+              npm install --no-audit --no-fund
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "npm install failed."
+                  exit 1
+              }
+              Write-Host "  [OK] Dependencies installed." -ForegroundColor Green
+
+              # 5. Generate Prisma Client
+              Write-Host "`n[4/5] Generating Prisma Database Client..." -ForegroundColor Yellow
+              npm run db:generate
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Prisma client generation failed."
+                  exit 1
+              }
+              Write-Host "  [OK] Prisma Client generated." -ForegroundColor Green
+
+              # 6. Build Next.js Monorepo
+              Write-Host "`n[5/5] Building Next.js production bundle..." -ForegroundColor Yellow
+              $env:NODE_ENV = "production"
+              npm run build
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Next.js production build failed."
+                  exit 1
+              }
+              Write-Host "  [OK] Next.js build completed." -ForegroundColor Green
+
+              # 7. Start or Reload PM2
+              Write-Host "`n[PM2] Reloading PM2 process..." -ForegroundColor Yellow
+              $ecosystem = Join-Path $targetDir "ecosystem.config.js"
+              
+              # Check if PM2 is running deals-portal
+              $pm2List = pm2 jlist | ConvertFrom-Json 2>$null
+              $isRunning = $false
+              if ($pm2List) {
+                  foreach ($app in $pm2List) {
+                      if ($app.name -eq "deals-portal") {
+                          $isRunning = $true
+                          break
+                      }
+                  }
+              }
+
+              if ($isRunning) {
+                  Write-Host "  Performing zero-downtime PM2 reload..." -ForegroundColor Cyan
+                  pm2 reload $ecosystem --env production
+              } else {
+                  Write-Host "  Starting PM2 process for deals-portal..." -ForegroundColor Cyan
+                  pm2 start $ecosystem --env production
+              }
+
+              pm2 save
+              Write-Host "  [OK] PM2 state saved." -ForegroundColor Green
+
+          } finally {
+              Pop-Location
+          }
+
+      - name: 🩺 Health Check
+        shell: powershell
+        run: |
+          Write-Host "Waiting 5 seconds for Next.js to initialize..." -ForegroundColor Yellow
+          Start-Sleep -Seconds 5
+
+          $maxRetries = 6
+          $retryCount = 0
+          $healthy = $false
+
+          while ($retryCount -lt $maxRetries) {
+              try {
+                  $response = Invoke-WebRequest -Uri "http://127.0.0.1:4001" -UseBasicParsing -TimeoutSec 5
+                  if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
+                      Write-Host "  [OK] Health check passed on http://127.0.0.1:4001 (Status: $($response.StatusCode))" -ForegroundColor Green
+                      $healthy = $true
+                      break
+                  }
+              } catch {
+                  $retryCount++
+                  Write-Host "  Attempt $retryCount/$maxRetries: App not responding yet on port 4001. Retrying in 3s..." -ForegroundColor Yellow
+                  Start-Sleep -Seconds 3
+              }
+          }
+
+          if (-not $healthy) {
+              Write-Host "  [!] PM2 Status and Logs:" -ForegroundColor Red
+              pm2 status
+              pm2 logs deals-portal --lines 20 --nostream
+              Write-Error "Health check failed after $maxRetries attempts."
+              exit 1
+          }
+
+          Write-Host "`n============================================================" -ForegroundColor Green
+          Write-Host " Deployment Succeeded! Deals Portal is live on Port 4000." -ForegroundColor Green
+          Write-Host "============================================================" -ForegroundColor Green
