@@ -109,7 +109,7 @@ export default function EditDealPage() {
 
   React.useEffect(() => {
     if (session && isViewOnly) {
-      router.replace(dealID ? `/deals?view=${dealID}` : '/deals');
+      router.replace(dealID ? `/deals/${dealID}` : '/deals');
     }
   }, [session, isViewOnly, dealID, router]);
 

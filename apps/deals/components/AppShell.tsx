@@ -8,6 +8,8 @@ import { AppSidebarProvider } from './ui/sidebar';
 import { useSession } from 'next-auth/react';
 import { useDealsQuery, useDashboardQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
 
+import { ImpersonationBanner } from './ImpersonationBanner';
+
 function DealsCachePrewarmer() {
   const { status } = useSession();
   const scopedFilter = useCurrentUserFilter();
@@ -34,17 +36,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AppSidebarProvider>
       <DealsCachePrewarmer />
-      <div className="h-screen w-screen flex bg-background text-foreground transition-colors duration-200 overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar />
+      <div className="h-screen w-screen flex flex-col bg-background text-foreground transition-colors duration-200 overflow-hidden">
+        {/* Sticky Impersonation Banner at layout root */}
+        <ImpersonationBanner />
 
-        {/* Main Content Area */}
-        <main className="flex-1 min-w-0 h-screen overflow-y-auto p-3.5 sm:p-5 lg:p-6 bg-background">
-          <div className="max-w-[1440px] mx-auto space-y-4 pb-12">
-            <Breadcrumbs />
-            {children}
-          </div>
-        </main>
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {/* Sidebar */}
+          <Sidebar />
+
+          {/* Main Content Area */}
+          <main className="flex-1 min-w-0 h-full overflow-y-auto p-3.5 sm:p-5 lg:p-6 bg-background">
+            <div className="max-w-[1440px] mx-auto space-y-4 pb-12">
+              <Breadcrumbs />
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
     </AppSidebarProvider>
   );

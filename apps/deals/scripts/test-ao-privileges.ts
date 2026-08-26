@@ -1,4 +1,10 @@
-import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '../lib/roles';
+import {
+  buildAOScopingConditions,
+  buildBUScopingConditions,
+  isDealAccessibleByUser,
+  getImpersonationPersona,
+  IMPERSONATION_PERSONAS,
+} from '../lib/roles';
 
 function runTests() {
   console.log('--- Starting AO Role Privileges & Scoping Tests ---\n');
@@ -141,6 +147,30 @@ function runTests() {
     buScoping.some((c) => c.BU === 'BU12') &&
     buScoping.some((c) => c.BU === 'CE01')
   );
+
+  // 6. Impersonation personas and Tracy Labanda tests
+  const tracyPersona = getImpersonationPersona(1458);
+  assert('Tracy Labanda persona is defined in registry', tracyPersona !== undefined && tracyPersona.role === 'ao');
+  assert('Tracy Labanda is assigned to BU8', tracyPersona?.assignedBUs.includes('BU8') === true);
+
+  const tracyDeal = {
+    dealID: 501,
+    AssignedAO: 'TRACY LABANDA',
+    createdBy: 'CORP\\TLABANDA',
+    BU: 'BU8',
+  };
+
+  const tracyUser = {
+    role: 'ao',
+    accountName: 'TRACY LABANDA',
+    domainAccount: 'CORP\\TLABANDA',
+    email: 'tlabanda@ics.com.ph',
+    assignedBUs: ['BU8'],
+  };
+
+  assert('Tracy Labanda can access her assigned BU8 deal', isDealAccessibleByUser(tracyDeal, tracyUser) === true);
+  assert('Tracy Labanda CANNOT access Dan Lemuel Ramos deal', isDealAccessibleByUser(otherDeal, tracyUser) === false);
+  assert('All 8 Impersonation personas are registered', IMPERSONATION_PERSONAS.length === 8);
 
   console.log(`\n--- Test Summary: ${passed} Passed, ${failed} Failed ---`);
   if (failed > 0) process.exit(1);

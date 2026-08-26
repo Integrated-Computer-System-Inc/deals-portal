@@ -92,6 +92,7 @@ export default function DashboardPage() {
   const role: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
   const accountGroup = (session?.user as any)?.AccountGroup || 'HQ';
+  const assignedBUs = ((session?.user as any)?.assignedBUs as string[]) || [];
 
   const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
@@ -105,6 +106,29 @@ export default function DashboardPage() {
         filterDealByDateRange(d.dtRegistered || d.dtCreated, dateRange)
       );
   }, [allDeals, dateRange]);
+
+  // Filter official BUs for BU Heads and AOs so unassigned BUs are never shown
+  const visibleOfficialBUs = useMemo(() => {
+    if (role === 'bu' || role === 'bu_admin') {
+      if (assignedBUs.length > 0) {
+        const normalizedAssigned = assignedBUs.map((b) => normalizeBU(b));
+        const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => normalizedAssigned.includes(bu));
+        if (filtered.length > 0) return filtered;
+      }
+      // Fallback to BUs present in deals
+      const activeBUs = Array.from(new Set(deals.map((d) => normalizeBU(d.BU || d.bu || '')).filter(Boolean)));
+      const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => activeBUs.includes(bu));
+      return filtered.length > 0 ? filtered : [...OFFICIAL_REGISTERED_BUS];
+    }
+
+    if (role === 'ao') {
+      const activeBUs = Array.from(new Set(deals.map((d) => normalizeBU(d.BU || d.bu || '')).filter(Boolean)));
+      const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => activeBUs.includes(bu));
+      return filtered.length > 0 ? filtered : [...OFFICIAL_REGISTERED_BUS];
+    }
+
+    return [...OFFICIAL_REGISTERED_BUS];
+  }, [role, assignedBUs, deals]);
 
   // Debounce brand search in modal
   useEffect(() => {
@@ -126,7 +150,7 @@ export default function DashboardPage() {
     return calculateBrandDistribution(deals);
   }, [deals]);
 
-  // Detailed BU distribution list with status breakdown & revenue metrics (strictly 7 official BUs)
+  // Detailed BU distribution list with status breakdown & revenue metrics (strictly scoped official BUs)
   const buDistributionList = useMemo(() => {
     const map: Record<
       string,
@@ -141,7 +165,7 @@ export default function DashboardPage() {
       }
     > = {};
 
-    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
+    visibleOfficialBUs.forEach((bu) => {
       map[bu] = {
         bu,
         count: 0,
@@ -155,7 +179,7 @@ export default function DashboardPage() {
 
     deals.forEach((d: DealHeaderRecord) => {
       const rawBu = normalizeBU(d.BU || d.bu || '');
-      if (!(OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) return;
+      if (!visibleOfficialBUs.includes(rawBu as any)) return;
 
       const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
       const statusNum = Number(d.dealStatus);
@@ -175,24 +199,24 @@ export default function DashboardPage() {
     });
 
     return Object.values(map).sort((a, b) => b.count - a.count || b.totalValue - a.totalValue);
-  }, [deals]);
+  }, [deals, visibleOfficialBUs]);
 
   // Calculate official BUs breakdown
   const officialBUsList = useMemo(() => {
     const officialCounts: Record<string, number> = {};
-    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
+    visibleOfficialBUs.forEach((bu) => {
       officialCounts[bu] = 0;
     });
 
     deals.forEach((d: DealHeaderRecord) => {
       const rawBu = normalizeBU(d.BU || d.bu || '');
-      if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
+      if (visibleOfficialBUs.includes(rawBu as any)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
       }
     });
 
-    return OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
-  }, [deals]);
+    return visibleOfficialBUs.map((bu) => [bu, officialCounts[bu]] as [string, number]);
+  }, [deals, visibleOfficialBUs]);
 
   const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao');
 
@@ -533,7 +557,13 @@ export default function DashboardPage() {
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate">Official Business Units</span>
+            <span className="truncate">
+              {role === 'bu' || role === 'bu_admin'
+                ? 'Supervised Business Units'
+                : role === 'ao'
+                ? 'Assigned Business Units'
+                : 'Official Business Units'}
+            </span>
             <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
           </div>
           {loading ? (
@@ -544,10 +574,10 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate">
-                {OFFICIAL_REGISTERED_BUS.length}
+                {visibleOfficialBUs.length}
               </div>
               <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1 truncate">
-                <span>BU1, BU2, BU5, BU8, BU10, BU12, CE01</span>
+                <span>{visibleOfficialBUs.join(', ')}</span>
               </div>
             </>
           )}
@@ -686,7 +716,13 @@ export default function DashboardPage() {
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 <h2 className="font-bold text-sm text-foreground">Deals Distribution by Business Unit (BU)</h2>
               </div>
-              <span className="text-xs text-muted font-medium">7 Official Registered BUs</span>
+              <span className="text-xs text-muted font-medium">
+                {role === 'bu' || role === 'bu_admin'
+                  ? `${visibleOfficialBUs.length} Supervised BU${visibleOfficialBUs.length > 1 ? 's' : ''}`
+                  : role === 'ao'
+                  ? `${visibleOfficialBUs.length} Assigned BU${visibleOfficialBUs.length > 1 ? 's' : ''}`
+                  : '7 Official Registered BUs'}
+              </span>
             </div>
 
             {/* Quick BU KPI Matrix: 4-column responsive grid with ample breathing space */}

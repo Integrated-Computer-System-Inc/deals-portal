@@ -36,6 +36,7 @@ export interface AccountRoleConfig {
   accountId: number;
   name: string;
   email?: string;
+  domainAccount?: string;
   role: UserRole;
   assignedBUs: string[];
   roleTitle: string;
@@ -47,6 +48,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 926,
     name: 'MYRNALENE CARANDANG',
     email: 'mcarandang@ics.com.ph',
+    domainAccount: 'MCARANDANG',
     role: 'bu',
     assignedBUs: ['BU1'],
     roleTitle: 'BU1 Head',
@@ -55,6 +57,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 205,
     name: 'ROSETTE DE GUZMAN',
     email: 'rdeguzman@ics.com.ph',
+    domainAccount: 'RDEGUZMAN',
     role: 'bu',
     assignedBUs: ['BU2'],
     roleTitle: 'BU2 Head',
@@ -63,6 +66,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 856,
     name: 'FLORDELIZA RICAFLANCA',
     email: 'fricaflanca@ics.com.ph',
+    domainAccount: 'FRICAFLANCA',
     role: 'bu',
     assignedBUs: ['BU5'],
     roleTitle: 'BU5 Head',
@@ -71,6 +75,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 387,
     name: 'SHIELA MARIE PEÑALOSA-MARCELO',
     email: 'smpenalosa@ics.com.ph',
+    domainAccount: 'SMPENALOSA',
     role: 'bu',
     assignedBUs: ['BU8', 'BU12', 'CE01'],
     roleTitle: 'BU8 / BU12 / CE01 Head',
@@ -79,6 +84,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 310,
     name: 'PATRICIA LORIA',
     email: 'ploria@ics.com.ph',
+    domainAccount: 'PLORIA',
     role: 'bu',
     assignedBUs: ['BU10'],
     roleTitle: 'BU10 Head',
@@ -89,6 +95,7 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 57835,
     name: 'ATHENA BEATRICE FRANCISCO',
     email: 'AFRANCISCO@ICS.COM.PH',
+    domainAccount: 'AFRANCISCO',
     role: 'aa',
     assignedBUs: [],
     roleTitle: 'Admin Assistant',
@@ -99,11 +106,134 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     accountId: 415,
     name: 'ADELIANA SY-LU',
     email: 'asy-lu@ics.com.ph',
+    domainAccount: 'ASY-LU',
     role: 'admin',
     assignedBUs: [],
     roleTitle: 'Administrator',
   },
+
+  // Account Officer (BU8)
+  1458: {
+    accountId: 1458,
+    name: 'TRACY LABANDA',
+    email: 'tlabanda@ics.com.ph',
+    domainAccount: 'TLABANDA',
+    role: 'ao',
+    assignedBUs: ['BU8'],
+    roleTitle: 'Account Officer (BU8)',
+  },
 };
+
+export interface ImpersonationPersona {
+  accountId: number;
+  name: string;
+  email: string;
+  domainAccount: string;
+  role: UserRole;
+  assignedBUs: string[];
+  roleTitle: string;
+  category: 'ADMIN' | 'BU_HEAD' | 'ACCOUNT_OFFICER';
+  dealCountDescription?: string;
+}
+
+export const IMPERSONATION_PERSONAS: ImpersonationPersona[] = [
+  // Superadmin / Admin
+  {
+    accountId: 415,
+    name: 'ADELIANA SY-LU',
+    email: 'asy-lu@ics.com.ph',
+    domainAccount: 'ASY-LU',
+    role: 'admin',
+    assignedBUs: [],
+    roleTitle: 'Administrator',
+    category: 'ADMIN',
+    dealCountDescription: 'Full organization-wide access',
+  },
+  // Admin Assistant
+  {
+    accountId: 57835,
+    name: 'ATHENA BEATRICE FRANCISCO',
+    email: 'AFRANCISCO@ICS.COM.PH',
+    domainAccount: 'AFRANCISCO',
+    role: 'aa',
+    assignedBUs: [],
+    roleTitle: 'Admin Assistant',
+    category: 'ADMIN',
+    dealCountDescription: 'Global read/write access',
+  },
+  // BU Heads
+  {
+    accountId: 926,
+    name: 'MYRNALENE CARANDANG',
+    email: 'mcarandang@ics.com.ph',
+    domainAccount: 'MCARANDANG',
+    role: 'bu',
+    assignedBUs: ['BU1'],
+    roleTitle: 'BU1 Head',
+    category: 'BU_HEAD',
+    dealCountDescription: 'BU1 Deals (View Only)',
+  },
+  {
+    accountId: 205,
+    name: 'ROSETTE DE GUZMAN',
+    email: 'rdeguzman@ics.com.ph',
+    domainAccount: 'RDEGUZMAN',
+    role: 'bu',
+    assignedBUs: ['BU2'],
+    roleTitle: 'BU2 Head',
+    category: 'BU_HEAD',
+    dealCountDescription: 'BU2 Deals (View Only)',
+  },
+  {
+    accountId: 856,
+    name: 'FLORDELIZA RICAFLANCA',
+    email: 'fricaflanca@ics.com.ph',
+    domainAccount: 'FRICAFLANCA',
+    role: 'bu',
+    assignedBUs: ['BU5'],
+    roleTitle: 'BU5 Head',
+    category: 'BU_HEAD',
+    dealCountDescription: 'BU5 Deals (View Only)',
+  },
+  {
+    accountId: 387,
+    name: 'SHIELA MARIE PEÑALOSA-MARCELO',
+    email: 'smpenalosa@ics.com.ph',
+    domainAccount: 'SMPENALOSA',
+    role: 'bu',
+    assignedBUs: ['BU8', 'BU12', 'CE01'],
+    roleTitle: 'BU8 / BU12 / CE01 Head',
+    category: 'BU_HEAD',
+    dealCountDescription: 'BU8, BU12, CE01 Deals (View Only)',
+  },
+  {
+    accountId: 310,
+    name: 'PATRICIA LORIA',
+    email: 'ploria@ics.com.ph',
+    domainAccount: 'PLORIA',
+    role: 'bu',
+    assignedBUs: ['BU10'],
+    roleTitle: 'BU10 Head',
+    category: 'BU_HEAD',
+    dealCountDescription: 'BU10 Deals (View Only)',
+  },
+  // Account Officer
+  {
+    accountId: 1458,
+    name: 'TRACY LABANDA',
+    email: 'tlabanda@ics.com.ph',
+    domainAccount: 'TLABANDA',
+    role: 'ao',
+    assignedBUs: ['BU8'],
+    roleTitle: 'Account Officer (BU8)',
+    category: 'ACCOUNT_OFFICER',
+    dealCountDescription: '635 Deals assigned in BU8 (View Only)',
+  },
+];
+
+export function getImpersonationPersona(accountId: number): ImpersonationPersona | undefined {
+  return IMPERSONATION_PERSONAS.find((p) => p.accountId === accountId);
+}
 
 /**
  * Helper to normalize and check if an email is configured in ADMIN_EMAILS environment variable

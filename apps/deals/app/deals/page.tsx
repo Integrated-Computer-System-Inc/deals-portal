@@ -88,6 +88,7 @@ function DealsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [buFilters, setBuFilters] = useState<string[]>([]);
+  const [aoFilters, setAoFilters] = useState<string[]>([]);
   const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     preset: 'ALL',
@@ -171,6 +172,20 @@ function DealsContent() {
     return map;
   }, [deals]);
 
+  // Calculate available AOs list dynamically with deal counts
+  const availableAOs = useMemo(() => {
+    const countsMap: Record<string, number> = {};
+    deals.forEach((d) => {
+      const ao = (d.AssignedAO || d.assignedAO || '').trim();
+      if (ao) {
+        countsMap[ao] = (countsMap[ao] || 0) + 1;
+      }
+    });
+    return Object.entries(countsMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [deals]);
+
   const getDaysUntilExp = (expDt: Date | string | null | undefined) => {
     if (!expDt) return null;
     const now = new Date().getTime();
@@ -202,6 +217,9 @@ function DealsContent() {
       const matchesBU =
         buFilters.length === 0 || buFilters.includes(bu);
 
+      const matchesAO =
+        aoFilters.length === 0 || aoFilters.some((f) => f.toLowerCase() === ao.trim().toLowerCase());
+
       const matchesDateRange = filterDealByDateRange(
         deal.dtRegistered || deal.dtCreated,
         dateRange
@@ -222,7 +240,7 @@ function DealsContent() {
         });
       }
 
-      return matchesSearch && matchesStatus && matchesBU && matchesDateRange && matchesExpiry;
+      return matchesSearch && matchesStatus && matchesBU && matchesAO && matchesDateRange && matchesExpiry;
     });
 
     return result.sort((a, b) => {
@@ -728,10 +746,14 @@ function DealsContent() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Filter Popover (Multi-select BU, Expiry, Status) */}
+            {/* Filter Popover (Multi-select BU, AO, Status, Expiry) */}
             <DealsFilterPopover
               buFilters={buFilters}
               onBuFiltersChange={setBuFilters}
+              aoFilters={aoFilters}
+              onAoFiltersChange={setAoFilters}
+              availableAOs={availableAOs}
+              hideAOFilter={role === 'ao'}
               expiryFilters={expiryFilters}
               onExpiryFiltersChange={setExpiryFilters}
               statusFilters={statusFilters}
@@ -752,7 +774,7 @@ function DealsContent() {
         </div>
 
         {/* Active Filter Indicator Chips (Visible only when filters are active) */}
-        {(buFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
+        {(buFilters.length > 0 || aoFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40 text-xs">
             <span className="text-[11px] font-semibold text-muted mr-1">Active Filters:</span>
 
@@ -788,18 +810,18 @@ function DealsContent() {
               </span>
             ))}
 
-            {/* Expiry Active Chips */}
-            {expiryFilters.map((exp) => (
+            {/* AO Active Chips */}
+            {aoFilters.map((ao) => (
               <span
-                key={exp}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[11px] font-semibold"
+                key={ao}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-[11px] font-semibold"
               >
-                Expiry: {exp.replace('_', ' ')}
+                AO: {ao}
                 <button
                   type="button"
-                  onClick={() => setExpiryFilters(expiryFilters.filter((e) => e !== exp))}
+                  onClick={() => setAoFilters(aoFilters.filter((a) => a !== ao))}
                   className="hover:text-rose-500 transition cursor-pointer"
-                  title={`Remove ${exp} filter`}
+                  title={`Remove ${ao} filter`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -824,11 +846,30 @@ function DealsContent() {
               </span>
             ))}
 
+            {/* Expiry Active Chips */}
+            {expiryFilters.map((exp) => (
+              <span
+                key={exp}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[11px] font-semibold"
+              >
+                Expiry: {exp.replace('_', ' ')}
+                <button
+                  type="button"
+                  onClick={() => setExpiryFilters(expiryFilters.filter((e) => e !== exp))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${exp} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
                 setBuFilters([]);
+                setAoFilters([]);
                 setExpiryFilters([]);
                 setStatusFilters([]);
               }}

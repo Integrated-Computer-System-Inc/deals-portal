@@ -9,6 +9,8 @@ import {
   Check,
   X,
   Layers,
+  User,
+  Search,
 } from 'lucide-react';
 import { AppFilterPopover, FilterGroup } from './ui/popover';
 import { DEAL_STATUS_MAP } from '@my-app/types';
@@ -16,6 +18,10 @@ import { DEAL_STATUS_MAP } from '@my-app/types';
 export interface DealsFilterPopoverProps {
   buFilters: string[];
   onBuFiltersChange: (bus: string[]) => void;
+  aoFilters?: string[];
+  onAoFiltersChange?: (aos: string[]) => void;
+  availableAOs?: { name: string; count: number }[];
+  hideAOFilter?: boolean;
   expiryFilters: string[];
   onExpiryFiltersChange: (exps: string[]) => void;
   statusFilters: string[];
@@ -41,6 +47,10 @@ const EXPIRY_OPTIONS = [
 export function DealsFilterPopover({
   buFilters,
   onBuFiltersChange,
+  aoFilters = [],
+  onAoFiltersChange,
+  availableAOs = [],
+  hideAOFilter = false,
   expiryFilters,
   onExpiryFiltersChange,
   statusFilters,
@@ -55,15 +65,29 @@ export function DealsFilterPopover({
 }: DealsFilterPopoverProps) {
   const [open, setOpen] = useState(false);
   const [isOthersExpanded, setIsOthersExpanded] = useState(false);
+  const [aoSearchQuery, setAoSearchQuery] = useState('');
 
   // Compute total active filters count
-  const activeCount = (hideBUFilter ? 0 : buFilters.length) + expiryFilters.length + statusFilters.length;
+  const activeCount =
+    (hideBUFilter ? 0 : buFilters.length) +
+    (!hideAOFilter && onAoFiltersChange ? aoFilters.length : 0) +
+    statusFilters.length +
+    expiryFilters.length;
 
   const handleToggleBU = (bu: string) => {
     if (buFilters.includes(bu)) {
       onBuFiltersChange(buFilters.filter((b) => b !== bu));
     } else {
       onBuFiltersChange([...buFilters, bu]);
+    }
+  };
+
+  const handleToggleAO = (aoName: string) => {
+    if (!onAoFiltersChange) return;
+    if (aoFilters.includes(aoName)) {
+      onAoFiltersChange(aoFilters.filter((a) => a !== aoName));
+    } else {
+      onAoFiltersChange([...aoFilters, aoName]);
     }
   };
 
@@ -85,9 +109,11 @@ export function DealsFilterPopover({
 
   const handleResetAll = () => {
     onBuFiltersChange([]);
+    if (onAoFiltersChange) onAoFiltersChange([]);
     onExpiryFiltersChange([]);
     onStatusFiltersChange([]);
     setIsOthersExpanded(false);
+    setAoSearchQuery('');
   };
 
   const otherBUsList = useMemo(() => {
@@ -102,6 +128,13 @@ export function DealsFilterPopover({
     return buFilters.filter((bu) => !officialBUs.includes(bu));
   }, [buFilters, officialBUs, isOthersExpanded]);
 
+  const filteredAOsList = useMemo(() => {
+    if (!availableAOs || availableAOs.length === 0) return [];
+    if (!aoSearchQuery.trim()) return availableAOs;
+    const q = aoSearchQuery.toLowerCase().trim();
+    return availableAOs.filter((ao) => ao.name.toLowerCase().includes(q));
+  }, [availableAOs, aoSearchQuery]);
+
   return (
     <AppFilterPopover
       open={open}
@@ -109,7 +142,7 @@ export function DealsFilterPopover({
       title="Filter Deals (Multi-Select)"
       onResetAll={activeCount > 0 ? handleResetAll : undefined}
       placement="bottomRight"
-      className="w-[360px]"
+      className="w-[380px]"
       trigger={
         <button
           type="button"
@@ -118,7 +151,7 @@ export function DealsFilterPopover({
               ? 'bg-primary/15 text-primary border-primary/40 font-bold shadow-xs'
               : 'bg-card-bg text-foreground hover:bg-neutral/80 border-border/70'
           } ${className || ''}`}
-          title="Filter Deals (Select multiple BUs, expiry urgencies, or statuses)"
+          title="Filter Deals (Select multiple BUs, AOs, statuses, or expiry urgencies)"
         >
           <Filter className={`w-4 h-4 ${activeCount > 0 ? 'text-primary' : 'text-muted'}`} />
           <span>Filters</span>
@@ -229,43 +262,69 @@ export function DealsFilterPopover({
         </FilterGroup>
       )}
 
-      {/* 2. Expiry Urgency Filter Group (Multi-Select) */}
-      <FilterGroup
-        title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
-        showReset={expiryFilters.length > 0}
-        onReset={() => onExpiryFiltersChange([])}
-      >
-        <div className="flex flex-wrap items-center gap-1 py-1.5">
-          <button
-            type="button"
-            onClick={() => onExpiryFiltersChange([])}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-              expiryFilters.length === 0
-                ? 'bg-primary text-white border-primary shadow-xs'
-                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-            }`}
-          >
-            All
-          </button>
-          {EXPIRY_OPTIONS.map((item) => {
-            const isSelected = expiryFilters.includes(item.id);
-            return (
+      {/* 2. AO Name Filter Group (Multi-Select) */}
+      {!hideAOFilter && onAoFiltersChange && availableAOs.length > 0 && (
+        <FilterGroup
+          title={`AO Name${aoFilters.length > 0 ? ` • ${aoFilters.length} selected` : ''}`}
+          showReset={aoFilters.length > 0}
+          onReset={() => onAoFiltersChange([])}
+        >
+          <div className="py-1.5 space-y-2">
+            {availableAOs.length > 6 && (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={aoSearchQuery}
+                  onChange={(e) => setAoSearchQuery(e.target.value)}
+                  placeholder="Search AO name..."
+                  className="w-full px-2.5 py-1 text-xs rounded-lg bg-card-bg border border-border/70 text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {aoSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setAoSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-1 max-h-36 overflow-y-auto pr-1">
               <button
-                key={item.id}
                 type="button"
-                onClick={() => handleToggleExpiry(item.id)}
+                onClick={() => onAoFiltersChange([])}
                 className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-                  isSelected
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
-                    : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                  aoFilters.length === 0
+                    ? 'bg-primary text-white border-primary shadow-xs'
+                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
                 }`}
               >
-                {item.label}
+                All
               </button>
-            );
-          })}
-        </div>
-      </FilterGroup>
+              {filteredAOsList.map((ao) => {
+                const isSelected = aoFilters.includes(ao.name);
+                return (
+                  <button
+                    key={ao.name}
+                    type="button"
+                    onClick={() => handleToggleAO(ao.name)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                        : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                    }`}
+                  >
+                    <span className="truncate max-w-[150px]">{ao.name}</span>
+                    {ao.count > 0 && <span className="text-[10px] opacity-75 font-mono">({ao.count})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </FilterGroup>
+      )}
 
       {/* 3. Deal Status Filter Group (Multi-Select) */}
       <FilterGroup
@@ -301,6 +360,44 @@ export function DealsFilterPopover({
               >
                 <span>{meta.label}</span>
                 {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
+              </button>
+            );
+          })}
+        </div>
+      </FilterGroup>
+
+      {/* 4. Expiry Urgency Filter Group (Multi-Select) */}
+      <FilterGroup
+        title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
+        showReset={expiryFilters.length > 0}
+        onReset={() => onExpiryFiltersChange([])}
+      >
+        <div className="flex flex-wrap items-center gap-1 py-1.5">
+          <button
+            type="button"
+            onClick={() => onExpiryFiltersChange([])}
+            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+              expiryFilters.length === 0
+                ? 'bg-primary text-white border-primary shadow-xs'
+                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+            }`}
+          >
+            All
+          </button>
+          {EXPIRY_OPTIONS.map((item) => {
+            const isSelected = expiryFilters.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleToggleExpiry(item.id)}
+                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                  isSelected
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                    : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                }`}
+              >
+                {item.label}
               </button>
             );
           })}

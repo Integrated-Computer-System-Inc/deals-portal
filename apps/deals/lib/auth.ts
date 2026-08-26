@@ -4,7 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { UserRole } from '@my-app/types';
 import { prisma } from '@my-app/database';
 import { randomUUID } from 'crypto';
-import { resolveUserRoleAndBUs, isConfiguredAdminEmail } from './roles';
+import { resolveUserRoleAndBUs, isConfiguredAdminEmail, getImpersonationPersona, ACCOUNT_ROLE_REGISTRY } from './roles';
 
 const CDB_ACCOUNT_SELECT = {
   AccountID: true,
@@ -37,10 +37,36 @@ export const authOptions: NextAuthOptions = {
         accountName: { label: 'Account Name', type: 'text' },
         accountGroup: { label: 'Account Group', type: 'text' },
         email: { label: 'Email', type: 'text' },
+        personaAccountId: { label: 'Persona Account ID', type: 'text' },
+        adminEmail: { label: 'Admin Email', type: 'text' },
       },
       async authorize(credentials) {
         const type = credentials?.accountType || 'admin';
         const email = credentials?.email?.toLowerCase();
+
+        // Check if direct persona accountId is provided for dev impersonation
+        if (credentials?.personaAccountId) {
+          const pId = Number(credentials.personaAccountId);
+          const persona = getImpersonationPersona(pId) || ACCOUNT_ROLE_REGISTRY[pId];
+          if (persona) {
+            const personaEmail = persona.email || `${persona.name.toLowerCase().replace(/\s+/g, '')}@ics.com.ph`;
+            const rawDomain = persona.domainAccount || personaEmail.split('@')[0].toUpperCase();
+            return {
+              id: `usr_${persona.accountId}`,
+              name: persona.name,
+              email: personaEmail,
+              DomainAccount: rawDomain.startsWith('CORP\\') ? rawDomain : `CORP\\${rawDomain}`,
+              AccountGroup: persona.assignedBUs.join(',') || 'HQ',
+              AccountID: String(persona.accountId),
+              AccountName: persona.name,
+              role: persona.role,
+              assignedBUs: persona.assignedBUs,
+              RememberToken: randomUUID(),
+              isImpersonating: true,
+              originalAdminEmail: credentials.adminEmail || 'jdoremon@ics.com.ph',
+            };
+          }
+        }
 
         // Reject non-corporate accounts (e.g. gmail.com) to enforce enterprise policy
         if (email && !email.endsWith('@ics.com.ph')) {
@@ -390,7 +416,7 @@ export const authOptions: NextAuthOptions = {
       }
       return true;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session: updateSession }) {
       if (user) {
         const u = user as any;
         token.AccountID = u.AccountID || 'UNKNOWN';
@@ -400,7 +426,40 @@ export const authOptions: NextAuthOptions = {
         token.AccountGroup = u.AccountGroup || 'BU5';
         token.assignedBUs = u.assignedBUs || [];
         token.RememberToken = u.RememberToken || null;
+        token.isImpersonating = u.isImpersonating || false;
+        token.originalAdminEmail = u.originalAdminEmail || (isConfiguredAdminEmail(u.email) ? u.email : undefined);
       }
+
+      // Handle in-place session update (e.g. from useSession().update(...) or impersonation switch)
+      if (trigger === 'update' && updateSession) {
+        if (updateSession.impersonateTarget !== undefined) {
+          const target = updateSession.impersonateTarget;
+          if (target === null) {
+            // Exit impersonation: restore superadmin claims
+            const adminEmail = (token.originalAdminEmail as string) || (token.email as string) || 'jdoremon@ics.com.ph';
+            token.role = 'admin';
+            token.AccountName = 'Administrator';
+            token.AccountGroup = 'HQ';
+            token.DomainAccount = `CORP\\${adminEmail.split('@')[0].toUpperCase()}`;
+            token.assignedBUs = [];
+            token.isImpersonating = false;
+          } else if (target) {
+            // Apply target persona claims
+            token.AccountID = String(target.accountId);
+            token.AccountName = target.name;
+            token.role = target.role;
+            const rawDomain = target.domainAccount || target.email.split('@')[0].toUpperCase();
+            token.DomainAccount = rawDomain.startsWith('CORP\\') ? rawDomain : `CORP\\${rawDomain}`;
+            token.AccountGroup = target.assignedBUs.join(',') || 'HQ';
+            token.assignedBUs = target.assignedBUs;
+            token.isImpersonating = true;
+            if (!token.originalAdminEmail) {
+              token.originalAdminEmail = token.email as string;
+            }
+          }
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -413,6 +472,8 @@ export const authOptions: NextAuthOptions = {
         u.role = token.role as UserRole;
         u.assignedBUs = (token.assignedBUs as string[]) || [];
         u.RememberToken = (token.RememberToken as string) || null;
+        u.isImpersonating = Boolean(token.isImpersonating);
+        u.originalAdminEmail = (token.originalAdminEmail as string) || undefined;
       }
       return session;
     },

@@ -43,6 +43,8 @@ export default function DealDetailsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
+  const role: UserRole = (session?.user as any)?.role || 'admin';
+  const canEdit = role === 'admin' || role === 'aa';
 
   const dealID = params?.id ? Number(params.id) : null;
   const { data: deal = null, isLoading: loading } = useDealQuery(dealID, true);
@@ -53,15 +55,15 @@ export default function DealDetailsPage() {
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<DealRenewalRecord | null>(null);
   const [showAllRenewals, setShowAllRenewals] = useState(false);
 
-  // Auto-open Renewal Modal if navigated with ?action=renew or ?renew=true
+  // Auto-open Renewal Modal only if user has edit privileges and navigated with ?action=renew or ?renew=true
   useEffect(() => {
-    if (!deal) return;
+    if (!deal || !canEdit) return;
     const action = searchParams?.get('action');
     const renew = searchParams?.get('renew');
     if (action === 'renew' || renew === 'true') {
       setIsRenewalModalOpen(true);
     }
-  }, [deal, searchParams]);
+  }, [deal, searchParams, canEdit]);
 
   const sortedRenewals = useMemo(() => {
     if (!deal?.renewals) return [];
@@ -71,9 +73,6 @@ export default function DealDetailsPage() {
       return timeB - timeA;
     });
   }, [deal?.renewals]);
-
-  const role: UserRole = (session?.user as any)?.role || 'admin';
-  const canEdit = role === 'admin' || role === 'aa';
 
   if (loading) {
     return (
