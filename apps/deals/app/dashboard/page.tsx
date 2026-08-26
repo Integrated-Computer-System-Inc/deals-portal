@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   DealHeaderRecord,
@@ -43,7 +44,7 @@ import {
   calculateBrandDistribution,
 } from '@/lib/brandUtils';
 import dynamic from 'next/dynamic';
-import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU } from '@/lib/buUtils';
 import { formatDateLong } from '@/components/utils/time';
 
 const DealLostListModal = dynamic(() => import('@/components/DealLostListModal'), { ssr: false });
@@ -53,6 +54,7 @@ const ModalDealTable = dynamic(
 );
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
 
   // If opened inside Google OAuth popup, close popup and redirect parent window
@@ -84,10 +86,6 @@ export default function DashboardPage() {
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
   const [isSearchingBrand, setIsSearchingBrand] = useState(false);
 
-  const [isOtherBUModalOpen, setIsOtherBUModalOpen] = useState(false);
-  const [otherBUSearchInput, setOtherBUSearchInput] = useState('');
-  const [debouncedOtherBUSearch, setDebouncedOtherBUSearch] = useState('');
-
   // Clickable Brand Overview Modal States
   const [selectedBrandForDeals, setSelectedBrandForDeals] = useState<string | null>(null);
   const [isBrandDealsModalOpen, setIsBrandDealsModalOpen] = useState(false);
@@ -99,11 +97,13 @@ export default function DashboardPage() {
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
   const { data: metrics } = useDashboardQuery();
 
-  // Apply Date Range Filter to deals
+  // Apply Date Range Filter & strictly Official BU Filter to deals
   const deals = useMemo(() => {
-    return allDeals.filter((d: DealHeaderRecord) =>
-      filterDealByDateRange(d.dtRegistered || d.dtCreated, dateRange)
-    );
+    return allDeals
+      .filter((d: DealHeaderRecord) => isOfficialBU(d.BU || d.bu))
+      .filter((d: DealHeaderRecord) =>
+        filterDealByDateRange(d.dtRegistered || d.dtCreated, dateRange)
+      );
   }, [allDeals, dateRange]);
 
   // Debounce brand search in modal
@@ -121,24 +121,12 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [brandSearchInput]);
 
-  // Debounce other BU search in modal
-  useEffect(() => {
-    if (!otherBUSearchInput.trim()) {
-      setDebouncedOtherBUSearch('');
-      return;
-    }
-    const timer = setTimeout(() => {
-      setDebouncedOtherBUSearch(otherBUSearchInput.trim());
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [otherBUSearchInput]);
-
-  // Deals per Brand breakdown
+  // Deals per Brand breakdown (strictly official BUs)
   const brandDistributionList = useMemo(() => {
     return calculateBrandDistribution(deals);
   }, [deals]);
 
-  // Detailed BU distribution list with status breakdown & revenue metrics
+  // Detailed BU distribution list with status breakdown & revenue metrics (strictly 7 official BUs)
   const buDistributionList = useMemo(() => {
     const map: Record<
       string,
@@ -153,22 +141,24 @@ export default function DashboardPage() {
       }
     > = {};
 
+    OFFICIAL_REGISTERED_BUS.forEach((bu) => {
+      map[bu] = {
+        bu,
+        count: 0,
+        totalValue: 0,
+        activeCount: 0,
+        approvedCount: 0,
+        waitingCount: 0,
+        lostCount: 0,
+      };
+    });
+
     deals.forEach((d: DealHeaderRecord) => {
-      const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
+      const rawBu = normalizeBU(d.BU || d.bu || '');
+      if (!(OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) return;
+
       const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
       const statusNum = Number(d.dealStatus);
-
-      if (!map[rawBu]) {
-        map[rawBu] = {
-          bu: rawBu,
-          count: 0,
-          totalValue: 0,
-          activeCount: 0,
-          approvedCount: 0,
-          waitingCount: 0,
-          lostCount: 0,
-        };
-      }
 
       map[rawBu].count += 1;
       map[rawBu].totalValue += amt;
@@ -187,51 +177,22 @@ export default function DashboardPage() {
     return Object.values(map).sort((a, b) => b.count - a.count || b.totalValue - a.totalValue);
   }, [deals]);
 
-  // Calculate official BUs & others breakdown
-  const { officialBUsList, otherBUsMap, totalOthersCount, totalOthersValue } = useMemo(() => {
+  // Calculate official BUs breakdown
+  const officialBUsList = useMemo(() => {
     const officialCounts: Record<string, number> = {};
     OFFICIAL_REGISTERED_BUS.forEach((bu) => {
       officialCounts[bu] = 0;
     });
 
-    const others: Record<string, { count: number; totalValue: number }> = {};
-    let othersCount = 0;
-    let othersValue = 0;
-
     deals.forEach((d: DealHeaderRecord) => {
       const rawBu = normalizeBU(d.BU || d.bu || '');
-      const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
-
       if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
-      } else {
-        const buKey = rawBu || 'Unassigned';
-        if (!others[buKey]) {
-          others[buKey] = { count: 0, totalValue: 0 };
-        }
-        others[buKey].count += 1;
-        others[buKey].totalValue += amt;
-        othersCount += 1;
-        othersValue += amt;
       }
     });
 
-    const officialList = OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
-
-    return {
-      officialBUsList: officialList,
-      otherBUsMap: others,
-      totalOthersCount: othersCount,
-      totalOthersValue: othersValue,
-    };
+    return OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
   }, [deals]);
-
-  const filteredOtherBUsInModal = useMemo(() => {
-    const entries = Object.entries(otherBUsMap).sort((a, b) => b[1].count - a[1].count);
-    if (!debouncedOtherBUSearch.trim()) return entries;
-    const q = debouncedOtherBUSearch.toLowerCase().trim();
-    return entries.filter(([bu]) => bu.toLowerCase().includes(q));
-  }, [otherBUsMap, debouncedOtherBUSearch]);
 
   const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao');
 
@@ -567,13 +528,12 @@ export default function DashboardPage() {
           )}
         </AppCard>
 
-        {/* KPI 4: Business Units Covered (Clickable) */}
+        {/* KPI 4: Business Units Covered */}
         <AppCard
-          onClick={() => setIsOtherBUModalOpen(true)}
-          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group"
+          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate group-hover:text-indigo-500 transition">Business Units</span>
+            <span className="truncate">Official Business Units</span>
             <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
           </div>
           {loading ? (
@@ -583,12 +543,11 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition">
+              <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate">
                 {OFFICIAL_REGISTERED_BUS.length}
               </div>
-              <div className="text-[11px] text-indigo-600 font-semibold mt-1 truncate flex items-center justify-between">
-                <span>+{totalOthersCount} in Other Units</span>
-                <span className="text-[10px] text-muted group-hover:text-indigo-600 transition font-medium">Click &rarr;</span>
+              <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1 truncate">
+                <span>BU1, BU2, BU5, BU8, BU10, BU12, CE01</span>
               </div>
             </>
           )}
@@ -622,72 +581,6 @@ export default function DashboardPage() {
         </AppCard>
       </div>
 
-      {/* Recent Deals Pipeline */}
-      <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
-        <div className="flex items-center justify-between border-b border-border/50 pb-3">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-500" />
-            <h2 className="font-bold text-sm text-foreground">Recent Deals Pipeline</h2>
-          </div>
-          <Link
-            href="/deals"
-            className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
-          >
-            <span>View All Registry Deals</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {loading ? (
-            [1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="p-3 rounded-xl bg-neutral/40 border border-border/40 space-y-2">
-                <div className="shimmer-skeleton h-3.5 w-16 rounded" />
-                <div className="shimmer-skeleton h-4 w-28 rounded" />
-                <div className="shimmer-skeleton h-3.5 w-20 rounded" />
-              </div>
-            ))
-          ) : recentDeals.length === 0 ? (
-            <div className="col-span-full py-6 text-center text-xs text-muted">
-              No recent deals found for this date range.
-            </div>
-          ) : (
-            recentDeals.map((deal) => (
-              <Link
-                key={deal.dealID}
-                href={`/deals/${deal.dealID}`}
-                className="p-3 rounded-xl bg-background border border-border/70 hover:border-primary/50 hover:shadow-md transition-all flex flex-col justify-between space-y-2 group"
-              >
-                <div className="flex items-center justify-between gap-1.5">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 truncate max-w-[90px]">
-                    {deal.brand || 'General'}
-                  </span>
-                  <span className="text-[10px] font-mono text-muted truncate">
-                    {deal.dealRegID || `#${deal.dealID}`}
-                  </span>
-                </div>
-
-                <div className="space-y-0.5 min-w-0">
-                  <div className="text-xs font-bold text-foreground group-hover:text-primary transition truncate" title={deal.ProjectName || deal.projectName || 'Project'}>
-                    {deal.ProjectName || deal.projectName || 'Project'}
-                  </div>
-                  <div className="text-[11px] text-muted truncate" title={deal.custName || ''}>
-                    {deal.custName || 'Customer'}
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-border/40 flex items-center justify-between">
-                  <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 truncate">
-                    {formatAmounts(deal)}
-                  </span>
-                  <ArrowRight className="w-3 h-3 text-muted group-hover:text-primary group-hover:translate-x-0.5 transition" />
-                </div>
-              </Link>
-            ))
-          )}
-        </div>
-      </AppCard>
-
       {/* Distribution Section: Brand Breakdown and BU Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         {/* Deals per Brand */}
@@ -703,7 +596,7 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
               {loading ? (
                 [100, 75, 50, 25, 10].map((w, i) => (
                   <div key={i} className="space-y-1.5 p-2 rounded-xl bg-neutral/30">
@@ -726,36 +619,36 @@ export default function DashboardPage() {
                         setSelectedBrandForDeals(item.brand);
                         setIsBrandDealsModalOpen(true);
                       }}
-                      className="space-y-1.5 p-2.5 rounded-xl border border-transparent hover:border-sky-500/30 hover:bg-sky-500/5 cursor-pointer transition-all duration-200 group"
+                      className="space-y-1 p-2 sm:p-2.5 rounded-xl border border-transparent hover:border-sky-500/30 hover:bg-sky-500/5 cursor-pointer transition-all duration-200 group"
                     >
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+                        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
                           <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
                           <span className="font-bold text-foreground group-hover:text-sky-600 transition truncate">{item.brand}</span>
                         </div>
-                        <div className="flex items-center gap-2 font-mono text-muted shrink-0">
-                          <span className="text-foreground/90 font-medium">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs text-muted ml-auto text-right">
+                          <span className="text-foreground/90 font-bold whitespace-nowrap">
                             PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
-                          <span className="text-[11px] text-muted">
+                          <span className="text-[11px] text-muted whitespace-nowrap">
                             ({item.count} • {percentage}%)
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 text-[10px] font-medium flex-wrap">
-                        <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                      <div className="flex items-center gap-1 text-[10px] font-medium flex-wrap">
+                        <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
                           Active: <strong className="font-bold">{item.activeCount}</strong>
                         </span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                           Approved: <strong className="font-bold">{item.approvedCount}</strong>
                         </span>
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                           Waiting: <strong className="font-bold">{item.waitingCount}</strong>
                         </span>
                       </div>
 
-                      <div className="w-full h-2 bg-neutral rounded-full overflow-hidden border border-border/40">
+                      <div className="w-full h-1 bg-neutral rounded-full overflow-hidden border border-border/40">
                         <div
                           className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full transition-all duration-500"
                           style={{ width: `${Math.max(percentage, 3)}%` }}
@@ -793,87 +686,68 @@ export default function DashboardPage() {
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 <h2 className="font-bold text-sm text-foreground">Deals Distribution by Business Unit (BU)</h2>
               </div>
-              <span className="text-xs text-muted font-medium">7 Registered BUs + Others</span>
+              <span className="text-xs text-muted font-medium">7 Official Registered BUs</span>
             </div>
 
-            {/* Quick BU KPI Matrix */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* Quick BU KPI Matrix: 4-column responsive grid with ample breathing space */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {loading ? (
-                [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                [1, 2, 3, 4, 5, 6, 7].map((i) => (
                   <div
                     key={i}
-                    className="p-3 rounded-xl bg-neutral/50 border border-border/40 flex flex-col justify-between space-y-3"
+                    className="p-2.5 rounded-xl bg-neutral/50 border border-border/40 flex flex-col justify-between space-y-2"
                   >
                     <div className="flex items-center justify-between">
+                      <div className="shimmer-skeleton h-5 w-10 rounded" />
                       <div className="shimmer-skeleton h-5 w-12 rounded" />
-                      <div className="shimmer-skeleton h-5 w-14 rounded" />
                     </div>
-                    <div className="shimmer-skeleton h-3 w-24 rounded" />
+                    <div className="shimmer-skeleton h-3 w-20 rounded" />
                   </div>
                 ))
               ) : (
-                <>
-                  {officialBUsList.slice(0, 7).map(([bu, count]) => {
-                    const percentage = deals.length > 0 ? Math.round((count / deals.length) * 100) : 0;
-                    const buThemeMap: Record<string, { bg: string; text: string; border: string; bar: string }> = {
-                      BU1: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/30', bar: 'from-emerald-500 to-teal-600' },
-                      BU2: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/30', bar: 'from-blue-500 to-indigo-600' },
-                      BU3: { bg: 'bg-violet-500/10', text: 'text-violet-600 dark:text-violet-400', border: 'border-violet-500/30', bar: 'from-violet-500 to-purple-600' },
-                      BU4: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/30', bar: 'from-amber-500 to-orange-600' },
-                      BU5: { bg: 'bg-sky-500/10', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/30', bar: 'from-sky-500 to-cyan-600' },
-                      BU6: { bg: 'bg-rose-500/10', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/30', bar: 'from-rose-500 to-pink-600' },
-                      BU8: { bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/30', bar: 'from-purple-500 to-indigo-600' },
-                      BU10: { bg: 'bg-cyan-500/10', text: 'text-cyan-600 dark:text-cyan-400', border: 'border-cyan-500/30', bar: 'from-cyan-500 to-blue-600' },
-                      BU12: { bg: 'bg-teal-500/10', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/30', bar: 'from-teal-500 to-emerald-600' },
-                      CE01: { bg: 'bg-indigo-500/10', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/30', bar: 'from-indigo-500 to-violet-600' },
-                      HQ: { bg: 'bg-indigo-500/10', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/30', bar: 'from-indigo-500 to-blue-600' },
-                    };
-                    const theme = buThemeMap[bu] || { bg: 'bg-zinc-500/10', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-500/30', bar: 'from-zinc-500 to-slate-600' };
+                officialBUsList.map(([bu, count]) => {
+                  const percentage = deals.length > 0 ? Math.round((count / deals.length) * 100) : 0;
+                  const buThemeMap: Record<string, { bg: string; text: string; border: string; bar: string }> = {
+                    BU1: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/30', bar: 'from-emerald-500 to-teal-600' },
+                    BU2: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/30', bar: 'from-blue-500 to-indigo-600' },
+                    BU3: { bg: 'bg-violet-500/10', text: 'text-violet-600 dark:text-violet-400', border: 'border-violet-500/30', bar: 'from-violet-500 to-purple-600' },
+                    BU4: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/30', bar: 'from-amber-500 to-orange-600' },
+                    BU5: { bg: 'bg-sky-500/10', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/30', bar: 'from-sky-500 to-cyan-600' },
+                    BU6: { bg: 'bg-rose-500/10', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/30', bar: 'from-rose-500 to-pink-600' },
+                    BU8: { bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/30', bar: 'from-purple-500 to-indigo-600' },
+                    BU10: { bg: 'bg-cyan-500/10', text: 'text-cyan-600 dark:text-cyan-400', border: 'border-cyan-500/30', bar: 'from-cyan-500 to-blue-600' },
+                    BU12: { bg: 'bg-teal-500/10', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/30', bar: 'from-teal-500 to-emerald-600' },
+                    CE01: { bg: 'bg-indigo-500/10', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/30', bar: 'from-indigo-500 to-violet-600' },
+                    HQ: { bg: 'bg-indigo-500/10', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/30', bar: 'from-indigo-500 to-blue-600' },
+                  };
+                  const theme = buThemeMap[bu] || { bg: 'bg-zinc-500/10', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-500/30', bar: 'from-zinc-500 to-slate-600' };
 
-                    return (
-                      <Link
-                        href={`/deals?search=${encodeURIComponent(bu)}`}
-                        key={bu}
-                        className="p-2.5 rounded-xl bg-card-bg border border-border/70 hover:border-primary/50 hover:shadow-md transition-all flex flex-col justify-between space-y-1.5 group"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${theme.bg} ${theme.text} ${theme.border}`}>
-                            {bu}
-                          </span>
-                          <span className="text-xs font-mono font-bold text-foreground group-hover:text-primary transition">{count}</span>
+                  return (
+                    <Link
+                      href={`/deals?search=${encodeURIComponent(bu)}`}
+                      key={bu}
+                      className="p-2 sm:p-2.5 rounded-xl bg-card-bg border border-border/70 hover:border-primary/50 hover:shadow-md transition-all flex flex-col justify-between space-y-1.5 group min-w-0"
+                    >
+                      <div className="flex items-center justify-between gap-1 min-w-0">
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md border shrink-0 ${theme.bg} ${theme.text} ${theme.border}`}>
+                          {bu}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-foreground group-hover:text-primary transition shrink-0 ml-auto">
+                          {count.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-1 text-[10px] text-muted">
+                          <span className="whitespace-nowrap">{percentage}% share</span>
+                          <span className="group-hover:text-primary transition font-medium text-[10px] shrink-0">View &rarr;</span>
                         </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[10px] text-muted">
-                            <span>{percentage}% share</span>
-                            <span className="group-hover:text-primary transition font-medium">View &rarr;</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden">
-                            <div className={`h-full bg-gradient-to-r ${theme.bar} rounded-full`} style={{ width: `${Math.max(percentage, 6)}%` }} />
-                          </div>
+                        <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden">
+                          <div className={`h-full bg-gradient-to-r ${theme.bar} rounded-full`} style={{ width: `${Math.max(percentage, 6)}%` }} />
                         </div>
-                      </Link>
-                    );
-                  })}
-
-                  {/* Others / Legacy Clickable Tile */}
-                  <div
-                    onClick={() => setIsOtherBUModalOpen(true)}
-                    className="p-2.5 rounded-xl bg-card-bg border border-border/70 hover:border-indigo-500/50 hover:bg-indigo-500/5 cursor-pointer flex flex-col justify-between transition group shadow-xs hover:shadow-md space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-lg border text-indigo-600 dark:text-indigo-400 bg-indigo-500/15 border-indigo-500/30">
-                        Others
-                      </span>
-                      <span className="text-xs font-mono font-bold text-foreground group-hover:text-indigo-600 transition">
-                        {totalOthersCount}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold pt-1">
-                      <span>View details</span>
-                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
-                    </div>
-                  </div>
-                </>
+                      </div>
+                    </Link>
+                  );
+                })
               )}
             </div>
 
@@ -884,8 +758,8 @@ export default function DashboardPage() {
                 <span>Revenue & Status Distribution</span>
               </div>
 
-              <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
-                {buDistributionList.slice(0, 8).map((item, idx) => {
+              <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+                {buDistributionList.map((item, idx) => {
                   const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
                   const buThemeMap: Record<string, { bg: string; text: string; border: string; bar: string }> = {
                     BU1: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/30', bar: 'from-emerald-500 to-teal-600' },
@@ -906,38 +780,38 @@ export default function DashboardPage() {
                     <Link
                       key={item.bu}
                       href={`/deals?search=${encodeURIComponent(item.bu)}`}
-                      className="block space-y-1.5 p-2.5 rounded-xl border border-border/40 hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all group"
+                      className="block space-y-1 p-2 sm:p-2.5 rounded-xl border border-border/40 hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all group"
                     >
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+                        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
                           <span className="text-[10px] font-mono font-bold text-muted w-4 shrink-0">#{idx + 1}</span>
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${theme.bg} ${theme.text} ${theme.border}`}>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border shrink-0 ${theme.bg} ${theme.text} ${theme.border}`}>
                             {item.bu}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 font-mono text-muted shrink-0">
-                          <span className="text-foreground/90 font-medium">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs text-muted ml-auto text-right">
+                          <span className="text-foreground/90 font-bold whitespace-nowrap">
                             PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
-                          <span className="text-[11px] text-muted">
+                          <span className="text-[11px] text-muted whitespace-nowrap">
                             ({item.count} • {percentage}%)
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 text-[10px] font-medium flex-wrap">
-                        <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                      <div className="flex items-center gap-1 text-[10px] font-medium flex-wrap">
+                        <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
                           Active: <strong className="font-bold">{item.activeCount}</strong>
                         </span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                           Approved: <strong className="font-bold">{item.approvedCount}</strong>
                         </span>
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                           Waiting: <strong className="font-bold">{item.waitingCount}</strong>
                         </span>
                       </div>
 
-                      <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden">
+                      <div className="w-full h-1 bg-neutral rounded-full overflow-hidden">
                         <div
                           className={`h-full bg-gradient-to-r ${theme.bar} rounded-full transition-all duration-500`}
                           style={{ width: `${Math.max(percentage, 4)}%` }}
@@ -951,6 +825,114 @@ export default function DashboardPage() {
           </div>
         </AppCard>
       </div>
+
+      {/* SECTION: RECENT DEALS ACTIVITY STREAM (TABLE DESIGN) */}
+      <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-border/50 pb-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-500" />
+            <h2 className="font-bold text-sm text-foreground">Recent Deals Activity Stream</h2>
+          </div>
+          <Link
+            href="/deals"
+            className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 hover:underline flex items-center gap-1"
+          >
+            <span>View All Registry Deals</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
+          <div className="max-h-[380px] overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse table-fixed">
+              <colgroup>
+                <col className="w-[30%]" />
+                <col className="w-[46%]" />
+                <col className="w-[24%]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Brand Deal</th>
+                  <th className="py-3 px-3">Project Name</th>
+                  <th className="py-3 px-4 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {loading ? (
+                  [1, 2, 3, 4, 5].map((i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="py-3.5 px-4"><div className="shimmer-skeleton h-5 w-28 rounded-md" /></td>
+                      <td className="py-3.5 px-3"><div className="shimmer-skeleton h-5 w-64 rounded-md" /></td>
+                      <td className="py-3.5 px-4 text-right"><div className="shimmer-skeleton h-5 w-28 ml-auto rounded-md" /></td>
+                    </tr>
+                  ))
+                ) : recentDeals.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="p-8 text-center text-xs text-muted">
+                      No recent deal records found for the selected time range.
+                    </td>
+                  </tr>
+                ) : (
+                  recentDeals.map((deal) => {
+                    const formattedAmt =
+                      (deal as any)._computedTotal !== undefined
+                        ? `PHP ${Number((deal as any)._computedTotal).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                        : formatAmounts(deal);
+
+                    return (
+                      <tr
+                        key={deal.dealID}
+                        onClick={() => router.push(`/deals/${deal.dealID}`)}
+                        className="hover:bg-neutral/60 active:bg-neutral/80 transition-colors cursor-pointer group select-none"
+                        title={`Click to open deal #${deal.dealRegID || deal.dealID}`}
+                      >
+                        {/* 1. Brand Deal */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-xs font-bold shrink-0">
+                              {deal.brand || 'General'}
+                            </span>
+                            <span className="font-mono text-xs font-semibold text-muted group-hover:text-primary transition-colors truncate">
+                              {deal.dealRegID || `#${deal.dealID}`}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 2. Project Name */}
+                        <td className="py-3.5 px-3">
+                          <div className="space-y-0.5 min-w-0">
+                            <div
+                              className="font-bold text-xs sm:text-sm text-foreground group-hover:text-primary transition-colors truncate"
+                              title={deal.ProjectName || deal.projectName || 'Project'}
+                            >
+                              {deal.ProjectName || deal.projectName || 'Standard Project'}
+                            </div>
+                            {deal.custName && (
+                              <div className="text-[11px] text-muted truncate" title={deal.custName}>
+                                {deal.custName}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* 3. Amount & Smooth Hover Chevron */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2.5">
+                            <span className="font-mono font-bold text-xs sm:text-sm text-foreground truncate block">
+                              {formattedAmt}
+                            </span>
+                            <ArrowRight className="w-4 h-4 text-muted/40 group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </AppCard>
 
       {/* Complete Brands Distribution Modal */}
       <AppModal
@@ -1180,151 +1162,6 @@ export default function DashboardPage() {
         </AppModal.Footer>
       </AppModal>
 
-      {/* Other Business Units & Legacy Modal */}
-      <AppModal
-        open={isOtherBUModalOpen}
-        onClose={() => {
-          setIsOtherBUModalOpen(false);
-          setOtherBUSearchInput('');
-          setDebouncedOtherBUSearch('');
-        }}
-        width={1160}
-      >
-        <AppModal.Header>
-          <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-indigo-600" />
-            <div>
-              <AppModal.Title>Other Business Units & Legacy Accounts</AppModal.Title>
-              <AppModal.Description>
-                Breakdown of deals categorized under non-standard or legacy business units across the organization.
-              </AppModal.Description>
-            </div>
-          </div>
-        </AppModal.Header>
-
-        <AppModal.Body>
-          <div className="space-y-4">
-            <div className="relative">
-              <AppInput
-                prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Search other business units (e.g. CAC, CSD, ESD)..."
-                value={otherBUSearchInput}
-                onChange={(e: any) => setOtherBUSearchInput(e.target.value)}
-                allowClear
-                size="md"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-neutral/40 border border-border/50 text-xs">
-              <div>
-                <span className="text-muted block text-[11px]">Total Other Deals</span>
-                <span className="font-mono font-bold text-foreground text-sm">{totalOthersCount} deals</span>
-              </div>
-              <div>
-                <span className="text-muted block text-[11px]">Total Pipeline Value</span>
-                <span className="font-mono font-bold text-foreground text-sm">
-                  PHP {totalOthersValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <span className="text-muted block text-[11px]">Unique Non-Standard BUs</span>
-                <span className="font-mono font-bold text-indigo-600 text-sm">
-                  {Object.keys(otherBUsMap).length} Units
-                </span>
-              </div>
-            </div>
-
-            {/* Other BUs List */}
-            <div className="border border-border/60 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto overflow-x-hidden divide-y divide-border/40">
-              {filteredOtherBUsInModal.length === 0 ? (
-                <div className="p-6 text-center text-muted text-xs space-y-1">
-                  <Building2 className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
-                  <p className="font-semibold text-foreground">No matching business units found</p>
-                  <p className="text-[11px]">Try searching for a different business unit code.</p>
-                </div>
-              ) : (
-                filteredOtherBUsInModal.map(([bu, data], idx) => {
-                  const percentage =
-                    totalOthersCount > 0 ? ((data.count / totalOthersCount) * 100).toFixed(1) : '0';
-                  const percentNum = parseFloat(percentage);
-
-                  return (
-                    <div
-                      key={bu}
-                      className="p-3 flex items-center justify-between gap-3 hover:bg-neutral/40 transition text-xs"
-                    >
-                      <div className="space-y-1 flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-mono font-bold text-muted w-4">#{idx + 1}</span>
-                          <span className="text-xs font-bold px-2 py-0.5 rounded border text-indigo-400 bg-indigo-500/15 border-indigo-500/30 shrink-0">
-                            {bu}
-                          </span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral text-muted border border-border/60 shrink-0">
-                            {data.count} {data.count === 1 ? 'deal' : 'deals'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="w-28 h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40 shrink-0">
-                            <div
-                              className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full"
-                              style={{ width: `${Math.max(percentNum, 4)}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-mono text-muted">{percentage}% of others</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 shrink-0 text-right">
-                        <div>
-                          <div className="font-mono font-bold text-foreground text-xs">
-                            PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </div>
-                        </div>
-
-                        <Link
-                          href={`/deals?search=${encodeURIComponent(bu)}`}
-                          onClick={() => setIsOtherBUModalOpen(false)}
-                          className="p-1 text-muted hover:text-indigo-600 rounded hover:bg-neutral transition"
-                          title={`View ${bu} deals in Registry`}
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </AppModal.Body>
-
-        <AppModal.Footer className="flex items-center justify-between pt-2">
-          <span className="text-[11px] text-muted">
-            Showing {filteredOtherBUsInModal.length} of {Object.keys(otherBUsMap).length} other business units
-          </span>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/reports?view=bus"
-              onClick={() => setIsOtherBUModalOpen(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20 text-xs font-semibold rounded-lg border border-indigo-500/30 transition shadow-xs"
-            >
-              <span>Open in Reports Studio</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-            <AppButton
-              variant="neutral"
-              size="sm"
-              onClick={() => {
-                setIsOtherBUModalOpen(false);
-                setOtherBUSearchInput('');
-                setDebouncedOtherBUSearch('');
-              }}
-            >
-              Close
-            </AppButton>
-          </div>
-        </AppModal.Footer>
-      </AppModal>
 
       {/* Registered Deals Modal Drilldown */}
       <AppModal

@@ -315,10 +315,11 @@ export default function RenewalModal({
                       setRemarks(e.target.value);
                       if (error) setError(null);
                     }}
-                    error={error && !remarks.trim() ? 'Renewal remarks / reason is required' : undefined}
                     placeholder="e.g. Principal approved 90-day extension due to customer delayed bidding schedule..."
                     rows={3}
-                    className="text-xs"
+                    className={`text-xs ${
+                      error && !remarks.trim() ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : ''
+                    }`}
                   />
                 </div>
 

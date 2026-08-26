@@ -32,7 +32,6 @@ import dynamic from 'next/dynamic';
 const WTNModal = dynamic(() => import('../../components/WTNModal'), { ssr: false });
 const LostDealModal = dynamic(() => import('../../components/LostDealModal'), { ssr: false });
 const DealDetailsModal = dynamic(() => import('../../components/DealDetailsModal'), { ssr: false });
-const RenewalModal = dynamic(() => import('../../components/RenewalModal'), { ssr: false });
 import {
   Search,
   Edit,
@@ -104,13 +103,6 @@ function DealsContent() {
   const [viewTarget, setViewTarget] = useState<number | null>(null);
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
-  const [renewalTarget, setRenewalTarget] = useState<{
-    id: number;
-    regID: string;
-    custName?: string;
-    brand?: string;
-    expDate?: string | Date | null;
-  } | null>(null);
 
   const scopedFilter = useCurrentUserFilter();
   const { data: deals = [], isLoading: loading, refetch: fetchDeals } = useDealsQuery(scopedFilter);
@@ -548,14 +540,7 @@ function DealsContent() {
                   key: 'renew',
                   icon: <RefreshCw className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
                   label: <span className="font-semibold text-emerald-700 dark:text-emerald-300">Renew Deal</span>,
-                  onClick: () =>
-                    setRenewalTarget({
-                      id: record.dealID,
-                      regID: record.dealRegID || String(record.dealID),
-                      custName: record.custName,
-                      brand: record.brand,
-                      expDate: expDate,
-                    }),
+                  onClick: () => router.push(`/deals/${record.dealID}?action=renew`),
                 },
                 {
                   type: 'divider' as const,
@@ -567,17 +552,6 @@ function DealsContent() {
             icon: <Edit className="w-4 h-4 text-zinc-400" />,
             label: 'Edit Deal',
             onClick: () => router.push(`/deals/${record.dealID}/edit`),
-          },
-          {
-            key: 'wtn',
-            icon: <BellRing className="w-4 h-4 text-amber-500" />,
-            label: 'Update WTN',
-            onClick: () =>
-              setWtnTarget({
-                id: record.dealID,
-                regID: record.dealRegID,
-                date: record.wtn?.whenToNotify || record.expDt || record.expiration,
-              }),
           },
           ...(statusNum !== 7 && statusNum !== 8
             ? [
@@ -1079,19 +1053,6 @@ function DealsContent() {
         />
       )}
 
-      {/* Renewal Modal */}
-      {renewalTarget && (
-        <RenewalModal
-          dealID={renewalTarget.id}
-          dealRegID={renewalTarget.regID}
-          custName={renewalTarget.custName}
-          brand={renewalTarget.brand}
-          currentExpDate={renewalTarget.expDate}
-          isOpen={true}
-          onClose={() => setRenewalTarget(null)}
-          onSuccess={fetchDeals}
-        />
-      )}
     </div>
   );
 }

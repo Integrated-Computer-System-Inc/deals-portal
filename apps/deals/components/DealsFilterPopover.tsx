@@ -25,6 +25,7 @@ export interface DealsFilterPopoverProps {
   dealsCountByBU?: Record<string, number>;
   dealsCountByStatus?: Record<string, number>;
   totalDealsCount?: number;
+  hideBUFilter?: boolean;
   className?: string;
 }
 
@@ -49,13 +50,14 @@ export function DealsFilterPopover({
   dealsCountByBU = {},
   dealsCountByStatus = {},
   totalDealsCount = 0,
+  hideBUFilter = false,
   className,
 }: DealsFilterPopoverProps) {
   const [open, setOpen] = useState(false);
   const [isOthersExpanded, setIsOthersExpanded] = useState(false);
 
   // Compute total active filters count
-  const activeCount = buFilters.length + expiryFilters.length + statusFilters.length;
+  const activeCount = (hideBUFilter ? 0 : buFilters.length) + expiryFilters.length + statusFilters.length;
 
   const handleToggleBU = (bu: string) => {
     if (buFilters.includes(bu)) {
@@ -129,101 +131,103 @@ export function DealsFilterPopover({
       }
     >
       {/* 1. Business Unit Filter Group (Multi-Select) */}
-      <FilterGroup
-        title={`Business Unit (BU)${buFilters.length > 0 ? ` • ${buFilters.length} selected` : ''}`}
-        showReset={buFilters.length > 0}
-        onReset={() => onBuFiltersChange([])}
-      >
-        <div className="flex flex-wrap items-center gap-1 py-1.5">
-          <button
-            type="button"
-            onClick={() => onBuFiltersChange([])}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-              buFilters.length === 0
-                ? 'bg-primary text-white border-primary shadow-xs'
-                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-            }`}
-          >
-            All
-          </button>
-          {officialBUs.map((bu) => {
-            const count = dealsCountByBU[bu] || 0;
-            const isSelected = buFilters.includes(bu);
-            return (
-              <button
-                key={bu}
-                type="button"
-                onClick={() => handleToggleBU(bu)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
-                  isSelected
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
-                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-                }`}
-              >
-                <span>{bu}</span>
-                {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
-              </button>
-            );
-          })}
-
-          {/* Active Non-Official BU Pills when others panel is collapsed */}
-          {selectedOtherBUsWhenCollapsed.map((bu) => (
-            <div
-              key={bu}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold bg-indigo-600 text-white border border-indigo-600 shadow-xs"
+      {!hideBUFilter && (
+        <FilterGroup
+          title={`Business Unit (BU)${buFilters.length > 0 ? ` • ${buFilters.length} selected` : ''}`}
+          showReset={buFilters.length > 0}
+          onReset={() => onBuFiltersChange([])}
+        >
+          <div className="flex flex-wrap items-center gap-1 py-1.5">
+            <button
+              type="button"
+              onClick={() => onBuFiltersChange([])}
+              className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                buFilters.length === 0
+                  ? 'bg-primary text-white border-primary shadow-xs'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+              }`}
             >
-              <span>{bu}</span>
-              <button
-                type="button"
-                onClick={() => handleToggleBU(bu)}
-                className="hover:opacity-80 p-0.5 rounded-full hover:bg-white/20 transition cursor-pointer"
-                title={`Remove ${bu}`}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-
-          {/* Render all other BUs with the exact same box styling when expanded */}
-          {isOthersExpanded &&
-            otherBUsList.map((item) => {
-              const count = item.count;
-              const isSelected = buFilters.includes(item.bu);
+              All
+            </button>
+            {officialBUs.map((bu) => {
+              const count = dealsCountByBU[bu] || 0;
+              const isSelected = buFilters.includes(bu);
               return (
                 <button
-                  key={item.bu}
+                  key={bu}
                   type="button"
-                  onClick={() => handleToggleBU(item.bu)}
+                  onClick={() => handleToggleBU(bu)}
                   className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
                     isSelected
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
                       : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
                   }`}
                 >
-                  <span>{item.bu}</span>
+                  <span>{bu}</span>
                   {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
                 </button>
               );
             })}
 
-          {/* Expand/Collapse Others Button */}
-          {otherBUsList.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsOthersExpanded(!isOthersExpanded)}
-              className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
-                isOthersExpanded
-                  ? 'bg-neutral/90 text-foreground border-border/80 hover:bg-neutral'
-                  : 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/25'
-              }`}
-              title={isOthersExpanded ? 'Collapse other business units' : 'Show all other business units'}
-            >
-              <Building2 className="w-3 h-3" />
-              <span>{isOthersExpanded ? 'Less BUs ▲' : `+${otherBUsList.length} Others... ▾`}</span>
-            </button>
-          )}
-        </div>
-      </FilterGroup>
+            {/* Active Non-Official BU Pills when others panel is collapsed */}
+            {selectedOtherBUsWhenCollapsed.map((bu) => (
+              <div
+                key={bu}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold bg-indigo-600 text-white border border-indigo-600 shadow-xs"
+              >
+                <span>{bu}</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleBU(bu)}
+                  className="hover:opacity-80 p-0.5 rounded-full hover:bg-white/20 transition cursor-pointer"
+                  title={`Remove ${bu}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+
+            {/* Render all other BUs with the exact same box styling when expanded */}
+            {isOthersExpanded &&
+              otherBUsList.map((item) => {
+                const count = item.count;
+                const isSelected = buFilters.includes(item.bu);
+                return (
+                  <button
+                    key={item.bu}
+                    type="button"
+                    onClick={() => handleToggleBU(item.bu)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                        : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                    }`}
+                  >
+                    <span>{item.bu}</span>
+                    {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
+                  </button>
+                );
+              })}
+
+            {/* Expand/Collapse Others Button */}
+            {otherBUsList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsOthersExpanded(!isOthersExpanded)}
+                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
+                  isOthersExpanded
+                    ? 'bg-neutral/90 text-foreground border-border/80 hover:bg-neutral'
+                    : 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/25'
+                }`}
+                title={isOthersExpanded ? 'Collapse other business units' : 'Show all other business units'}
+              >
+                <Building2 className="w-3 h-3" />
+                <span>{isOthersExpanded ? 'Less BUs ▲' : `+${otherBUsList.length} Others... ▾`}</span>
+              </button>
+            )}
+          </div>
+        </FilterGroup>
+      )}
 
       {/* 2. Expiry Urgency Filter Group (Multi-Select) */}
       <FilterGroup
@@ -269,11 +273,11 @@ export function DealsFilterPopover({
         showReset={statusFilters.length > 0}
         onReset={() => onStatusFiltersChange([])}
       >
-        <div className="flex flex-wrap items-center gap-1 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 py-1.5">
           <button
             type="button"
             onClick={() => onStatusFiltersChange([])}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
               statusFilters.length === 0
                 ? 'bg-primary text-white border-primary shadow-xs'
                 : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
@@ -289,10 +293,10 @@ export function DealsFilterPopover({
                 key={id}
                 type="button"
                 onClick={() => handleToggleStatus(id)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                   isSelected
-                    ? 'bg-neutral text-foreground font-bold border-border shadow-xs'
-                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                    ? 'bg-primary text-white border-primary shadow-xs font-bold'
+                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
                 }`}
               >
                 <span>{meta.label}</span>

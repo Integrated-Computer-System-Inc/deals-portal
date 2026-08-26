@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import {
@@ -36,10 +36,12 @@ import { formatDateLong } from '@/components/utils/time';
 import WTNModal from '../../../components/WTNModal';
 import LostDealModal from '../../../components/LostDealModal';
 import RenewalModal from '../../../components/RenewalModal';
+import DealLoadingScreen from '@/components/DealLoadingScreen';
 
 export default function DealDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
 
   const dealID = params?.id ? Number(params.id) : null;
@@ -50,6 +52,16 @@ export default function DealDetailsPage() {
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<DealRenewalRecord | null>(null);
   const [showAllRenewals, setShowAllRenewals] = useState(false);
+
+  // Auto-open Renewal Modal if navigated with ?action=renew or ?renew=true
+  useEffect(() => {
+    if (!deal) return;
+    const action = searchParams?.get('action');
+    const renew = searchParams?.get('renew');
+    if (action === 'renew' || renew === 'true') {
+      setIsRenewalModalOpen(true);
+    }
+  }, [deal, searchParams]);
 
   const sortedRenewals = useMemo(() => {
     if (!deal?.renewals) return [];
@@ -65,10 +77,10 @@ export default function DealDetailsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-sky-600" />
-        <p className="text-xs font-semibold text-muted">Loading deal details #{dealID}...</p>
-      </div>
+      <DealLoadingScreen
+        title={`Loading Deal Details ${dealID ? `#${dealID}` : ''}`}
+        status="Fetching complete registration parameters, SLA scheduling & item breakdown..."
+      />
     );
   }
 

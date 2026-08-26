@@ -201,7 +201,14 @@ export function categorizeDealStatus(deal: DealHeaderRecord) {
 
   const isApproved = statusNum === 1 || statusNum === 6;
   const isWaiting = statusNum === 3 || statusNum === 4;
-  const isLost = statusNum === 7 || statusNum === 8 || statusStr === '7' || statusStr === '8' || Boolean(deal.lostInfo && deal.lostInfo.reason);
+  const isLost =
+    statusNum === 2 ||
+    statusNum === 7 ||
+    statusNum === 8 ||
+    statusStr === '2' ||
+    statusStr === '7' ||
+    statusStr === '8' ||
+    Boolean(deal.lostInfo && deal.lostInfo.reason);
   // Active is any non-expired operational deal in Registered, Waiting, Pending, or Won
   const isActive = (isApproved || isWaiting) && !isExpired;
 

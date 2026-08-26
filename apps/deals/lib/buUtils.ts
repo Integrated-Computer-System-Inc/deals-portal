@@ -48,3 +48,18 @@ export function normalizeBU(rawBu: string | null | undefined): string {
 
   return trimmed;
 }
+
+/**
+ * Checks if a BU belongs to the 7 official registered business units.
+ */
+export function isOfficialBU(rawBu: string | null | undefined): boolean {
+  const normalized = normalizeBU(rawBu);
+  return (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(normalized);
+}
+
+/**
+ * Filters a list of deals to only include those belonging to the 7 official registered BUs.
+ */
+export function filterOfficialDeals<T extends { BU?: string | null; bu?: string | null }>(deals: T[]): T[] {
+  return deals.filter((d) => isOfficialBU(d.BU || d.bu));
+}

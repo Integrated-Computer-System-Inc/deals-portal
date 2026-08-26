@@ -34,8 +34,6 @@ import {
   DealHeaderRecord,
   UserRole,
   DEAL_STATUS_MAP,
-  ACTIVE_BUSINESS_UNITS,
-  ALL_BUSINESS_UNITS,
 } from '@my-app/types';
 import {
   AppCard,
@@ -49,8 +47,8 @@ import {
   DateRangeValue,
   filterDealByDateRange,
 } from '@/components/DateRangeFilterPopover';
-import { normalizeBrandName, calculateBrandDistribution } from '@/lib/brandUtils';
-import { OFFICIAL_REGISTERED_BUS, normalizeBU } from '@/lib/buUtils';
+import { normalizeBrandName, calculateBrandDistribution, categorizeDealStatus } from '@/lib/brandUtils';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU } from '@/lib/buUtils';
 import dynamic from 'next/dynamic';
 import DealsFilterPopover from '@/components/DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
@@ -160,9 +158,10 @@ export default function ReportsPage() {
     }
   }, []);
 
-  // Normalized Deals based on global date range with precomputed totals
+  // Normalized Deals based on global date range & strictly Official BU with precomputed totals
   const deals = useMemo(() => {
     return allDeals
+      .filter((d: DealHeaderRecord) => isOfficialBU(d.BU || d.bu))
       .filter((d: DealHeaderRecord) =>
         filterDealByDateRange(d.dtRegistered || d.dtCreated, globalDateRange)
       )
@@ -251,43 +250,21 @@ export default function ReportsPage() {
     }, 0);
   }, [deals]);
 
-  // Calculate official BUs & others breakdown
-  const { officialBUsList, otherBUsMap, totalOthersCount, totalOthersValue } = useMemo(() => {
+  // Calculate official BUs breakdown
+  const officialBUsList = useMemo(() => {
     const officialCounts: Record<string, number> = {};
     OFFICIAL_REGISTERED_BUS.forEach((bu) => {
       officialCounts[bu] = 0;
     });
 
-    const others: Record<string, { count: number; totalValue: number }> = {};
-    let othersCount = 0;
-    let othersValue = 0;
-
     deals.forEach((d: any) => {
       const rawBu = normalizeBU(d.BU || d.bu || '');
-      const amt = d._computedTotal || 0;
-
       if ((OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) {
         officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
-      } else {
-        const buKey = rawBu || 'Unassigned';
-        if (!others[buKey]) {
-          others[buKey] = { count: 0, totalValue: 0 };
-        }
-        others[buKey].count += 1;
-        others[buKey].totalValue += amt;
-        othersCount += 1;
-        othersValue += amt;
       }
     });
 
-    const officialList = OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
-
-    return {
-      officialBUsList: officialList,
-      otherBUsMap: others,
-      totalOthersCount: othersCount,
-      totalOthersValue: othersValue,
-    };
+    return OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
   }, [deals]);
 
   const lostDealsList = useMemo(() => {
@@ -297,7 +274,7 @@ export default function ReportsPage() {
     });
   }, [deals]);
 
-  // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue
+  // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue (strictly official BUs)
   const brandDistributionList = useMemo(() => {
     return calculateBrandDistribution(deals);
   }, [deals]);
@@ -334,7 +311,7 @@ export default function ReportsPage() {
     return list;
   }, [brandDistributionList, brandStatusFilter, brandSearch, brandSort]);
 
-  // Complete BU Distribution List (Includes ALL Official + Specialized BUs)
+  // Complete BU Distribution List (Strictly 7 Official Registered BUs)
   const buDistributionList = useMemo(() => {
     const map: Record<
       string,
@@ -364,38 +341,21 @@ export default function ReportsPage() {
       };
     });
 
-    // 2. Tally deals into respective BUs (including Specialized / Other BUs)
+    // 2. Tally deals into respective Official BUs
     deals.forEach((d: any) => {
-      const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
-      const amt = d._computedTotal || 0;
-      const statusNum = Number(d.dealStatus);
-      const isOfficial = (OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu);
+      const rawBu = normalizeBU(d.BU || d.bu || '');
+      if (!(OFFICIAL_REGISTERED_BUS as readonly string[]).includes(rawBu)) return;
 
-      if (!map[rawBu]) {
-        map[rawBu] = {
-          bu: rawBu,
-          isOfficial,
-          count: 0,
-          totalValue: 0,
-          activeCount: 0,
-          approvedCount: 0,
-          waitingCount: 0,
-          lostCount: 0,
-        };
-      }
+      const amt = d._computedTotal || 0;
+      const { isApproved, isWaiting, isLost, isActive } = categorizeDealStatus(d);
 
       map[rawBu].count += 1;
       map[rawBu].totalValue += amt;
 
-      if (statusNum === 1) {
-        map[rawBu].activeCount += 1;
-      } else if (statusNum === 2 || statusNum === 3) {
-        map[rawBu].approvedCount += 1;
-      } else if (statusNum === 0 || statusNum === 4 || isNaN(statusNum)) {
-        map[rawBu].waitingCount += 1;
-      } else if (statusNum === 7 || statusNum === 8) {
-        map[rawBu].lostCount += 1;
-      }
+      if (isActive) map[rawBu].activeCount += 1;
+      if (isApproved) map[rawBu].approvedCount += 1;
+      if (isWaiting) map[rawBu].waitingCount += 1;
+      if (isLost) map[rawBu].lostCount += 1;
     });
 
     return Object.values(map);
@@ -542,10 +502,8 @@ export default function ReportsPage() {
       topBU: list[0]?.[0] || 'BU1',
       topBUValue: list[0]?.[1].totalValue || 0,
       totalBUsCount: list.length,
-      othersCount: totalOthersCount,
-      othersValue: totalOthersValue,
     };
-  }, [deals, totalOthersCount, totalOthersValue]);
+  }, [deals]);
 
   // Filtered Brands inside Brand Modal with Search and Sort
   const filteredBrandsInModal = useMemo(() => {
@@ -601,7 +559,7 @@ export default function ReportsPage() {
   const modalFilteredDeals = useMemo(() => {
     if (!activeReport) return [];
 
-    return allDeals.filter((d) => {
+    return deals.filter((d) => {
       if (!filterDealByDateRange(d.dtRegistered || d.dtCreated, modalDateRange)) {
         return false;
       }
@@ -647,7 +605,85 @@ export default function ReportsPage() {
 
       return true;
     });
-  }, [allDeals, activeReport, modalDateRange, modalStatusFilter, modalBuFilter, modalSearchQuery]);
+  }, [deals, activeReport, modalDateRange, modalStatusFilter, modalBuFilter, modalSearchQuery]);
+
+  // Studio Dynamic Brand Analytics computed from modalFilteredDeals
+  const studioBrandAnalytics = useMemo(() => {
+    const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
+    modalFilteredDeals.forEach((d: any) => {
+      const b = normalizeBrandName(d.brand);
+      if (!map[b]) {
+        map[b] = { count: 0, totalValue: 0, deals: [] };
+      }
+      map[b].count++;
+      map[b].totalValue += d._computedTotal || 0;
+      map[b].deals.push(d);
+    });
+
+    const list = Object.entries(map).sort((a, b) => b[1].totalValue - a[1].totalValue);
+    const grandTotal = list.reduce((sum, [, data]) => sum + data.totalValue, 0);
+
+    return {
+      brandsList: list,
+      topBrand: list[0]?.[0] || 'None',
+      topBrandValue: list[0]?.[1].totalValue || 0,
+      grandTotal,
+      totalBrandsCount: list.length,
+    };
+  }, [modalFilteredDeals]);
+
+  // Studio Dynamic Expiry Analytics computed from modalFilteredDeals
+  const studioExpiryAnalytics = useMemo(() => {
+    let criticalCount = 0;
+    let urgentCount = 0;
+    let warningCount = 0;
+    let noticeCount = 0;
+    let totalAtRisk = 0;
+
+    modalFilteredDeals.forEach((d: any) => {
+      const days = getDaysRemaining(d.expDt || d.expiration);
+      if (days !== null && days >= 0 && days <= 30) {
+        totalAtRisk++;
+        if (days <= 3) criticalCount++;
+        else if (days <= 7) urgentCount++;
+        else if (days <= 15) warningCount++;
+        else noticeCount++;
+      }
+    });
+
+    return {
+      criticalCount,
+      urgentCount,
+      warningCount,
+      noticeCount,
+      totalAtRisk,
+    };
+  }, [modalFilteredDeals]);
+
+  // Studio Dynamic BU Analytics computed from modalFilteredDeals
+  const studioBuAnalytics = useMemo(() => {
+    const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
+    modalFilteredDeals.forEach((d: any) => {
+      const rawBu = normalizeBU(d.BU || d.bu || '') || 'Unassigned';
+      if (!map[rawBu]) {
+        map[rawBu] = { count: 0, totalValue: 0, deals: [] };
+      }
+      map[rawBu].count++;
+      map[rawBu].totalValue += d._computedTotal || 0;
+      map[rawBu].deals.push(d);
+    });
+
+    const list = Object.entries(map).sort((a, b) => b[1].totalValue - a[1].totalValue);
+    const grandTotal = list.reduce((sum, [, data]) => sum + data.totalValue, 0);
+
+    return {
+      buList: list,
+      topBU: list[0]?.[0] || 'None',
+      topBUValue: list[0]?.[1].totalValue || 0,
+      grandTotal,
+      coveredBUsCount: list.length,
+    };
+  }, [modalFilteredDeals]);
 
   const openReportModal = (type: ActiveReportType) => {
     setActiveReport(type);
@@ -846,7 +882,7 @@ export default function ReportsPage() {
             ) : (
               <div className="space-y-0.5">
                 <div className="text-2xl font-bold font-mono text-indigo-600">
-                  {OFFICIAL_REGISTERED_BUS.length} + {totalOthersCount}
+                  {OFFICIAL_REGISTERED_BUS.length}
                 </div>
                 <div className="text-[11px] text-muted truncate">
                   Top: <span className="font-semibold text-foreground">{buAnalytics.topBU}</span>
@@ -1084,14 +1120,21 @@ export default function ReportsPage() {
 
             <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
               <div className="max-h-[380px] overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse table-auto">
+                <table className="w-full text-left text-xs border-collapse table-fixed">
+                  <colgroup>
+                    <col className="w-[28%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[24%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
                   <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
                     <tr>
-                      <th className="py-2.5 px-2.5 w-[110px]">Brand</th>
-                      <th className="py-2.5 px-2 w-[100px]">Market Share</th>
-                      <th className="py-2.5 px-2 min-w-[120px]">Status Mix</th>
-                      <th className="py-2.5 px-2.5 text-right w-[110px]">Gross Value</th>
-                      <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+                      <th className="py-2.5 px-2.5">Brand</th>
+                      <th className="py-2.5 px-2">Market Share</th>
+                      <th className="py-2.5 px-2">Status Mix</th>
+                      <th className="py-2.5 px-2.5 text-right">Gross Value</th>
+                      <th className="py-2.5 px-1.5 text-center"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
@@ -1222,16 +1265,10 @@ export default function ReportsPage() {
                 />
               </div>
 
-              {/* BU Type Filter: All / Official / Other */}
-              <select
-                value={buTypeFilter}
-                onChange={(e: any) => setBuTypeFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-xl bg-neutral/60 border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-              >
-                <option value="ALL">All Units ({buDistributionList.length})</option>
-                <option value="OFFICIAL">Official BUs ({OFFICIAL_REGISTERED_BUS.length})</option>
-                <option value="OTHER">Specialized & Others ({buDistributionList.filter((b) => !b.isOfficial).length})</option>
-              </select>
+              {/* BU Type Badge */}
+              <div className="px-2.5 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                Official BUs ({OFFICIAL_REGISTERED_BUS.length})
+              </div>
 
               {/* Status Mix Filter */}
               <select
@@ -1281,14 +1318,21 @@ export default function ReportsPage() {
 
             <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
               <div className="max-h-[380px] overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse table-auto">
+                <table className="w-full text-left text-xs border-collapse table-fixed">
+                  <colgroup>
+                    <col className="w-[28%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[24%]" />
+                    <col className="w-[4%]" />
+                  </colgroup>
                   <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
                     <tr>
-                      <th className="py-2.5 px-2.5 w-[110px]">Division</th>
-                      <th className="py-2.5 px-2 w-[100px]">Quota Share</th>
-                      <th className="py-2.5 px-2 min-w-[120px]">Status Mix</th>
-                      <th className="py-2.5 px-2.5 text-right w-[110px]">Gross Value</th>
-                      <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+                      <th className="py-2.5 px-2.5">Division</th>
+                      <th className="py-2.5 px-2">Quota Share</th>
+                      <th className="py-2.5 px-2">Status Mix</th>
+                      <th className="py-2.5 px-2.5 text-right">Gross Value</th>
+                      <th className="py-2.5 px-1.5 text-center"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
@@ -1538,7 +1582,7 @@ export default function ReportsPage() {
                     <div className="shimmer-skeleton h-6 w-20 rounded mt-1" />
                   ) : (
                     <span className="text-lg font-bold font-mono text-indigo-600">
-                      {OFFICIAL_REGISTERED_BUS.length} + Others
+                      {OFFICIAL_REGISTERED_BUS.length} Official BUs
                     </span>
                   )}
                 </div>
@@ -1954,41 +1998,9 @@ export default function ReportsPage() {
               />
             </div>
 
-            {/* Type Filter Pills */}
-            <div className="flex items-center gap-1 bg-neutral/60 p-1 rounded-xl border border-border/60">
-              <button
-                type="button"
-                onClick={() => setModalBUTypeFilter('ALL')}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
-                  modalBUTypeFilter === 'ALL'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
-              >
-                All ({buDistributionList.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalBUTypeFilter('OFFICIAL')}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
-                  modalBUTypeFilter === 'OFFICIAL'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
-              >
-                Official ({OFFICIAL_REGISTERED_BUS.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalBUTypeFilter('OTHER')}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
-                  modalBUTypeFilter === 'OTHER'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
-              >
-                Specialized & Others ({buDistributionList.filter((b) => !b.isOfficial).length})
-              </button>
+            {/* Type Filter Badge */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+              Official Registered BUs ({OFFICIAL_REGISTERED_BUS.length})
             </div>
 
             {/* Sort Dropdown */}
@@ -2143,6 +2155,7 @@ export default function ReportsPage() {
               statusFilters={buDealsFilters.statusFilters}
               onStatusFiltersChange={buDealsFilters.setStatusFilters}
               officialBUs={OFFICIAL_REGISTERED_BUS}
+              hideBUFilter={true}
             />
             <DealsSortPopover
               value={buDealsFilters.sortConfig}
@@ -2405,25 +2418,25 @@ export default function ReportsPage() {
                     <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25">
                       <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block">Critical (≤3d)</span>
                       <span className="text-xl font-bold font-mono text-rose-600 mt-1 block">
-                        {expiryAnalytics.criticalCount}
+                        {studioExpiryAnalytics.criticalCount}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/25">
                       <span className="text-[10px] font-bold text-orange-500 uppercase tracking-wider block">Urgent (≤7d)</span>
                       <span className="text-xl font-bold font-mono text-orange-600 mt-1 block">
-                        {expiryAnalytics.urgentCount}
+                        {studioExpiryAnalytics.urgentCount}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25">
                       <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">Warning (≤15d)</span>
                       <span className="text-xl font-bold font-mono text-amber-600 mt-1 block">
-                        {expiryAnalytics.warningCount}
+                        {studioExpiryAnalytics.warningCount}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-yellow-500/10 border border-yellow-500/25">
                       <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-wider block">Notice (≤30d)</span>
                       <span className="text-xl font-bold font-mono text-yellow-700 mt-1 block">
-                        {expiryAnalytics.noticeCount}
+                        {studioExpiryAnalytics.noticeCount}
                       </span>
                     </div>
                   </div>
@@ -2434,19 +2447,19 @@ export default function ReportsPage() {
                     <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/25">
                       <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider block">Active Brands</span>
                       <span className="text-xl font-bold font-mono text-sky-600 mt-1 block">
-                        {brandAnalytics.totalBrandsCount}
+                        {studioBrandAnalytics.totalBrandsCount}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-primary/10 border border-primary/25">
                       <span className="text-[10px] font-bold text-primary uppercase tracking-wider block">Total Pipeline</span>
                       <span className="text-xl font-bold font-mono text-primary mt-1 block">
-                        PHP {brandAnalytics.grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        PHP {studioBrandAnalytics.grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
                       <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Top Market Share</span>
                       <span className="text-xl font-bold text-foreground mt-1 block truncate">
-                        {brandAnalytics.topBrand}
+                        {studioBrandAnalytics.topBrand}
                       </span>
                     </div>
                   </div>
@@ -2457,19 +2470,19 @@ export default function ReportsPage() {
                     <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
                       <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Business Units</span>
                       <span className="text-xl font-bold font-mono text-indigo-600 mt-1 block">
-                        {OFFICIAL_REGISTERED_BUS.length} Official + {buAnalytics.othersCount} Others
+                        {studioBuAnalytics.coveredBUsCount} BUs Active
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
                       <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Top Revenue Leader</span>
                       <span className="text-xl font-bold text-foreground mt-1 block truncate">
-                        {buAnalytics.topBU}
+                        {studioBuAnalytics.topBU}
                       </span>
                     </div>
                     <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/25">
                       <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider block">Total Pipeline</span>
                       <span className="text-xl font-bold font-mono text-foreground mt-1 block">
-                        PHP {grandTotalPipelineValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        PHP {studioBuAnalytics.grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </span>
                     </div>
                   </div>
@@ -2487,15 +2500,23 @@ export default function ReportsPage() {
 
                   {activeReport === 'BRAND_ANALYTICS' && (
                     <div className="space-y-2">
-                      {brandAnalytics.brandsList.slice(0, 8).map(([brand, data]) => {
-                        const pct = brandAnalytics.grandTotal > 0 ? (data.totalValue / brandAnalytics.grandTotal) * 100 : 0;
+                      {studioBrandAnalytics.brandsList.slice(0, 10).map(([brand, data], idx) => {
+                        const pct = studioBrandAnalytics.grandTotal > 0 ? (data.totalValue / studioBrandAnalytics.grandTotal) * 100 : 0;
                         return (
                           <div key={brand} className="space-y-1">
                             <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-foreground">{brand}</span>
-                              <span className="font-mono text-muted font-bold">
-                                PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({pct.toFixed(1)}%)
-                              </span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-[10px] font-mono font-bold text-muted w-4">#{idx + 1}</span>
+                                <span className="font-semibold text-foreground">{brand}</span>
+                              </div>
+                              <div className="flex items-center gap-2 font-mono text-muted text-xs">
+                                <span className="text-foreground/90 font-bold">
+                                  PHP {data.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </span>
+                                <span className="text-[11px] text-muted">
+                                  • {data.count.toLocaleString()} deals ({pct.toFixed(1)}%)
+                                </span>
+                              </div>
                             </div>
                             <div className="w-full h-2 bg-neutral rounded-full overflow-hidden border border-border/40">
                               <div
@@ -2512,12 +2533,12 @@ export default function ReportsPage() {
                   {activeReport === 'EXPIRY_RISK' && (
                     <div className="space-y-2.5">
                       {[
-                        { label: 'Critical (≤3d left)', count: expiryAnalytics.criticalCount, color: 'from-rose-500 to-red-600' },
-                        { label: 'Urgent (≤7d left)', count: expiryAnalytics.urgentCount, color: 'from-orange-500 to-amber-600' },
-                        { label: 'Warning (≤15d left)', count: expiryAnalytics.warningCount, color: 'from-amber-500 to-yellow-600' },
-                        { label: 'Notice (≤30d left)', count: expiryAnalytics.noticeCount, color: 'from-yellow-400 to-emerald-500' },
+                        { label: 'Critical (≤3d left)', count: studioExpiryAnalytics.criticalCount, color: 'from-rose-500 to-red-600' },
+                        { label: 'Urgent (≤7d left)', count: studioExpiryAnalytics.urgentCount, color: 'from-orange-500 to-amber-600' },
+                        { label: 'Warning (≤15d left)', count: studioExpiryAnalytics.warningCount, color: 'from-amber-500 to-yellow-600' },
+                        { label: 'Notice (≤30d left)', count: studioExpiryAnalytics.noticeCount, color: 'from-yellow-400 to-emerald-500' },
                       ].map((item) => {
-                        const total = expiryAnalytics.totalAtRisk || 1;
+                        const total = studioExpiryAnalytics.totalAtRisk || 1;
                         const pct = (item.count / total) * 100;
                         return (
                           <div key={item.label} className="space-y-1">
@@ -2541,8 +2562,8 @@ export default function ReportsPage() {
 
                   {activeReport === 'BU_MATRIX' && (
                     <div className="space-y-2">
-                      {buAnalytics.buList.slice(0, 8).map(([bu, data]) => {
-                        const maxVal = buAnalytics.buList[0]?.[1].totalValue || 1;
+                      {studioBuAnalytics.buList.slice(0, 8).map(([bu, data]) => {
+                        const maxVal = studioBuAnalytics.buList[0]?.[1].totalValue || 1;
                         const pct = (data.totalValue / maxVal) * 100;
                         return (
                           <div key={bu} className="space-y-1">

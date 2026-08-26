@@ -20,6 +20,7 @@ import {
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
 import RenewalModal from './RenewalModal';
+import DealLoadingScreen from './DealLoadingScreen';
 import {
   AppModal,
   AppModalHeader,
@@ -162,10 +163,11 @@ export default function DealDetailsModal({
 
       <AppModalBody className="max-h-[75vh] overflow-y-auto space-y-5">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted space-y-3">
-            <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
-            <p className="text-xs font-medium">Fetching complete deal records...</p>
-          </div>
+          <DealLoadingScreen
+            compact
+            title="Loading Deal Record"
+            status="Fetching complete registration parameters & line item breakdown..."
+          />
         ) : !deal ? (
           <div className="py-12 text-center text-muted text-xs">
             Deal record not found or inaccessible.

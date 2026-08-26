@@ -79,19 +79,31 @@ export function ModalDealTable({
   return (
     <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background flex flex-col">
       <div className="max-h-[440px] overflow-y-auto">
-        <table className="w-full text-left text-xs border-collapse table-auto">
+        <table className="w-full text-left text-xs border-collapse table-fixed">
+          <colgroup>
+            <col className="w-[110px]" />
+            <col className="min-w-[150px]" />
+            <col className="w-[60px]" />
+            <col className="w-[85px]" />
+            <col className="w-[100px]" />
+            <col className="w-[90px]" />
+            <col className="w-[85px]" />
+            {showRemarks && <col className="w-[120px]" />}
+            <col className="w-[120px]" />
+            <col className="w-[40px]" />
+          </colgroup>
           <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
             <tr>
-              <th className="py-2.5 px-2.5 w-[110px]">Deal Ref ID</th>
-              <th className="py-2.5 px-2.5 min-w-[140px]">Customer & Project</th>
-              <th className="py-2.5 px-1.5 text-center w-[55px]">BU</th>
-              <th className="py-2.5 px-2 w-[85px]">Brand</th>
-              <th className="py-2.5 px-2 w-[95px]">Assigned AO</th>
-              <th className="py-2.5 px-2 w-[85px]">Expiry Date</th>
-              <th className="py-2.5 px-1.5 text-center w-[85px]">Status</th>
-              {showRemarks && <th className="py-2.5 px-2 min-w-[110px]">Remarks</th>}
-              <th className="py-2.5 px-2.5 text-right w-[110px]">Amount</th>
-              <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
+              <th className="py-2.5 px-2.5">Deal Ref ID</th>
+              <th className="py-2.5 px-2.5">Customer & Project</th>
+              <th className="py-2.5 px-1.5 text-center">BU</th>
+              <th className="py-2.5 px-2">Brand</th>
+              <th className="py-2.5 px-2">Assigned AO</th>
+              <th className="py-2.5 px-2">Expiry Date</th>
+              <th className="py-2.5 px-1.5 text-center">Status</th>
+              {showRemarks && <th className="py-2.5 px-2">Remarks</th>}
+              <th className="py-2.5 px-2.5 text-right">Amount</th>
+              <th className="py-2.5 px-1.5 text-center"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
