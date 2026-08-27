@@ -72,6 +72,14 @@ jobs:
           Push-Location $targetDir
 
           try {
+              # Pre-Deploy: Stop PM2 process to release file locks on Windows (.dll.node binaries)
+              Write-Host "`n[Pre-Deploy] Stopping PM2 deals-portal to release file locks..." -ForegroundColor Yellow
+              try {
+                  pm2 stop deals-portal 2>$null
+              } catch {
+                  Write-Host "  PM2 was not actively running."
+              }
+
               # 4. Install Dependencies
               Write-Host "`n[3/5] Installing dependencies..." -ForegroundColor Yellow
               npm install --no-audit --no-fund
@@ -90,7 +98,14 @@ jobs:
               }
               Write-Host "  [OK] Prisma Client generated." -ForegroundColor Green
 
-              # 6. Build Next.js Monorepo
+              # 6. Seed Admins in DB
+              Write-Host "`n[DB] Ensuring Admin Accounts are configured..." -ForegroundColor Yellow
+              npm run --prefix packages/database seed:admins
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Host "  [NOTICE] Non-blocking admin seed notice." -ForegroundColor Yellow
+              }
+
+              # 7. Build Next.js Monorepo
               Write-Host "`n[5/5] Building Next.js production bundle..." -ForegroundColor Yellow
               $env:NODE_ENV = "production"
               npm run build
@@ -100,32 +115,13 @@ jobs:
               }
               Write-Host "  [OK] Next.js build completed." -ForegroundColor Green
 
-              # 7. Start or Reload PM2
-              Write-Host "`n[PM2] Reloading PM2 process..." -ForegroundColor Yellow
+              # 8. Start PM2
+              Write-Host "`n[PM2] Starting PM2 process..." -ForegroundColor Yellow
               $ecosystem = Join-Path $targetDir "ecosystem.config.js"
               
-              # Check if PM2 is running deals-portal
-              $pm2List = pm2 jlist | ConvertFrom-Json 2>$null
-              $isRunning = $false
-              if ($pm2List) {
-                  foreach ($app in $pm2List) {
-                      if ($app.name -eq "deals-portal") {
-                          $isRunning = $true
-                          break
-                      }
-                  }
-              }
-
-              if ($isRunning) {
-                  Write-Host "  Performing zero-downtime PM2 reload..." -ForegroundColor Cyan
-                  pm2 reload $ecosystem --env production
-              } else {
-                  Write-Host "  Starting PM2 process for deals-portal..." -ForegroundColor Cyan
-                  pm2 start $ecosystem --env production
-              }
-
+              pm2 start $ecosystem --env production
               pm2 save
-              Write-Host "  [OK] PM2 state saved." -ForegroundColor Green
+              Write-Host "  [OK] PM2 process started and state saved." -ForegroundColor Green
 
           } finally {
               Pop-Location
