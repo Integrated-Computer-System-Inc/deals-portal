@@ -147,7 +147,7 @@ jobs:
                   }
               } catch {
                   $retryCount++
-                  Write-Host "  Attempt $retryCount/$maxRetries: App not responding yet on port 4001. Retrying in 3s..." -ForegroundColor Yellow
+                  Write-Host "  Attempt $($retryCount)/$($maxRetries) - App not responding yet on port 4001. Retrying in 3s..." -ForegroundColor Yellow
                   Start-Sleep -Seconds 3
               }
           }
@@ -156,10 +156,10 @@ jobs:
               Write-Host "  [!] PM2 Status and Logs:" -ForegroundColor Red
               pm2 status
               pm2 logs deals-portal --lines 20 --nostream
-              Write-Error "Health check failed after $maxRetries attempts."
+              Write-Error "Health check failed after $($maxRetries) attempts."
               exit 1
           }
 
           Write-Host "`n============================================================" -ForegroundColor Green
-          Write-Host " Deployment Succeeded! Deals Portal is live on Port 4000." -ForegroundColor Green
+          Write-Host " Deployment Succeeded! Deals Portal is live." -ForegroundColor Green
           Write-Host "============================================================" -ForegroundColor Green
