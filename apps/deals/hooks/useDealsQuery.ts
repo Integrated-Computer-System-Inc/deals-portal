@@ -31,16 +31,32 @@ import {
  */
 export function normalizeScopedFilter(filter?: ScopedDealsFilter): ScopedDealsFilter {
   if (!filter) return { userRole: 'ao' };
+
+  const normArray = (arr: string | string[] | undefined) => {
+    if (!arr) return undefined;
+    if (Array.isArray(arr)) {
+      const filtered = arr.filter((x) => x && x !== 'ALL').sort();
+      return filtered.length > 0 ? filtered : undefined;
+    }
+    return arr !== 'ALL' && arr.trim() !== '' ? arr.trim() : undefined;
+  };
+
   return {
     userRole: filter.userRole || 'ao',
     accountName: filter.accountName || undefined,
     domainAccount: filter.domainAccount || undefined,
     accountGroup: filter.accountGroup || undefined,
-    assignedBUs: filter.assignedBUs && filter.assignedBUs.length > 0 ? filter.assignedBUs : undefined,
+    assignedBUs: filter.assignedBUs && filter.assignedBUs.length > 0 ? [...filter.assignedBUs].sort() : undefined,
     searchQuery: filter.searchQuery ? filter.searchQuery.trim() : undefined,
-    statusFilter: filter.statusFilter && filter.statusFilter !== 'ALL' ? filter.statusFilter : undefined,
-    buFilter: filter.buFilter && filter.buFilter !== 'ALL' ? filter.buFilter : undefined,
-    brandFilter: filter.brandFilter && filter.brandFilter !== 'ALL' ? filter.brandFilter : undefined,
+    statusFilter: normArray(filter.statusFilter),
+    buFilter: normArray(filter.buFilter),
+    aoFilter: normArray(filter.aoFilter),
+    brandFilter: normArray(filter.brandFilter),
+    expiryFilter: normArray(filter.expiryFilter),
+    startDate: filter.startDate ? new Date(filter.startDate).toISOString().slice(0, 10) : undefined,
+    endDate: filter.endDate ? new Date(filter.endDate).toISOString().slice(0, 10) : undefined,
+    sortBy: filter.sortBy || undefined,
+    sortOrder: filter.sortOrder || undefined,
     page: filter.page && filter.page > 1 ? filter.page : undefined,
     pageSize: filter.pageSize !== undefined && filter.pageSize > 0 ? filter.pageSize : undefined,
   };
@@ -76,6 +92,44 @@ export function useCurrentUserFilter(): ScopedDealsFilter {
     }),
     [role, accountName, domainAccount, accountGroup, assignedBUs]
   );
+}
+
+export interface PaginatedDealsResponse {
+  data: DealHeaderRecord[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/**
+ * Hook to retrieve server-paginated & filtered deals with TanStack Query caching
+ */
+export function usePaginatedDealsQuery(filter?: ScopedDealsFilter, options?: { enabled?: boolean }) {
+  const normalizedKey = DEAL_QUERY_KEYS.list(filter);
+
+  return useQuery<PaginatedDealsResponse>({
+    queryKey: normalizedKey,
+    queryFn: async () => {
+      const res = await getScopedDeals(filter || {});
+      if (res && res.success) {
+        return {
+          data: Array.isArray(res.data) ? res.data : [],
+          totalCount: res.totalCount || 0,
+          page: res.page || 1,
+          pageSize: res.pageSize || 50,
+          totalPages: res.totalPages || 1,
+        };
+      }
+      throw new Error(res?.error || 'Failed to fetch deals');
+    },
+    enabled: options?.enabled !== undefined ? options.enabled : true,
+    placeholderData: (previousData) => previousData,
+    staleTime: 1000 * 60 * 2, // 2 minutes fresh window
+    gcTime: 1000 * 60 * 30, // 30 minutes in-memory retention
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
 }
 
 /**

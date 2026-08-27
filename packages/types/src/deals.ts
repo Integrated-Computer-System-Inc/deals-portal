@@ -86,9 +86,15 @@ export interface ScopedDealsFilter {
   page?: number;
   pageSize?: number;
   searchQuery?: string;
-  statusFilter?: string;
-  buFilter?: string;
-  brandFilter?: string;
+  statusFilter?: string | string[];
+  buFilter?: string | string[];
+  aoFilter?: string | string[];
+  brandFilter?: string | string[];
+  expiryFilter?: string | string[];
+  startDate?: string | Date;
+  endDate?: string | Date;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface ScopedDealsResult {

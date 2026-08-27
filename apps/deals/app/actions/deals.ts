@@ -49,7 +49,7 @@ export async function invalidateServerDealsCache() {
 
 /**
  * 1. getScopedDeals / getDealsList (Server Action / Query)
- * Retrieves filtered active deals based on user role (AO, PM, BU Head, or Admin).
+ * Retrieves filtered active deals based on user role (AO, PM, BU Head, or Admin) with database pushdown.
  */
 export async function getScopedDeals(
   filter: ScopedDealsFilter,
@@ -64,7 +64,12 @@ export async function getScopedDeals(
   error?: string;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    let session: any = null;
+    try {
+      session = await getServerSession(authOptions);
+    } catch {
+      // In standalone scripts or background jobs outside request context
+    }
     const sessionRole = (session?.user as any)?.role as string | undefined;
     const sessionAccountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
     const sessionDomainAccount = ((session?.user as any)?.DomainAccount || '').trim();
@@ -83,9 +88,15 @@ export async function getScopedDeals(
     const page = Math.max(1, filter.page || 1);
     const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
     const searchQuery = (filter.searchQuery || '').trim();
-    const statusFilter = filter.statusFilter || 'ALL';
-    const buFilter = filter.buFilter || 'ALL';
-    const brandFilter = filter.brandFilter || 'ALL';
+    const statusFilter = filter.statusFilter;
+    const buFilter = filter.buFilter;
+    const aoFilter = filter.aoFilter;
+    const brandFilter = filter.brandFilter;
+    const expiryFilter = filter.expiryFilter;
+    const startDate = filter.startDate;
+    const endDate = filter.endDate;
+    const sortBy = filter.sortBy;
+    const sortOrder = filter.sortOrder || 'desc';
 
     const cacheKey = serverCache.generateKey('scoped_deals', {
       userRole,
@@ -98,7 +109,13 @@ export async function getScopedDeals(
       searchQuery,
       statusFilter,
       buFilter,
+      aoFilter,
       brandFilter,
+      expiryFilter,
+      startDate,
+      endDate,
+      sortBy,
+      sortOrder,
     });
 
     const cached = serverCache.get<{
@@ -125,19 +142,94 @@ export async function getScopedDeals(
       andConditions.push({ OR: buConditions });
     }
 
-    // Status filter
-    if (statusFilter !== 'ALL') {
-      andConditions.push({ dealStatus: String(statusFilter) });
+    // Status filter (single or multi-select array)
+    if (statusFilter) {
+      if (Array.isArray(statusFilter) && statusFilter.length > 0 && !statusFilter.includes('ALL')) {
+        andConditions.push({ dealStatus: { in: statusFilter.map(String) } });
+      } else if (typeof statusFilter === 'string' && statusFilter !== 'ALL' && statusFilter !== '') {
+        andConditions.push({ dealStatus: String(statusFilter) });
+      }
     }
 
-    // BU filter
-    if (buFilter !== 'ALL') {
-      andConditions.push({ BU: String(buFilter) });
+    // BU filter (single or multi-select array)
+    if (buFilter) {
+      if (Array.isArray(buFilter) && buFilter.length > 0 && !buFilter.includes('ALL')) {
+        andConditions.push({ BU: { in: buFilter.map(String) } });
+      } else if (typeof buFilter === 'string' && buFilter !== 'ALL' && buFilter !== '') {
+        andConditions.push({ BU: String(buFilter) });
+      }
     }
 
-    // Brand filter
-    if (brandFilter !== 'ALL' && brandFilter !== '') {
-      andConditions.push({ brand: String(brandFilter) });
+    // AO filter (single or multi-select array)
+    if (aoFilter) {
+      if (Array.isArray(aoFilter) && aoFilter.length > 0) {
+        andConditions.push({
+          OR: aoFilter.map((ao) => ({ AssignedAO: { contains: ao.trim() } })),
+        });
+      } else if (typeof aoFilter === 'string' && aoFilter !== 'ALL' && aoFilter !== '') {
+        andConditions.push({ AssignedAO: { contains: aoFilter.trim() } });
+      }
+    }
+
+    // Brand filter (single or multi-select array)
+    if (brandFilter) {
+      if (Array.isArray(brandFilter) && brandFilter.length > 0 && !brandFilter.includes('ALL')) {
+        andConditions.push({ brand: { in: brandFilter.map(String) } });
+      } else if (typeof brandFilter === 'string' && brandFilter !== 'ALL' && brandFilter !== '') {
+        andConditions.push({ brand: String(brandFilter) });
+      }
+    }
+
+    // Date range filter
+    if (startDate && endDate) {
+      const sDate = new Date(startDate);
+      const eDate = new Date(endDate);
+      eDate.setHours(23, 59, 59, 999);
+      andConditions.push({
+        OR: [
+          { dtRegistered: { gte: sDate, lte: eDate } },
+          { AND: [{ dtRegistered: null }, { dtCreated: { gte: sDate, lte: eDate } }] },
+        ],
+      });
+    }
+
+    // Expiry bucket filters (multi-select)
+    if (expiryFilter) {
+      const expiryArray = Array.isArray(expiryFilter) ? expiryFilter : [expiryFilter];
+      if (expiryArray.length > 0 && !expiryArray.includes('ALL')) {
+        const now = new Date();
+        const expConditions: any[] = [];
+
+        expiryArray.forEach((f) => {
+          if (f === 'EXPIRED') {
+            expConditions.push({ expDt: { lt: now } });
+          } else if (f === 'CRITICAL_3') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 3 * 86400000) },
+            });
+          } else if (f === 'URGENT_7') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 7 * 86400000) },
+            });
+          } else if (f === 'WARNING_15') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 15 * 86400000) },
+            });
+          } else if (f === 'NOTICE_30') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 30 * 86400000) },
+            });
+          } else if (f === 'ACTIVE') {
+            expConditions.push({
+              expDt: { gt: new Date(now.getTime() + 30 * 86400000) },
+            });
+          }
+        });
+
+        if (expConditions.length > 0) {
+          andConditions.push({ OR: expConditions });
+        }
+      }
     }
 
     // Search query pushdown (checks dealRegID, ProjectName, custName, AssignedAO, brand)
@@ -160,10 +252,64 @@ export async function getScopedDeals(
       where: whereClause,
     });
 
-    // 2. Database-level limit & offset with lean relation loading
+    // 2. Determine SQL Server sorting
+    let orderByClause: any = { dtCreated: 'desc' };
+    if (sortBy) {
+      const order = sortOrder === 'asc' ? 'asc' : 'desc';
+      switch (sortBy) {
+        case 'dtRegistered':
+          orderByClause = { dtRegistered: order };
+          break;
+        case 'expDt':
+          orderByClause = { expDt: order };
+          break;
+        case 'dealRegID':
+          orderByClause = { dealRegID: order };
+          break;
+        case 'custName':
+          orderByClause = { custName: order };
+          break;
+        case 'projectName':
+        case 'ProjectName':
+          orderByClause = { ProjectName: order };
+          break;
+        case 'brand':
+          orderByClause = { brand: order };
+          break;
+        case 'AssignedAO':
+        case 'assignedAO':
+          orderByClause = { AssignedAO: order };
+          break;
+        case 'BU':
+        case 'bu':
+          orderByClause = { BU: order };
+          break;
+        default:
+          orderByClause = { dtCreated: order };
+          break;
+      }
+    }
+
+    // 3. Database-level limit & offset with lean relation loading
     const rawDeals = await prisma.dealHeader.findMany({
       where: whereClause,
-      include: {
+      select: {
+        dealID: true,
+        dtRegistered: true,
+        expiration: true,
+        expDt: true,
+        brand: true,
+        customerID: true,
+        dealRegID: true,
+        ProjectName: true,
+        AssignedAO: true,
+        BU: true,
+        dealStatus: true,
+        createdBy: true,
+        custName: true,
+        remarks: true,
+        dtCreated: true,
+        dtValidTo: true,
         DealItems: {
           select: {
             dealItemID: true,
@@ -208,11 +354,11 @@ export async function getScopedDeals(
             remarks: true,
             dtCreated: true,
           },
+          orderBy: { dtCreated: 'desc' },
+          take: 1,
         },
       },
-      orderBy: {
-        dtCreated: 'desc',
-      },
+      orderBy: orderByClause,
       ...(pageSize > 0
         ? {
             take: pageSize,
@@ -230,21 +376,15 @@ export async function getScopedDeals(
         totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
       });
 
-      const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || [])
-        .map((r: any) => ({
-          renewalID: r.renewalID,
-          dealID: r.dealID,
-          dtRenewal: r.dtRenewal,
-          rexpDt: r.rexpDt,
-          remarks: r.remarks,
-          dtCreated: r.dtCreated,
-          dtUpdated: r.dtUpdated || null,
-        }))
-        .sort((a: any, b: any) => {
-          const timeB = new Date(b.dtRenewal || b.dtCreated || 0).getTime();
-          const timeA = new Date(a.dtRenewal || a.dtCreated || 0).getTime();
-          return timeB - timeA;
-        });
+      const sortedRenewals: DealRenewalRecord[] = (deal.Renewals || []).map((r: any) => ({
+        renewalID: r.renewalID,
+        dealID: r.dealID,
+        dtRenewal: r.dtRenewal,
+        rexpDt: r.rexpDt,
+        remarks: r.remarks,
+        dtCreated: r.dtCreated,
+        dtUpdated: null,
+      }));
 
       return {
         dealID: deal.dealID,
@@ -1412,7 +1552,12 @@ export async function getDashboardSummary(): Promise<{
   error?: string;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    let session: any = null;
+    try {
+      session = await getServerSession(authOptions);
+    } catch {
+      // In standalone scripts or background jobs outside request context
+    }
     const userRole = ((session?.user as any)?.role as string) || 'admin';
     const accountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
     const domainAccount = ((session?.user as any)?.DomainAccount || '').trim();
@@ -1448,45 +1593,42 @@ export async function getDashboardSummary(): Promise<{
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const [
-      totalCount,
-      totalRegistered,
-      expiredThisMonth,
-      totalRenewed,
-      dealsByBrandGroup,
-      dealsByBUGroup,
-      recentRawDeals,
-    ] = await Promise.all([
-      // 1. Total deals in scope
-      prisma.dealHeader.count({ where: baseWhere }),
-      // 2. Registered status ('1')
-      prisma.dealHeader.count({
-        where: {
-          ...baseWhere,
-          dealStatus: '1',
-        },
-      }),
-      // 3. Expired this month
-      prisma.dealHeader.count({
-        where: {
-          ...baseWhere,
-          expDt: {
-            gte: startOfMonth,
-            lte: endOfMonth,
-            lt: now,
-          },
-        },
-      }),
-      // 4. Total Renewed (Deals joined with DealRenewal by dealID)
-      prisma.dealHeader.count({
-        where: {
-          ...baseWhere,
-          Renewals: {
-            some: {},
-          },
-        },
-      }),
-      // 4. Deals Grouped by Brand (Top 10)
+    const startIso = startOfMonth.toISOString().slice(0, 10);
+    const endIso = endOfMonth.toISOString().slice(0, 10);
+    const nowIso = now.toISOString().slice(0, 10);
+
+    // Fast Single-Pass KPI Computation for Admin/Global scope vs Scoped Prisma
+    let totalCount = 0;
+    let totalRegistered = 0;
+    let expiredThisMonth = 0;
+    let totalRenewed = 0;
+
+    const isGlobalScope = andConditions.length === 0;
+
+    const [kpiResult, dealsByBrandGroup, dealsByBUGroup, recentRawDeals]: any = await Promise.all([
+      isGlobalScope
+        ? prisma.$queryRawUnsafe<any[]>(`
+            SELECT
+              COUNT(*) AS totalCount,
+              SUM(CASE WHEN dealStatus = '1' THEN 1 ELSE 0 END) AS totalRegistered,
+              SUM(CASE WHEN expDt >= '${startIso}' AND expDt <= '${endIso}' AND expDt < '${nowIso}' THEN 1 ELSE 0 END) AS expiredThisMonth,
+              (SELECT COUNT(DISTINCT dealID) FROM DealRenewal) AS totalRenewed
+            FROM DealHeader;
+          `)
+        : Promise.all([
+            prisma.dealHeader.count({ where: baseWhere }),
+            prisma.dealHeader.count({ where: { ...baseWhere, dealStatus: '1' } }),
+            prisma.dealHeader.count({
+              where: {
+                ...baseWhere,
+                expDt: { gte: startOfMonth, lte: endOfMonth, lt: now },
+              },
+            }),
+            prisma.dealHeader.count({
+              where: { ...baseWhere, Renewals: { some: {} } },
+            }),
+          ]),
+      // Deals Grouped by Brand (Top 10)
       prisma.dealHeader.groupBy({
         by: ['brand'],
         where: baseWhere,
@@ -1500,7 +1642,7 @@ export async function getDashboardSummary(): Promise<{
         },
         take: 10,
       }),
-      // 5. Deals Grouped by BU
+      // Deals Grouped by BU
       prisma.dealHeader.groupBy({
         by: ['BU'],
         where: baseWhere,
@@ -1513,22 +1655,59 @@ export async function getDashboardSummary(): Promise<{
           },
         },
       }),
-      // 6. Recent 5 deals
+      // Recent 5 deals with lean projection
       prisma.dealHeader.findMany({
         where: baseWhere,
         take: 5,
         orderBy: {
           dtCreated: 'desc',
         },
-        include: {
-          DealItems: true,
+        select: {
+          dealID: true,
+          dtRegistered: true,
+          expiration: true,
+          expDt: true,
+          brand: true,
+          customerID: true,
+          dealRegID: true,
+          ProjectName: true,
+          AssignedAO: true,
+          BU: true,
+          dealStatus: true,
+          createdBy: true,
+          custName: true,
+          remarks: true,
+          dtCreated: true,
+          dtValidTo: true,
+          DealItems: {
+            select: {
+              dealItemID: true,
+              dealID: true,
+              itemDesc: true,
+              qty: true,
+              currency: true,
+              totalAmt: true,
+            },
+          },
         },
       }),
     ]);
 
-    const formattedRecentDeals: DealHeaderRecord[] = recentRawDeals.map((deal) => {
+    if (isGlobalScope && Array.isArray(kpiResult) && kpiResult.length > 0) {
+      totalCount = Number(kpiResult[0].totalCount || 0);
+      totalRegistered = Number(kpiResult[0].totalRegistered || 0);
+      expiredThisMonth = Number(kpiResult[0].expiredThisMonth || 0);
+      totalRenewed = Number(kpiResult[0].totalRenewed || 0);
+    } else if (Array.isArray(kpiResult)) {
+      totalCount = kpiResult[0];
+      totalRegistered = kpiResult[1];
+      expiredThisMonth = kpiResult[2];
+      totalRenewed = kpiResult[3];
+    }
+
+    const formattedRecentDeals: DealHeaderRecord[] = recentRawDeals.map((deal: any) => {
       const totalsByCurrency: CurrencyTotals = {};
-      deal.DealItems.forEach((item) => {
+      deal.DealItems.forEach((item: any) => {
         const curr = item.currency || 'USD';
         const amt = parseSafeNumber(item.totalAmt);
         totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
@@ -1551,7 +1730,7 @@ export async function getDashboardSummary(): Promise<{
         remarks: deal.remarks || null,
         dtCreated: deal.dtCreated || new Date(),
         dtValidTo: deal.dtValidTo || null,
-        items: deal.DealItems.map((i) => ({
+        items: deal.DealItems.map((i: any) => ({
           itemID: i.dealItemID,
           dealID: i.dealID || deal.dealID,
           itemDesc: i.itemDesc || '',
@@ -1563,12 +1742,12 @@ export async function getDashboardSummary(): Promise<{
       };
     });
 
-    const dealsByBrand = dealsByBrandGroup.map((b) => ({
+    const dealsByBrand = dealsByBrandGroup.map((b: any) => ({
       brand: b.brand || 'Unspecified',
       count: b._count.dealID,
     }));
 
-    const dealsByBU = dealsByBUGroup.map((bu) => ({
+    const dealsByBU = dealsByBUGroup.map((bu: any) => ({
       bu: bu.BU || 'Unassigned',
       count: bu._count.dealID,
     }));

@@ -8,6 +8,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "start": "turbo run start",
     "lint": "turbo run lint",
     "db:generate": "npm run --prefix packages/database generate",
     "db:push": "npm run --prefix packages/database db:push"

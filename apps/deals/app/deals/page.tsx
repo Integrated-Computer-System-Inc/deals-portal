@@ -7,10 +7,11 @@ import Link from 'next/link';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDealsQuery, useCurrentUserFilter, DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
+import { useDealsQuery, usePaginatedDealsQuery, useCurrentUserFilter, DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDealById } from '@/app/actions/deals';
 import {
   DealHeaderRecord,
+  ScopedDealsFilter,
   UserRole,
   DEAL_STATUS_MAP,
   ACTIVE_BUSINESS_UNITS,
@@ -86,6 +87,7 @@ function DealsContent() {
   };
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [buFilters, setBuFilters] = useState<string[]>([]);
   const [aoFilters, setAoFilters] = useState<string[]>([]);
@@ -99,17 +101,62 @@ function DealsContent() {
     order: 'desc',
   });
 
+  // Debounce search input to avoid spamming server queries
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   // Modals
   const [viewTarget, setViewTarget] = useState<number | null>(null);
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
 
   const scopedFilter = useCurrentUserFilter();
-  const { data: rawDeals = [], isLoading: loading, refetch: fetchDeals } = useDealsQuery(scopedFilter);
 
-  // Filter deals registry strictly to the 7 official BUs (BU1, BU2, BU5, BU8, BU10, BU12, CE01)
-  const deals = useMemo(() => {
-    return filterOfficialDeals(rawDeals);
+  const queryFilter: ScopedDealsFilter = useMemo(() => {
+    return {
+      ...scopedFilter,
+      searchQuery: debouncedSearch,
+      statusFilter: statusFilters.length > 0 ? statusFilters : undefined,
+      buFilter: buFilters.length > 0 ? buFilters : undefined,
+      aoFilter: aoFilters.length > 0 ? aoFilters : undefined,
+      expiryFilter: expiryFilters.length > 0 ? expiryFilters : undefined,
+      startDate: dateRange.preset !== 'ALL' && dateRange.startDate ? dateRange.startDate : undefined,
+      endDate: dateRange.preset !== 'ALL' && dateRange.endDate ? dateRange.endDate : undefined,
+      sortBy: sortConfig.field,
+      sortOrder: sortConfig.order,
+      page: currentPage,
+      pageSize: pageSize,
+    };
+  }, [
+    scopedFilter,
+    debouncedSearch,
+    statusFilters,
+    buFilters,
+    aoFilters,
+    expiryFilters,
+    dateRange,
+    sortConfig,
+    currentPage,
+    pageSize,
+  ]);
+
+  const { data: queryResult, isLoading: loading, refetch: fetchDeals } = usePaginatedDealsQuery(queryFilter);
+
+  const rawDeals: DealHeaderRecord[] = queryResult?.data || [];
+  const totalRecords = queryResult?.totalCount || 0;
+  const totalPages = queryResult?.totalPages || 1;
+
+  // Filter deals registry strictly to the 7 official BUs
+  const deals: DealHeaderRecord[] = useMemo(() => {
+    return filterOfficialDeals<DealHeaderRecord>(rawDeals);
   }, [rawDeals]);
 
   // Handle URL navigation parameters (e.g. /deals?view=123 or /deals?brand=Dell)
@@ -149,16 +196,11 @@ function DealsContent() {
     return map;
   }, [deals]);
 
-  // Official Registered Business Units (dynamically filtered for AO and BU Heads to only show BUs present in their scoped deals)
+  // Official Registered Business Units
   const OFFICIAL_BUS = useMemo(() => {
-    if (role === 'ao' || role === 'bu' || role === 'bu_admin') {
-      const activeOfficial = OFFICIAL_REGISTERED_BUS.filter((bu) => (dealsCountByBU[bu] || 0) > 0);
-      return activeOfficial.length > 0 ? activeOfficial : [...OFFICIAL_REGISTERED_BUS];
-    }
     return [...OFFICIAL_REGISTERED_BUS];
-  }, [role, dealsCountByBU]);
+  }, []);
 
-  // Non-standard / other BUs aggregated map (omitted since non-BUs are filtered out)
   const otherBUsMap = useMemo(() => {
     return {};
   }, []);
@@ -172,7 +214,6 @@ function DealsContent() {
     return map;
   }, [deals]);
 
-  // Calculate available AOs list dynamically with deal counts
   const availableAOs = useMemo(() => {
     const countsMap: Record<string, number> = {};
     deals.forEach((d) => {
@@ -194,113 +235,13 @@ function DealsContent() {
     return Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
   };
 
-  // Filter and sort deals
-  const filteredDeals = useMemo(() => {
-    const result = deals.filter((deal) => {
-      const projName = deal.ProjectName || deal.projectName || '';
-      const custName = deal.custName || '';
-      const regID = deal.dealRegID || '';
-      const ao = deal.AssignedAO || deal.assignedAO || '';
-      const brand = deal.brand || '';
-      const bu = normalizeBU(deal.BU || deal.bu || '');
-
-      const matchesSearch =
-        projName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        custName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        regID.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ao.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        brand.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesStatus =
-        statusFilters.length === 0 || statusFilters.includes(String(deal.dealStatus));
-
-      const matchesBU =
-        buFilters.length === 0 || buFilters.includes(bu);
-
-      const matchesAO =
-        aoFilters.length === 0 || aoFilters.some((f) => f.toLowerCase() === ao.trim().toLowerCase());
-
-      const matchesDateRange = filterDealByDateRange(
-        deal.dtRegistered || deal.dtCreated,
-        dateRange
-      );
-
-      // Expiry filter logic (multi-select)
-      let matchesExpiry = true;
-      if (expiryFilters.length > 0) {
-        const days = getDaysUntilExp(deal.expDt || deal.expiration);
-        matchesExpiry = expiryFilters.some((f) => {
-          if (f === 'EXPIRED') return days !== null && days <= 0;
-          if (f === 'CRITICAL_3') return days !== null && days > 0 && days <= 3;
-          if (f === 'URGENT_7') return days !== null && days > 0 && days <= 7;
-          if (f === 'WARNING_15') return days !== null && days > 0 && days <= 15;
-          if (f === 'NOTICE_30') return days !== null && days > 0 && days <= 30;
-          if (f === 'ACTIVE') return days !== null && days > 30;
-          return false;
-        });
-      }
-
-      return matchesSearch && matchesStatus && matchesBU && matchesAO && matchesDateRange && matchesExpiry;
-    });
-
-    return result.sort((a, b) => {
-      let valA: any = '';
-      let valB: any = '';
-
-      switch (sortConfig.field) {
-        case 'dtRegistered':
-          valA = a.dtRegistered ? new Date(a.dtRegistered).getTime() : 0;
-          valB = b.dtRegistered ? new Date(b.dtRegistered).getTime() : 0;
-          break;
-        case 'expDt':
-          valA = (a.expDt || a.expiration) ? new Date(a.expDt || a.expiration!).getTime() : 0;
-          valB = (b.expDt || b.expiration) ? new Date(b.expDt || b.expiration!).getTime() : 0;
-          break;
-        case 'dealRegID':
-          valA = (a.dealRegID || '').toLowerCase();
-          valB = (b.dealRegID || '').toLowerCase();
-          break;
-        case 'custName':
-          valA = (a.custName || '').toLowerCase();
-          valB = (b.custName || '').toLowerCase();
-          break;
-        case 'projectName':
-          valA = (a.ProjectName || a.projectName || '').toLowerCase();
-          valB = (b.ProjectName || b.projectName || '').toLowerCase();
-          break;
-        case 'brand':
-          valA = (a.brand || '').toLowerCase();
-          valB = (b.brand || '').toLowerCase();
-          break;
-        case 'totalAmt':
-          valA = a.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-          valB = b.items?.reduce((sum: number, i: any) => sum + (Number(i.totalAmt) || 0), 0) || 0;
-          break;
-      }
-
-      if (valA < valB) return sortConfig.order === 'asc' ? -1 : 1;
-      if (valA > valB) return sortConfig.order === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [deals, searchQuery, statusFilters, buFilters, dateRange, expiryFilters, sortConfig]);
-
-  // Pagination States
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-
-  // Reset pagination on filter or page size change
+  // Reset pagination on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilters, buFilters, dateRange, expiryFilters, sortConfig, pageSize]);
+  }, [debouncedSearch, statusFilters, buFilters, aoFilters, dateRange, expiryFilters, sortConfig, pageSize]);
 
-  const totalRecords = filteredDeals.length;
-  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const paginatedDeals = useMemo(() => {
-    const startIndex = (safeCurrentPage - 1) * pageSize;
-    return filteredDeals.slice(startIndex, startIndex + pageSize);
-  }, [filteredDeals, safeCurrentPage, pageSize]);
+  const paginatedDeals = deals;
 
   const startRecord = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
   const endRecord = Math.min(safeCurrentPage * pageSize, totalRecords);
