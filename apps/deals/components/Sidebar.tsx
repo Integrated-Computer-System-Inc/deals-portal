@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { Tooltip } from 'antd';
 import { AppSidebar, useSidebar } from './ui/sidebar';
@@ -18,6 +18,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
@@ -25,13 +27,34 @@ import { useQueryClient } from '@tanstack/react-query';
 import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 
+const DEAL_STATUS_FILTERS = [
+  { id: '1', label: 'Registered', color: 'bg-emerald-500' },
+  { id: '4', label: 'Pending', color: 'bg-amber-500' },
+  { id: '3', label: 'Waiting', color: 'bg-sky-500' },
+  { id: '6', label: 'Won', color: 'bg-indigo-500' },
+  { id: '7', label: 'Lost', color: 'bg-rose-600' },
+  { id: '5', label: 'Expired', color: 'bg-zinc-400' },
+  { id: '2', label: 'Declined', color: 'bg-rose-500' },
+  { id: '8', label: 'Cancelled', color: 'bg-zinc-500' },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentStatusParam = searchParams?.get('status') || '';
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
   const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
+
+  const isDealsPage = pathname === '/deals' || pathname.startsWith('/deals/');
+  const [isDealsSubmenuOpen, setIsDealsSubmenuOpen] = React.useState(isDealsPage);
+
+  // Sync open state when navigating across routes: auto-open on Deals page, auto-close on other pages
+  React.useEffect(() => {
+    setIsDealsSubmenuOpen(isDealsPage);
+  }, [isDealsPage]);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
@@ -90,33 +113,6 @@ export default function Sidebar() {
       router.prefetch('/deals/new');
     }
   }, [router, isViewOnly]);
-
-  const menuItems = [
-    {
-      title: 'Home',
-      href: '/dashboard',
-      icon: <Home size={18} />,
-    },
-    {
-      title: 'Deals Registry',
-      href: '/deals',
-      icon: <FileSpreadsheet size={18} />,
-    },
-    {
-      title: 'Reports',
-      href: '/reports',
-      icon: <BarChart2 size={18} />,
-    },
-    ...(!isViewOnly
-      ? [
-          {
-            title: 'Register Deal',
-            href: '/deals/new',
-            icon: <PlusCircle size={18} />,
-          },
-        ]
-      : []),
-  ];
 
   return (
     <>
@@ -194,33 +190,130 @@ export default function Sidebar() {
 
         {/* Main Navigation */}
         <AppSidebar.Content className={collapsed ? "p-2 flex-1 flex flex-col items-center overflow-y-auto" : "p-2 flex-1 overflow-y-auto"}>
-          <AppSidebar.Group className="w-full flex flex-col items-center">
+          <AppSidebar.Group className="w-full flex flex-col items-center space-y-1">
             {!collapsed && (
-              <div className="px-3 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
+              <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
                 Menu
               </div>
             )}
-            {menuItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <div
-                  key={item.href}
-                  className="w-full flex justify-center"
-                  onMouseEnter={() => handlePrefetchData(item.href)}
-                  onFocus={() => handlePrefetchData(item.href)}
+
+            {/* 1. Home */}
+            <div
+              className="w-full flex justify-center"
+              onMouseEnter={() => handlePrefetchData('/dashboard')}
+              onFocus={() => handlePrefetchData('/dashboard')}
+            >
+              <AppSidebar.Item
+                href="/dashboard"
+                icon={<Home size={18} />}
+                active={pathname === '/dashboard'}
+                onClick={() => setMobileOpen(false)}
+                tooltipPlacement="right"
+              >
+                Home
+              </AppSidebar.Item>
+            </div>
+
+            {/* 2. Deals Registry & Nested Status Filtering */}
+            <div className="w-full flex flex-col items-center">
+              <div
+                className="w-full flex justify-center"
+                onMouseEnter={() => handlePrefetchData('/deals')}
+                onFocus={() => handlePrefetchData('/deals')}
+              >
+                <AppSidebar.Item
+                  href="/deals"
+                  icon={<FileSpreadsheet size={18} />}
+                  active={pathname === '/deals' && !currentStatusParam}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setIsDealsSubmenuOpen(true);
+                  }}
+                  tooltipPlacement="right"
+                  actions={
+                    !collapsed ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDealsSubmenuOpen(!isDealsSubmenuOpen);
+                        }}
+                        className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/15 text-inherit transition flex items-center justify-center cursor-pointer"
+                        title={isDealsSubmenuOpen ? 'Collapse status filters' : 'Expand status filters'}
+                        aria-label="Toggle status filters"
+                      >
+                        {isDealsSubmenuOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    ) : undefined
+                  }
                 >
-                  <AppSidebar.Item
-                    href={item.href}
-                    icon={item.icon}
-                    active={isActive}
-                    onClick={() => setMobileOpen(false)}
-                    tooltipPlacement="right"
-                  >
-                    {item.title}
-                  </AppSidebar.Item>
+                  Deals Registry
+                </AppSidebar.Item>
+              </div>
+
+              {/* Status Sub-items directly under Deals Registry (collapsible) */}
+              {!collapsed && isDealsSubmenuOpen && (
+                <div className="w-full pl-5 pr-2 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="border-l-2 border-border/60 pl-2.5 space-y-0.5">
+                    {DEAL_STATUS_FILTERS.map((st) => {
+                      const isStatusActive = pathname === '/deals' && currentStatusParam === st.id;
+                      return (
+                        <Link
+                          key={st.id}
+                          href={`/deals?status=${st.id}`}
+                          onClick={() => setMobileOpen(false)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition ${
+                            isStatusActive
+                              ? 'bg-primary/10 text-primary font-bold shadow-xs'
+                              : 'text-muted hover:text-foreground hover:bg-neutral/50 font-medium'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`w-1.5 h-1.5 rounded-full ${st.color} shrink-0`} />
+                            <span className="truncate">{st.label}</span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            {/* 3. Reports */}
+            <div
+              className="w-full flex justify-center"
+              onMouseEnter={() => handlePrefetchData('/reports')}
+              onFocus={() => handlePrefetchData('/reports')}
+            >
+              <AppSidebar.Item
+                href="/reports"
+                icon={<BarChart2 size={18} />}
+                active={pathname === '/reports'}
+                onClick={() => setMobileOpen(false)}
+                tooltipPlacement="right"
+              >
+                Reports
+              </AppSidebar.Item>
+            </div>
+
+            {/* 4. Register Deal */}
+            {!isViewOnly && (
+              <div
+                className="w-full flex justify-center"
+              >
+                <AppSidebar.Item
+                  href="/deals/new"
+                  icon={<PlusCircle size={18} />}
+                  active={pathname === '/deals/new'}
+                  onClick={() => setMobileOpen(false)}
+                  tooltipPlacement="right"
+                >
+                  Register Deal
+                </AppSidebar.Item>
+              </div>
+            )}
           </AppSidebar.Group>
         </AppSidebar.Content>
 

@@ -23,9 +23,10 @@ import {
   generateRenewDealEmail,
 } from '@/lib/email-templates';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
-import { normalizeBrandName } from '@/lib/brandUtils';
 import { serverCache } from '@/lib/serverCache';
 import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
+import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
+import { normalizeBrandName } from '@/lib/brandUtils';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -1604,6 +1605,7 @@ export async function getDashboardSummary(): Promise<{
     let totalRenewed = 0;
 
     const isGlobalScope = andConditions.length === 0;
+    const officialBUsSqlList = OFFICIAL_REGISTERED_BUS.map((b) => `'${b}'`).join(',');
 
     const [kpiResult, dealsByBrandGroup, dealsByBUGroup, recentRawDeals]: any = await Promise.all([
       isGlobalScope
@@ -1612,7 +1614,7 @@ export async function getDashboardSummary(): Promise<{
               COUNT(*) AS totalCount,
               SUM(CASE WHEN dealStatus = '1' THEN 1 ELSE 0 END) AS totalRegistered,
               SUM(CASE WHEN expDt >= '${startIso}' AND expDt <= '${endIso}' AND expDt < '${nowIso}' THEN 1 ELSE 0 END) AS expiredThisMonth,
-              (SELECT COUNT(DISTINCT dealID) FROM DealRenewal) AS totalRenewed
+              (SELECT COUNT(DISTINCT r.dealID) FROM DealRenewal r INNER JOIN DealHeader h ON r.dealID = h.dealID WHERE h.BU IN (${officialBUsSqlList})) AS totalRenewed
             FROM DealHeader;
           `)
         : Promise.all([
@@ -1625,10 +1627,9 @@ export async function getDashboardSummary(): Promise<{
               },
             }),
             prisma.dealHeader.count({
-              where: { ...baseWhere, Renewals: { some: {} } },
+              where: { ...baseWhere, BU: { in: [...OFFICIAL_REGISTERED_BUS] }, Renewals: { some: {} } },
             }),
           ]),
-      // Deals Grouped by Brand (Top 10)
       prisma.dealHeader.groupBy({
         by: ['brand'],
         where: baseWhere,

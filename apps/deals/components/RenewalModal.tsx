@@ -14,6 +14,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { useRenewDealMutation } from '@/hooks/useDealsQuery';
+import { message } from 'antd';
 import { DealRenewalRecord } from '@my-app/types';
 import {
   AppModal,
@@ -140,6 +141,7 @@ export default function RenewalModal({
 
       if (res && res.success) {
         setShowConfirm(false);
+        message.success(`Deal ${dealRegID ? `#${dealRegID}` : ''} renewed successfully!`);
         if (onSuccess) onSuccess();
         onClose();
       } else {

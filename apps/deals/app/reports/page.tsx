@@ -75,7 +75,7 @@ export default function ReportsPage() {
 
   // Section 3: Brand Matrix Interactive Filter & Sort States
   const [brandSearch, setBrandSearch] = useState('');
-  const [brandSort, setBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
+  const [brandSort, setBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('value-desc');
   const [brandStatusFilter, setBrandStatusFilter] = useState<'ALL' | 'ACTIVE' | 'APPROVED' | 'WAITING' | 'LOST'>('ALL');
 
   // Section 3: BU Matrix Interactive Filter & Sort States
@@ -93,7 +93,7 @@ export default function ReportsPage() {
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [brandSearchInput, setBrandSearchInput] = useState('');
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
-  const [modalBrandSort, setModalBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
+  const [modalBrandSort, setModalBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('value-desc');
   const [selectedBrandForDeals, setSelectedBrandForDeals] = useState<string | null>(null);
   const [isBrandDealsModalOpen, setIsBrandDealsModalOpen] = useState(false);
 
@@ -862,15 +862,15 @@ export default function ReportsPage() {
             </div>
           </AppCard>
 
-          {/* KPI 4: Business Units Covered */}
+          {/* KPI 4: Expiring Deals (Clickable) */}
           <AppCard
-            onClick={() => setIsOtherBUModalOpen(true)}
-            className="p-4 bg-card-bg border border-border/60 hover:border-indigo-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
+            onClick={() => setActiveReport('EXPIRY_RISK')}
+            className="p-4 bg-card-bg border border-border/60 hover:border-amber-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted truncate">Business Units</span>
-              <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
-                <Building2 className="w-4 h-4" />
+              <span className="text-xs font-semibold text-muted truncate">Expiring Deals (≤30d)</span>
+              <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                <Clock className="w-4 h-4" />
               </div>
             </div>
 
@@ -881,17 +881,21 @@ export default function ReportsPage() {
               </div>
             ) : (
               <div className="space-y-0.5">
-                <div className="text-2xl font-bold font-mono text-indigo-600">
-                  {OFFICIAL_REGISTERED_BUS.length}
+                <div className="text-2xl font-bold font-mono text-amber-600">
+                  {expiryAnalytics.totalAtRisk}
                 </div>
                 <div className="text-[11px] text-muted truncate">
-                  Top: <span className="font-semibold text-foreground">{buAnalytics.topBU}</span>
+                  {expiryAnalytics.criticalCount > 0
+                    ? `${expiryAnalytics.criticalCount} Critical (≤3d)`
+                    : expiryAnalytics.urgentCount > 0
+                    ? `${expiryAnalytics.urgentCount} Urgent (≤7d)`
+                    : 'Active pipeline'}
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400 pt-2 border-t border-border/40">
-              <span>Inspect BUs</span>
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-600 dark:text-amber-400 pt-2 border-t border-border/40">
+              <span>Inspect Urgency</span>
               <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
           </AppCard>
@@ -1103,13 +1107,13 @@ export default function ReportsPage() {
                 </select>
               </div>
 
-              {(brandSearch || brandStatusFilter !== 'ALL' || brandSort !== 'count-desc') && (
+              {(brandSearch || brandStatusFilter !== 'ALL' || brandSort !== 'value-desc') && (
                 <button
                   type="button"
                   onClick={() => {
                     setBrandSearch('');
                     setBrandStatusFilter('ALL');
-                    setBrandSort('count-desc');
+                    setBrandSort('value-desc');
                   }}
                   className="text-[11px] font-bold text-rose-500 hover:underline px-1"
                 >
@@ -1804,13 +1808,13 @@ export default function ReportsPage() {
               </select>
             </div>
 
-            {(brandSearchInput || modalBrandSort !== 'count-desc') && (
+            {(brandSearchInput || modalBrandSort !== 'value-desc') && (
               <button
                 type="button"
                 onClick={() => {
                   setBrandSearchInput('');
                   setDebouncedBrandSearch('');
-                  setModalBrandSort('count-desc');
+                  setModalBrandSort('value-desc');
                 }}
                 className="text-xs font-bold text-rose-500 hover:underline px-1"
               >

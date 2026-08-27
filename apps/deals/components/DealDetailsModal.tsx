@@ -17,6 +17,7 @@ import {
   RefreshCw,
   History,
   Clock,
+  DollarSign,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
@@ -423,25 +424,79 @@ export default function DealDetailsModal({
               </div>
             </div>
 
-            {/* Lost Deal Competitor Intel (if applicable) */}
-            {deal.lostInfo && (
-              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs space-y-2">
-                <div className="flex items-center gap-1.5 font-bold text-rose-600">
-                  <ShieldAlert className="w-4 h-4" />
-                  <span>Closed as Lost — Competitor Intel</span>
+            {/* Closed as Lost — Competitor Intelligence & Loss Analysis (dbo.DealLost) */}
+            {(deal.lostInfo || statusNum === 7) && (
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-3.5 shadow-xs">
+                <div className="flex items-center justify-between border-b border-rose-500/20 pb-2.5">
+                  <div className="flex items-center gap-2 font-bold text-rose-600 dark:text-rose-400">
+                    <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="text-sm">Closed as Lost — DealLost Analysis</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                    Status 7 (Lost)
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-foreground">
-                  <div>
-                    <span className="text-muted text-[10px] block">Competitor Brand & Vendor:</span>
-                    <span className="font-semibold">{deal.lostInfo.competitorBrand} ({deal.lostInfo.competitorVendor})</span>
+
+                {/* 6 Structured Fields from dbo.DealLost */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                  {/* 1. Competitor Vendor */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                      <Building2 className="w-3 h-3 text-rose-500" /> Competitor Vendor
+                    </span>
+                    <p className="font-semibold text-xs text-foreground break-words">
+                      {deal.lostInfo?.competitorVendor?.trim() || 'N/A'}
+                    </p>
                   </div>
-                  <div>
-                    <span className="text-muted text-[10px] block">Offer Comparison:</span>
-                    <span>ICS: {deal.lostInfo.icsOffer} vs Comp: {deal.lostInfo.competitorOffer}</span>
+
+                  {/* 2. Competitor Brand */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-amber-500" /> Competitor Brand
+                    </span>
+                    <p className="font-semibold text-xs text-foreground break-words">
+                      {deal.lostInfo?.competitorBrand?.trim() || 'N/A'}
+                    </p>
                   </div>
-                  <div className="col-span-2">
-                    <span className="text-muted text-[10px] block">Reason for Loss:</span>
-                    <span className="italic">{deal.lostInfo.reason}</span>
+
+                  {/* 3. ICS Offer */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                      <DollarSign className="w-3 h-3 text-sky-500" /> ICS Offer
+                    </span>
+                    <p className="font-semibold text-xs text-foreground break-words">
+                      {deal.lostInfo?.icsOffer != null ? String(deal.lostInfo.icsOffer).trim() || 'N/A' : 'N/A'}
+                    </p>
+                  </div>
+
+                  {/* 4. Competitor Offer */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                      <DollarSign className="w-3 h-3 text-rose-500" /> Competitor Offer
+                    </span>
+                    <p className="font-semibold text-xs text-rose-600 dark:text-rose-400 break-words">
+                      {deal.lostInfo?.competitorOffer != null ? String(deal.lostInfo.competitorOffer).trim() || 'N/A' : 'N/A'}
+                    </p>
+                  </div>
+
+                  {/* 5. Reason for Loss */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1 sm:col-span-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                      <ShieldAlert className="w-3 h-3" /> Reason for Loss
+                    </span>
+                    <p className="font-semibold text-xs text-foreground leading-relaxed break-words">
+                      {deal.lostInfo?.reason?.trim() || deal.remarks?.trim() || 'No specific reason specified'}
+                    </p>
+                  </div>
+
+                  {/* 6. Other Information */}
+                  <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1 sm:col-span-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-indigo-500" /> Other Information / Notes
+                    </span>
+                    <p className="text-xs text-foreground italic leading-relaxed whitespace-pre-wrap break-words">
+                      {deal.lostInfo?.otherInformation?.trim() || 'None provided'}
+                    </p>
                   </div>
                 </div>
               </div>

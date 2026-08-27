@@ -159,31 +159,111 @@ function DealsContent() {
     return filterOfficialDeals<DealHeaderRecord>(rawDeals);
   }, [rawDeals]);
 
-  // Handle URL navigation parameters (e.g. /deals?view=123 or /deals?brand=Dell)
+  // Ref to track initial mount restoration
+  const isInitializedRef = React.useRef(false);
+
+  // Save current view state before navigating to detail
+  const saveViewState = () => {
+    try {
+      const state = {
+        searchQuery,
+        statusFilters,
+        buFilters,
+        aoFilters,
+        expiryFilters,
+        dateRange,
+        sortConfig,
+        currentPage,
+        pageSize,
+        scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+      };
+      sessionStorage.setItem('DEALS_REGISTRY_VIEW_STATE', JSON.stringify(state));
+    } catch {}
+  };
+
+  // Handle URL navigation parameters and restore view state
+  useEffect(() => {
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
+
+    const hasSearchParams = Boolean(searchParams && Array.from(searchParams.keys()).length > 0);
+
+    if (hasSearchParams && searchParams) {
+      const viewParam = searchParams.get('view') || searchParams.get('dealID');
+      if (viewParam) {
+        const idNum = parseInt(viewParam, 10);
+        if (!isNaN(idNum) && idNum > 0) {
+          setViewTarget(idNum);
+        }
+      }
+
+      const statusParam = searchParams.get('status');
+      if (statusParam) {
+        const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
+        if (statuses.length > 0) {
+          setStatusFilters(statuses);
+        }
+      }
+
+      const brandParam = searchParams.get('brand');
+      if (brandParam) {
+        setSearchQuery(brandParam);
+      }
+
+      const buParam = searchParams.get('bu');
+      if (buParam) {
+        setBuFilters([buParam]);
+      }
+
+      const aoParam = searchParams.get('ao');
+      if (aoParam) {
+        setAoFilters([aoParam]);
+      }
+
+      const qParam = searchParams.get('search') || searchParams.get('q');
+      if (qParam) {
+        setSearchQuery(qParam);
+      }
+
+      const pageParam = searchParams.get('page');
+      if (pageParam) {
+        const p = parseInt(pageParam, 10);
+        if (!isNaN(p) && p > 0) {
+          setCurrentPage(p);
+        }
+      }
+    } else {
+      // Restore from sessionStorage if user navigated back without search params
+      try {
+        const saved = sessionStorage.getItem('DEALS_REGISTRY_VIEW_STATE');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.searchQuery !== undefined) setSearchQuery(parsed.searchQuery);
+          if (parsed.statusFilters) setStatusFilters(parsed.statusFilters);
+          if (parsed.buFilters) setBuFilters(parsed.buFilters);
+          if (parsed.aoFilters) setAoFilters(parsed.aoFilters);
+          if (parsed.expiryFilters) setExpiryFilters(parsed.expiryFilters);
+          if (parsed.dateRange) setDateRange(parsed.dateRange);
+          if (parsed.sortConfig) setSortConfig(parsed.sortConfig);
+          if (parsed.currentPage) setCurrentPage(parsed.currentPage);
+          if (parsed.pageSize) setPageSize(parsed.pageSize);
+          if (parsed.scrollY && typeof window !== 'undefined') {
+            setTimeout(() => {
+              window.scrollTo({ top: parsed.scrollY, behavior: 'instant' });
+            }, 100);
+          }
+        }
+      } catch {}
+    }
+  }, [searchParams]);
+
+  // Keep status dynamic when changed via URL searchParams (e.g. sidebar navigation)
   useEffect(() => {
     if (!searchParams) return;
-
-    const viewParam = searchParams.get('view') || searchParams.get('dealID');
-    if (viewParam) {
-      const idNum = parseInt(viewParam, 10);
-      if (!isNaN(idNum) && idNum > 0) {
-        setViewTarget(idNum);
-      }
-    }
-
-    const brandParam = searchParams.get('brand');
-    if (brandParam) {
-      setSearchQuery(brandParam);
-    }
-
-    const buParam = searchParams.get('bu');
-    if (buParam) {
-      setBuFilters([buParam]);
-    }
-
-    const qParam = searchParams.get('search') || searchParams.get('q');
-    if (qParam) {
-      setSearchQuery(qParam);
+    const statusParam = searchParams.get('status');
+    if (statusParam !== null) {
+      const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
+      setStatusFilters(statuses);
     }
   }, [searchParams]);
 
@@ -813,6 +893,9 @@ function DealsContent() {
                 setAoFilters([]);
                 setExpiryFilters([]);
                 setStatusFilters([]);
+                try {
+                  sessionStorage.removeItem('DEALS_REGISTRY_VIEW_STATE');
+                } catch {}
               }}
               className="text-[11px] font-semibold text-rose-500 hover:underline ml-1 cursor-pointer"
             >
@@ -899,6 +982,7 @@ function DealsContent() {
                   ) {
                     return;
                   }
+                  saveViewState();
                   router.push(`/deals/${record.dealID}`);
                 },
                 onMouseEnter: () => {

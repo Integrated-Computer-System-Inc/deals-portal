@@ -36,13 +36,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AppSidebarProvider>
       <DealsCachePrewarmer />
-      <div className="h-screen w-screen flex flex-col bg-background text-foreground transition-colors duration-200 overflow-hidden">
-        {/* Sticky Impersonation Banner at layout root */}
-        <ImpersonationBanner />
-
-        <div className="flex-1 flex min-h-0 overflow-hidden">
-          {/* Sidebar */}
+      <div className="h-screen w-screen flex bg-background text-foreground transition-colors duration-200 overflow-hidden">
+        {/* Sidebar - Spans full height on the left without header overlay */}
+        <React.Suspense fallback={null}>
           <Sidebar />
+        </React.Suspense>
+
+        {/* Main Canvas Area */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+          {/* Impersonation Banner at top of canvas only */}
+          <ImpersonationBanner />
 
           {/* Main Content Area */}
           <main className="flex-1 min-w-0 h-full overflow-y-auto p-3.5 sm:p-5 lg:p-6 bg-background">

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ShieldAlert, Loader2, DollarSign } from 'lucide-react';
+import { message } from 'antd';
 import { useLostDealMutation } from '@/hooks/useDealsQuery';
 import {
   AppModal,
@@ -73,6 +74,7 @@ export default function LostDealModal({
 
       if (res && res.success) {
         setShowConfirm(false);
+        message.success(`Deal ${dealRegID ? `#${dealRegID}` : ''} marked as Lost.`);
         onSuccess();
         onClose();
       } else {

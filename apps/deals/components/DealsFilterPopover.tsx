@@ -262,7 +262,45 @@ export function DealsFilterPopover({
         </FilterGroup>
       )}
 
-      {/* 2. AO Name Filter Group (Multi-Select) */}
+      {/* 2. Expiry Urgency Filter Group (Multi-Select) */}
+      <FilterGroup
+        title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
+        showReset={expiryFilters.length > 0}
+        onReset={() => onExpiryFiltersChange([])}
+      >
+        <div className="flex flex-wrap items-center gap-1 py-1.5">
+          <button
+            type="button"
+            onClick={() => onExpiryFiltersChange([])}
+            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+              expiryFilters.length === 0
+                ? 'bg-primary text-white border-primary shadow-xs'
+                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+            }`}
+          >
+            All
+          </button>
+          {EXPIRY_OPTIONS.map((item) => {
+            const isSelected = expiryFilters.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleToggleExpiry(item.id)}
+                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                  isSelected
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                    : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </FilterGroup>
+
+      {/* 3. AO Name Filter Group (Multi-Select) */}
       {!hideAOFilter && onAoFiltersChange && availableAOs.length > 0 && (
         <FilterGroup
           title={`AO Name${aoFilters.length > 0 ? ` • ${aoFilters.length} selected` : ''}`}
@@ -326,7 +364,7 @@ export function DealsFilterPopover({
         </FilterGroup>
       )}
 
-      {/* 3. Deal Status Filter Group (Multi-Select) */}
+      {/* 4. Deal Status Filter Group (Multi-Select) */}
       <FilterGroup
         title={`Deal Status${statusFilters.length > 0 ? ` • ${statusFilters.length} selected` : ''}`}
         showReset={statusFilters.length > 0}
@@ -360,44 +398,6 @@ export function DealsFilterPopover({
               >
                 <span>{meta.label}</span>
                 {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
-              </button>
-            );
-          })}
-        </div>
-      </FilterGroup>
-
-      {/* 4. Expiry Urgency Filter Group (Multi-Select) */}
-      <FilterGroup
-        title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
-        showReset={expiryFilters.length > 0}
-        onReset={() => onExpiryFiltersChange([])}
-      >
-        <div className="flex flex-wrap items-center gap-1 py-1.5">
-          <button
-            type="button"
-            onClick={() => onExpiryFiltersChange([])}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-              expiryFilters.length === 0
-                ? 'bg-primary text-white border-primary shadow-xs'
-                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-            }`}
-          >
-            All
-          </button>
-          {EXPIRY_OPTIONS.map((item) => {
-            const isSelected = expiryFilters.includes(item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleToggleExpiry(item.id)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-                  isSelected
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
-                    : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-                }`}
-              >
-                {item.label}
               </button>
             );
           })}

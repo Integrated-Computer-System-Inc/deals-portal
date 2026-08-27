@@ -23,6 +23,7 @@ import {
   FileSpreadsheet,
   RefreshCw,
   History,
+  DollarSign,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DealRenewalRecord, DEAL_STATUS_MAP, UserRole } from '@my-app/types';
@@ -54,6 +55,14 @@ export default function DealDetailsPage() {
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<DealRenewalRecord | null>(null);
   const [showAllRenewals, setShowAllRenewals] = useState(false);
+
+  const handleGoBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push('/deals');
+    }
+  };
 
   // Auto-open Renewal Modal only if user has edit privileges and navigated with ?action=renew or ?renew=true
   useEffect(() => {
@@ -93,13 +102,14 @@ export default function DealDetailsPage() {
         <p className="text-xs text-muted max-w-md mx-auto">
           The requested deal #{dealID} could not be found or you do not have permission to view it.
         </p>
-        <Link
-          href="/deals"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm"
+        <button
+          type="button"
+          onClick={handleGoBack}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Deals Registry</span>
-        </Link>
+        </button>
       </div>
     );
   }
@@ -181,13 +191,14 @@ export default function DealDetailsPage() {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Link
-            href="/deals"
-            className="p-2 rounded-xl bg-neutral hover:bg-neutral/80 border border-border text-muted hover:text-foreground transition shadow-xs shrink-0"
+          <button
+            type="button"
+            onClick={handleGoBack}
+            className="p-2 rounded-xl bg-neutral hover:bg-neutral/80 border border-border text-muted hover:text-foreground transition shadow-xs shrink-0 cursor-pointer"
             title="Back to Deals Registry"
           >
             <ArrowLeft className="w-4 h-4" />
-          </Link>
+          </button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
@@ -536,6 +547,86 @@ export default function DealDetailsPage() {
             </span>
             <div className="p-3.5 rounded-xl bg-neutral/30 border border-border/60 text-xs text-foreground leading-relaxed whitespace-pre-wrap">
               {deal.remarks}
+            </div>
+          </div>
+        )}
+
+        {/* Closed as Lost — Competitor Intelligence & Loss Analysis (dbo.DealLost) */}
+        {(deal.lostInfo || statusNum === 7) && (
+          <div className="pt-2 border-t border-border/50">
+            <div className="p-4 sm:p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-4 shadow-xs">
+              <div className="flex items-center justify-between border-b border-rose-500/20 pb-2.5">
+                <div className="flex items-center gap-2 font-bold text-rose-600 dark:text-rose-400">
+                  <ShieldAlert className="w-5 h-5 shrink-0 text-rose-600" />
+                  <span className="text-sm sm:text-base">Closed as Lost — DealLost Analysis</span>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                  Status 7 (Lost)
+                </span>
+              </div>
+
+              {/* 6 Structured Fields from dbo.DealLost */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                {/* 1. Competitor Vendor */}
+                <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                    <Building2 className="w-3 h-3 text-rose-500" /> Competitor Vendor
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-foreground break-words">
+                    {deal.lostInfo?.competitorVendor?.trim() || 'N/A'}
+                  </p>
+                </div>
+
+                {/* 2. Competitor Brand */}
+                <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                    <Tag className="w-3 h-3 text-amber-500" /> Competitor Brand
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-foreground break-words">
+                    {deal.lostInfo?.competitorBrand?.trim() || 'N/A'}
+                  </p>
+                </div>
+
+                {/* 3. ICS Offer */}
+                <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                    <DollarSign className="w-3 h-3 text-sky-500" /> ICS Offer
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-foreground break-words">
+                    {deal.lostInfo?.icsOffer != null ? String(deal.lostInfo.icsOffer).trim() || 'N/A' : 'N/A'}
+                  </p>
+                </div>
+
+                {/* 4. Competitor Offer */}
+                <div className="p-3 rounded-xl bg-background/80 border border-rose-500/20 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                    <DollarSign className="w-3 h-3 text-rose-500" /> Competitor Offer
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-rose-600 dark:text-rose-400 break-words">
+                    {deal.lostInfo?.competitorOffer != null ? String(deal.lostInfo.competitorOffer).trim() || 'N/A' : 'N/A'}
+                  </p>
+                </div>
+
+                {/* 5. Reason for Loss */}
+                <div className="p-3.5 rounded-xl bg-background/80 border border-rose-500/20 space-y-1 sm:col-span-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5" /> Reason for Loss
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-foreground leading-relaxed break-words">
+                    {deal.lostInfo?.reason?.trim() || deal.remarks?.trim() || 'No specific reason specified'}
+                  </p>
+                </div>
+
+                {/* 6. Other Information */}
+                <div className="p-3.5 rounded-xl bg-background/80 border border-rose-500/20 space-y-1 sm:col-span-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+                    <FileText className="w-3.5 h-3.5 text-indigo-500" /> Other Information / Notes
+                  </span>
+                  <p className="text-xs text-foreground italic leading-relaxed whitespace-pre-wrap break-words">
+                    {deal.lostInfo?.otherInformation?.trim() || 'None provided'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}

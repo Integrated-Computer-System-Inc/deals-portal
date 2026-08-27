@@ -7,6 +7,7 @@ import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
+import { message } from 'antd';
 import {
   ACTIVE_BUSINESS_UNITS,
   ALL_BUSINESS_UNITS,
@@ -334,6 +335,7 @@ export default function EditDealPage() {
 
       if (result && result.success) {
         setShowSaveConfirm(false);
+        message.success(`Deal ${pendingFormData.dealRegID ? `#${pendingFormData.dealRegID}` : ''} updated successfully!`);
         router.push('/deals');
       } else {
         setShowSaveConfirm(false);
@@ -373,12 +375,20 @@ export default function EditDealPage() {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link
-            href="/deals"
-            className="p-2 rounded-xl bg-neutral hover:bg-neutral/80 border border-border text-muted hover:text-foreground transition shadow-xs"
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.history.length > 1) {
+                router.back();
+              } else {
+                router.push('/deals');
+              }
+            }}
+            className="p-2 rounded-xl bg-neutral hover:bg-neutral/80 border border-border text-muted hover:text-foreground transition shadow-xs cursor-pointer"
+            title="Back to Deals Registry"
           >
             <ArrowLeft className="w-4 h-4" />
-          </Link>
+          </button>
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">

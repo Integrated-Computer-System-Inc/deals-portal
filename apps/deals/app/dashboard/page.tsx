@@ -52,6 +52,7 @@ const ModalDealTable = dynamic(
   () => import('@/components/ModalDealTable').then((mod) => mod.ModalDealTable),
   { ssr: false }
 );
+import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -96,6 +97,13 @@ export default function DashboardPage() {
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
   const [isRenewedModalOpen, setIsRenewedModalOpen] = useState(false);
   const [renewedSearch, setRenewedSearch] = useState('');
+  const [isExpiringModalOpen, setIsExpiringModalOpen] = useState(false);
+  const [expiringUrgencyFilter, setExpiringUrgencyFilter] = useState<'ALL' | 'CRITICAL' | 'URGENT' | 'WARNING' | 'NOTICE'>('ALL');
+  const [expiringSearch, setExpiringSearch] = useState('');
+  const [expiringSortConfig, setExpiringSortConfig] = useState<SortConfig>({
+    field: 'expDt',
+    order: 'asc',
+  });
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [brandSearchInput, setBrandSearchInput] = useState('');
   const [debouncedBrandSearch, setDebouncedBrandSearch] = useState('');
@@ -160,10 +168,28 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [brandSearchInput]);
 
+  // Brand Distribution Sorting State for Dashboard KPI card (default: Total Amount)
+  const [dashboardBrandSort, setDashboardBrandSort] = useState<'value-desc' | 'value-asc' | 'count-desc' | 'count-asc' | 'name-asc' | 'name-desc'>('value-desc');
+
   // Deals per Brand breakdown (strictly official BUs)
   const brandDistributionList = useMemo(() => {
     return calculateBrandDistribution(deals);
   }, [deals]);
+
+  // Sorted list for Dashboard Brand card
+  const sortedDashboardBrandList = useMemo(() => {
+    let list = [...brandDistributionList];
+    list.sort((a, b) => {
+      if (dashboardBrandSort === 'value-desc') return b.totalValue - a.totalValue || b.count - a.count;
+      if (dashboardBrandSort === 'value-asc') return a.totalValue - b.totalValue || a.count - b.count;
+      if (dashboardBrandSort === 'count-desc') return b.count - a.count || b.totalValue - a.totalValue;
+      if (dashboardBrandSort === 'count-asc') return a.count - b.count || a.totalValue - b.totalValue;
+      if (dashboardBrandSort === 'name-asc') return a.brand.localeCompare(b.brand);
+      if (dashboardBrandSort === 'name-desc') return b.brand.localeCompare(a.brand);
+      return 0;
+    });
+    return list;
+  }, [brandDistributionList, dashboardBrandSort]);
 
   // Detailed BU distribution list with status breakdown & revenue metrics (strictly scoped official BUs)
   const buDistributionList = useMemo(() => {
@@ -307,7 +333,131 @@ export default function DashboardPage() {
       });
   }, [deals]);
 
-  const totalRenewedCount = metrics?.totalRenewed ?? renewedDealsList.length;
+  const totalRenewedCount = renewedDealsList.length;
+
+  // Expiring Deals Analytics & Urgency Breakdown
+  const expiringDealsAnalytics = useMemo(() => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+    const critical: DealHeaderRecord[] = [];
+    const urgent: DealHeaderRecord[] = [];
+    const warning: DealHeaderRecord[] = [];
+    const notice: DealHeaderRecord[] = [];
+    const allExpiring: DealHeaderRecord[] = [];
+
+    deals.forEach((d: DealHeaderRecord) => {
+      const statusNum = typeof d.dealStatus === 'number' ? d.dealStatus : parseInt(String(d.dealStatus || '1'), 10);
+      if (statusNum === 2 || statusNum === 7 || statusNum === 8) return;
+
+      const rawExp = d.expDt || d.expiration;
+      if (!rawExp) return;
+      const exp = new Date(rawExp);
+      if (isNaN(exp.getTime())) return;
+
+      const daysRemaining = Math.ceil((exp.getTime() - nowMs) / MS_PER_DAY);
+      if (daysRemaining >= 0 && daysRemaining <= 30) {
+        allExpiring.push(d);
+        if (daysRemaining <= 3) {
+          critical.push(d);
+        } else if (daysRemaining <= 7) {
+          urgent.push(d);
+        } else if (daysRemaining <= 15) {
+          warning.push(d);
+        } else {
+          notice.push(d);
+        }
+      }
+    });
+
+    return {
+      allExpiring,
+      critical,
+      urgent,
+      warning,
+      notice,
+      totalCount: allExpiring.length,
+    };
+  }, [deals]);
+
+  const filteredExpiringDeals = useMemo(() => {
+    let list = expiringDealsAnalytics.allExpiring;
+    if (expiringUrgencyFilter === 'CRITICAL') list = expiringDealsAnalytics.critical;
+    else if (expiringUrgencyFilter === 'URGENT') list = expiringDealsAnalytics.urgent;
+    else if (expiringUrgencyFilter === 'WARNING') list = expiringDealsAnalytics.warning;
+    else if (expiringUrgencyFilter === 'NOTICE') list = expiringDealsAnalytics.notice;
+
+    if (expiringSearch.trim()) {
+      const q = expiringSearch.toLowerCase().trim();
+      list = list.filter((d) => {
+        const reg = (d.dealRegID || '').toLowerCase();
+        const cust = (d.custName || '').toLowerCase();
+        const proj = (d.ProjectName || d.projectName || '').toLowerCase();
+        const brand = (d.brand || '').toLowerCase();
+        const bu = (d.BU || d.bu || '').toLowerCase();
+        const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
+        const rem = (d.remarks || '').toLowerCase();
+        return reg.includes(q) || cust.includes(q) || proj.includes(q) || brand.includes(q) || bu.includes(q) || ao.includes(q) || rem.includes(q);
+      });
+    }
+
+    return [...list].sort((a, b) => {
+      let comparison = 0;
+      switch (expiringSortConfig.field) {
+        case 'expDt': {
+          const dateA = new Date(a.expDt || a.expiration || 0).getTime();
+          const dateB = new Date(b.expDt || b.expiration || 0).getTime();
+          comparison = dateA - dateB;
+          break;
+        }
+        case 'dtRegistered': {
+          const dateA = new Date(a.dtRegistered || a.dtCreated || 0).getTime();
+          const dateB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
+          comparison = dateA - dateB;
+          break;
+        }
+        case 'dealRegID': {
+          const idA = (a.dealRegID || '').toLowerCase();
+          const idB = (b.dealRegID || '').toLowerCase();
+          comparison = idA.localeCompare(idB);
+          break;
+        }
+        case 'custName': {
+          const nameA = (a.custName || '').toLowerCase();
+          const nameB = (b.custName || '').toLowerCase();
+          comparison = nameA.localeCompare(nameB);
+          break;
+        }
+        case 'projectName': {
+          const projA = (a.ProjectName || a.projectName || '').toLowerCase();
+          const projB = (b.ProjectName || b.projectName || '').toLowerCase();
+          comparison = projA.localeCompare(projB);
+          break;
+        }
+        case 'brand': {
+          const brandA = (a.brand || '').toLowerCase();
+          const brandB = (b.brand || '').toLowerCase();
+          comparison = brandA.localeCompare(brandB);
+          break;
+        }
+        case 'totalAmt': {
+          const getAmt = (deal: DealHeaderRecord) => {
+            if ((deal as any)._computedTotal !== undefined) return (deal as any)._computedTotal;
+            return deal.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
+          };
+          comparison = getAmt(a) - getAmt(b);
+          break;
+        }
+        default: {
+          const dateA = new Date(a.expDt || a.expiration || 0).getTime();
+          const dateB = new Date(b.expDt || b.expiration || 0).getTime();
+          comparison = dateA - dateB;
+        }
+      }
+      return expiringSortConfig.order === 'desc' ? -comparison : comparison;
+    });
+  }, [expiringDealsAnalytics, expiringUrgencyFilter, expiringSearch, expiringSortConfig]);
 
   const filteredRenewedDeals = useMemo(() => {
     if (!renewedSearch.trim()) return renewedDealsList;
@@ -567,19 +717,14 @@ export default function DashboardPage() {
           )}
         </AppCard>
 
-        {/* KPI 4: Business Units Covered */}
+        {/* KPI 4: Expiring Deals (Clickable) */}
         <AppCard
-          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden"
+          onClick={() => setIsExpiringModalOpen(true)}
+          className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group"
         >
           <div className="flex items-center justify-between text-muted text-xs font-semibold gap-2">
-            <span className="truncate">
-              {role === 'bu' || role === 'bu_admin'
-                ? 'Supervised Business Units'
-                : role === 'ao'
-                ? 'Assigned Business Units'
-                : 'Official Business Units'}
-            </span>
-            <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
+            <span className="truncate group-hover:text-amber-500 transition">Expiring Deals (≤30d)</span>
+            <Clock className="w-4 h-4 text-amber-500 shrink-0" />
           </div>
           {loading ? (
             <div className="space-y-2 mt-2">
@@ -588,11 +733,18 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <div className="text-2xl sm:text-3xl font-bold text-foreground mt-2 font-mono truncate">
-                {visibleOfficialBUs.length}
+              <div className="text-2xl sm:text-3xl font-bold text-amber-600 dark:text-amber-400 mt-2 font-mono truncate">
+                {expiringDealsAnalytics.totalCount}
               </div>
-              <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1 truncate">
-                <span>{visibleOfficialBUs.join(', ')}</span>
+              <div className="text-[11px] text-amber-600 font-semibold mt-1 flex items-center justify-between truncate">
+                <span className="truncate">
+                  {expiringDealsAnalytics.critical.length > 0
+                    ? `${expiringDealsAnalytics.critical.length} Critical (≤3d)`
+                    : expiringDealsAnalytics.urgent.length > 0
+                    ? `${expiringDealsAnalytics.urgent.length} Urgent (≤7d)`
+                    : 'Active pipeline'}
+                </span>
+                <span className="text-[10px] text-muted group-hover:text-amber-600 transition font-medium">Click &rarr;</span>
               </div>
             </>
           )}
@@ -631,14 +783,29 @@ export default function DashboardPage() {
         {/* Deals per Brand */}
         <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4 flex flex-col justify-between">
           <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-border/50 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-sky-600" />
                 <h2 className="font-bold text-sm text-foreground">Deals Distribution by Brand</h2>
               </div>
-              <span className="text-xs text-muted font-medium">
-                {brandDistributionList.length} Brands • {deals.length} deals
-              </span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={dashboardBrandSort}
+                  onChange={(e) => setDashboardBrandSort(e.target.value as any)}
+                  className="px-2 py-1 bg-neutral/60 border border-border/60 rounded-lg text-[11px] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer"
+                  title="Sort Brands"
+                >
+                  <option value="value-desc">Highest Value (PHP)</option>
+                  <option value="value-asc">Lowest Value (PHP)</option>
+                  <option value="count-desc">Most Deals</option>
+                  <option value="count-asc">Least Deals</option>
+                  <option value="name-asc">Brand Name (A–Z)</option>
+                  <option value="name-desc">Brand Name (Z–A)</option>
+                </select>
+                <span className="text-xs text-muted font-medium hidden sm:inline">
+                  {brandDistributionList.length} Brands
+                </span>
+              </div>
             </div>
 
             <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
@@ -655,7 +822,7 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : (
-                brandDistributionList.slice(0, 10).map((item, idx) => {
+                sortedDashboardBrandList.slice(0, 10).map((item, idx) => {
                   const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
                   return (
                     <div
@@ -1404,6 +1571,150 @@ export default function DashboardPage() {
               onClick={() => {
                 setIsRenewedModalOpen(false);
                 setRenewedSearch('');
+              }}
+            >
+              Close
+            </AppButton>
+          </div>
+        </AppModal.Footer>
+      </AppModal>
+
+      {/* Expiring Deals Modal Drilldown */}
+      <AppModal
+        open={isExpiringModalOpen}
+        onClose={() => {
+          setIsExpiringModalOpen(false);
+          setExpiringSearch('');
+          setExpiringUrgencyFilter('ALL');
+        }}
+        width={1160}
+      >
+        <AppModal.Header>
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <AppModal.Title>Expiring Deals & Urgency Review</AppModal.Title>
+              <AppModal.Description>
+                Deals approaching expiration threshold within the next 30 days requiring attention, WTN notifications, or renewals.
+              </AppModal.Description>
+            </div>
+          </div>
+        </AppModal.Header>
+
+        <AppModal.Body className="space-y-4 pt-3">
+          {/* Urgency Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-1.5 pb-1 border-b border-border/40">
+            <button
+              type="button"
+              onClick={() => setExpiringUrgencyFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                expiringUrgencyFilter === 'ALL'
+                  ? 'bg-primary text-white border-primary shadow-xs font-bold'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+              }`}
+            >
+              <span>All Expiring (≤30d)</span>
+              <span className="text-[10px] opacity-80 font-mono">({expiringDealsAnalytics.totalCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpiringUrgencyFilter('CRITICAL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                expiringUrgencyFilter === 'CRITICAL'
+                  ? 'bg-rose-600 text-white border-rose-600 shadow-xs font-bold'
+                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+              }`}
+            >
+              <span>Critical (≤3d)</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.critical.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpiringUrgencyFilter('URGENT')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                expiringUrgencyFilter === 'URGENT'
+                  ? 'bg-orange-600 text-white border-orange-600 shadow-xs font-bold'
+                  : 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20 hover:bg-orange-500/20'
+              }`}
+            >
+              <span>Urgent (4-7d)</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.urgent.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpiringUrgencyFilter('WARNING')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                expiringUrgencyFilter === 'WARNING'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-xs font-bold'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+              }`}
+            >
+              <span>Warning (8-15d)</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.warning.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpiringUrgencyFilter('NOTICE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                expiringUrgencyFilter === 'NOTICE'
+                  ? 'bg-yellow-600 text-white border-yellow-600 shadow-xs font-bold'
+                  : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/20'
+              }`}
+            >
+              <span>Notice (16-30d)</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.notice.length})</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <AppInput
+                prefix={<Search className="w-4 h-4 text-muted" />}
+                placeholder="Search expiring deals by Customer, Project, Ref ID, BU, AO, Brand, Remarks..."
+                value={expiringSearch}
+                onChange={(e: any) => setExpiringSearch(e.target.value)}
+                allowClear
+                size="md"
+              />
+            </div>
+            <DealsSortPopover
+              value={expiringSortConfig}
+              onChange={setExpiringSortConfig}
+            />
+          </div>
+
+          <ModalDealTable
+            deals={filteredExpiringDeals}
+            onCloseModal={() => setIsExpiringModalOpen(false)}
+          />
+        </AppModal.Body>
+
+        <AppModal.Footer className="flex items-center justify-between pt-2">
+          <span className="text-[11px] text-muted">
+            Showing {filteredExpiringDeals.length} of {expiringDealsAnalytics.totalCount} expiring deals
+          </span>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/reports?view=expiry_risk"
+              onClick={() => setIsExpiringModalOpen(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-lg border border-amber-500/30 transition shadow-xs"
+            >
+              <span>Open in Reports Studio</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            <AppButton
+              variant="neutral"
+              size="sm"
+              onClick={() => {
+                setIsExpiringModalOpen(false);
+                setExpiringSearch('');
+                setExpiringUrgencyFilter('ALL');
               }}
             >
               Close

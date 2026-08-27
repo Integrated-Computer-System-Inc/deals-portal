@@ -255,5 +255,5 @@ export function calculateBrandDistribution(deals: DealHeaderRecord[]): BrandDist
     });
   });
 
-  return Object.values(map).sort((a, b) => b.count - a.count);
+  return Object.values(map).sort((a, b) => b.totalValue - a.totalValue || b.count - a.count);
 }

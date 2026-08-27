@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Calendar, BellRing, Loader2, Clock } from 'lucide-react';
+import { message } from 'antd';
 import { useUpdateWTNMutation } from '@/hooks/useDealsQuery';
 import {
   AppModal,
@@ -59,6 +60,7 @@ export default function WTNModal({
 
       if (res && res.success) {
         setShowConfirm(false);
+        message.success(`When-to-notify date for Deal ${dealRegID ? `#${dealRegID}` : ''} updated successfully!`);
         onSuccess();
         onClose();
       } else {

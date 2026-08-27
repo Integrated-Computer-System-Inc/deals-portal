@@ -7,6 +7,7 @@ import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
+import { message } from 'antd';
 import { createDeal } from '../../actions/deals';
 import { useCreateDealMutation } from '@/hooks/useDealsQuery';
 import { normalizeBusinessUnit } from '@/lib/searchUtils';
@@ -264,6 +265,7 @@ export default function NewDealPage() {
 
       if (result && result.success) {
         setShowConfirmModal(false);
+        message.success(`Deal ${data.dealRegID ? `#${data.dealRegID}` : ''} registered successfully!`);
         router.push('/deals');
       } else {
         setShowConfirmModal(false);
