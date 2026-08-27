@@ -90,6 +90,7 @@ export interface ScopedDealsFilter {
   buFilter?: string | string[];
   aoFilter?: string | string[];
   brandFilter?: string | string[];
+  currencyFilter?: string | string[];
   expiryFilter?: string | string[];
   startDate?: string | Date;
   endDate?: string | Date;
@@ -173,6 +174,7 @@ export interface DealHeaderRecord {
   renewals?: DealRenewalRecord[];
   latestRenewal?: DealRenewalRecord | null;
   aggregatedTotals?: CurrencyTotals;
+  aoAvatar?: string | null;
 }
 
 export const ACTIVE_BUSINESS_UNITS = [

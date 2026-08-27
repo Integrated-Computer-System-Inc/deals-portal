@@ -5,6 +5,7 @@ import { UserRole } from '@my-app/types';
 import { prisma } from '@my-app/database';
 import { randomUUID } from 'crypto';
 import { resolveUserRoleAndBUs, isSuperadminEmail, isConfiguredAdminEmail, getImpersonationPersona, ACCOUNT_ROLE_REGISTRY } from './roles';
+import { serverCache } from '@/lib/serverCache';
 
 const CDB_ACCOUNT_SELECT = {
   AccountID: true,
@@ -246,7 +247,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       if (account?.provider === 'google') {
         try {
           if (!user.email) return false;
@@ -267,6 +268,34 @@ export const authOptions: NextAuthOptions = {
             );
             return '/login?error=AccessDenied';
           }
+
+          // Extract latest Google profile photo URL
+          const googlePhotoUrl = (user.image || (profile as any)?.picture || (account as any)?.picture || '').trim();
+
+          // Helper to synchronize Google profile photo with cdbAccounts and cache
+          const syncGooglePhotoToCdb = async (targetEmail: string, targetAccountId?: number) => {
+            if (!googlePhotoUrl) return;
+            try {
+              const conditions: any[] = [
+                { Email: targetEmail },
+                { Email: targetEmail.toUpperCase() },
+              ];
+              if (targetAccountId && !isNaN(targetAccountId) && targetAccountId > 0) {
+                conditions.push({ AccountID: targetAccountId });
+              }
+              await prisma.cdbAccounts.updateMany({
+                where: { OR: conditions },
+                data: {
+                  GAvatar: googlePhotoUrl,
+                  LastSynced: new Date(),
+                },
+              });
+              serverCache.delete('cdb_ao_avatars_map');
+              serverCache.invalidateTags(['deals', 'dashboard']);
+            } catch (syncPhotoError) {
+              console.warn('[Google Sign-In] Auto-syncing Google profile photo error:', syncPhotoError);
+            }
+          };
 
           // 2. FAST-PATH: Check if user is already registered in dbo.Users table with valid RememberToken
           try {
@@ -298,7 +327,8 @@ export const authOptions: NextAuthOptions = {
                 ? ['ALL']
                 : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
 
-              // Asynchronously update LastLogin in the background
+              // Synchronize photo and LastLogin asynchronously
+              syncGooglePhotoToCdb(emailLower, accountId).catch(() => {});
               prisma.$executeRawUnsafe(`
                 UPDATE Users 
                 SET LastLogin = GETDATE(), RememberToken = '${rememberToken}' 
@@ -314,6 +344,7 @@ export const authOptions: NextAuthOptions = {
               (user as any).role = userRole;
               (user as any).assignedBUs = assignedBUs;
               (user as any).RememberToken = rememberToken;
+              (user as any).GAvatar = googlePhotoUrl || undefined;
 
               return true;
             }
@@ -376,6 +407,9 @@ export const authOptions: NextAuthOptions = {
             return '/login?error=AccessDenied';
           }
 
+          // Sync latest Google photo to cdbAccounts
+          syncGooglePhotoToCdb(emailLower, accountId).catch(() => {});
+
           const rememberToken = randomUUID();
           const assignedBUsStr = userAccess.assignedBUs.join(',') || accountGroup || 'BU5';
           const domainAccount = cdbAccount?.DomainAccount
@@ -409,6 +443,7 @@ export const authOptions: NextAuthOptions = {
           (user as any).role = userAccess.role;
           (user as any).assignedBUs = userAccess.assignedBUs;
           (user as any).RememberToken = rememberToken;
+          (user as any).GAvatar = googlePhotoUrl || undefined;
 
           return true;
         } catch (error) {
@@ -430,6 +465,7 @@ export const authOptions: NextAuthOptions = {
         token.RememberToken = u.RememberToken || null;
         token.isImpersonating = u.isImpersonating || false;
         token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
+        token.GAvatar = u.GAvatar || user.image || undefined;
       }
 
       // Handle in-place session update (e.g. from useSession().update(...) or impersonation switch)
@@ -476,6 +512,10 @@ export const authOptions: NextAuthOptions = {
         u.RememberToken = (token.RememberToken as string) || null;
         u.isImpersonating = Boolean(token.isImpersonating);
         u.originalAdminEmail = (token.originalAdminEmail as string) || undefined;
+        u.GAvatar = (token.GAvatar as string) || undefined;
+        if (token.GAvatar) {
+          session.user.image = token.GAvatar as string;
+        }
       }
       return session;
     },

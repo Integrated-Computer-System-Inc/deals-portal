@@ -237,15 +237,6 @@ export default function DealDetailsPage() {
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setIsWtnModalOpen(true)}
-                className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition shadow-xs"
-              >
-                <BellRing className="w-3.5 h-3.5" />
-                <span>Update WTN</span>
-              </button>
-
               {statusNum !== 7 && statusNum !== 8 && (
                 <button
                   type="button"
@@ -269,39 +260,29 @@ export default function DealDetailsPage() {
         </div>
       </div>
 
-      {/* Section 1: Customer Account & Assigned AO */}
+      {/* Section 1: Core Deal Registration Info */}
       <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
         <div className="flex items-center gap-2 border-b border-border/50 pb-3">
           <Building2 className="w-4 h-4 text-sky-600" />
-          <h2 className="font-bold text-sm text-foreground">1. Customer & Account Information</h2>
+          <h2 className="font-bold text-sm text-foreground">1. Registration Overview</h2>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Customer Name</span>
-            <p className="font-bold text-foreground text-sm leading-snug">{deal.custName || 'N/A'}</p>
-            {deal.customerID && (
-              <span className="inline-block text-[10px] font-mono text-muted bg-neutral px-2 py-0.5 rounded border border-border">
-                ID: {deal.customerID}
-              </span>
-            )}
-          </div>
-
-          <div className="space-y-1 sm:col-span-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Project Name</span>
-            <p className="font-semibold text-foreground text-sm leading-snug">
-              {deal.ProjectName || deal.projectName || 'N/A'}
+            <p className="font-bold text-xs text-foreground pt-1 truncate" title={deal.custName}>
+              {deal.custName || 'N/A'}
             </p>
           </div>
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Brand & Business Unit</span>
-            <div className="flex items-center gap-2 pt-0.5">
-              <span className="px-2.5 py-1 rounded-lg font-bold bg-neutral text-foreground border border-border text-xs">
-                {deal.brand || 'Unassigned'}
+            <div className="flex items-center gap-2 pt-1">
+              <span className="font-bold text-xs uppercase px-2.5 py-0.5 rounded-md bg-neutral text-foreground border border-border">
+                {deal.brand || 'N/A'}
               </span>
-              <span className="px-2 py-0.5 rounded font-bold bg-sky-500/10 text-sky-600 dark:text-sky-300 border border-sky-500/20 text-xs">
-                {deal.BU || deal.bu || 'HQ'}
+              <span className="font-bold text-xs px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                {deal.BU || deal.bu || 'N/A'}
               </span>
             </div>
           </div>
@@ -309,10 +290,23 @@ export default function DealDetailsPage() {
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Assigned Account Officer</span>
             <div className="flex items-center gap-2 pt-0.5">
-              <div className="h-7 w-7 rounded-full bg-neutral flex items-center justify-center text-muted border border-border text-xs shrink-0">
-                <User className="w-3.5 h-3.5" />
+              {deal.aoAvatar ? (
+                <img
+                  src={deal.aoAvatar}
+                  alt={deal.AssignedAO || 'AO'}
+                  referrerPolicy="no-referrer"
+                  className="h-7 w-7 rounded-full object-cover border border-border shrink-0 shadow-2xs"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                    const fallback = e.currentTarget.nextElementSibling;
+                    if (fallback) (fallback as HTMLElement).classList.remove('hidden');
+                  }}
+                />
+              ) : null}
+              <div className={`h-7 w-7 rounded-full bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 flex items-center justify-center text-xs font-bold shrink-0 ${deal.aoAvatar ? 'hidden' : 'flex'}`}>
+                {deal.AssignedAO ? deal.AssignedAO.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5" />}
               </div>
-              <span className="font-semibold text-xs text-foreground">
+              <span className="font-semibold text-xs text-foreground truncate" title={deal.AssignedAO || deal.assignedAO}>
                 {deal.AssignedAO || deal.assignedAO || 'Unassigned'}
               </span>
             </div>

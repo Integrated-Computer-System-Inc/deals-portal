@@ -418,15 +418,6 @@ export default function EditDealPage() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => setIsWtnModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition flex-1 sm:flex-initial"
-            >
-              <BellRing className="w-3.5 h-3.5" />
-              <span>Update WTN</span>
-            </button>
-
             {statusNum !== 7 && statusNum !== 8 && (
               <button
                 type="button"

@@ -52,6 +52,7 @@ export function normalizeScopedFilter(filter?: ScopedDealsFilter): ScopedDealsFi
     buFilter: normArray(filter.buFilter),
     aoFilter: normArray(filter.aoFilter),
     brandFilter: normArray(filter.brandFilter),
+    currencyFilter: normArray(filter.currencyFilter),
     expiryFilter: normArray(filter.expiryFilter),
     startDate: filter.startDate ? new Date(filter.startDate).toISOString().slice(0, 10) : undefined,
     endDate: filter.endDate ? new Date(filter.endDate).toISOString().slice(0, 10) : undefined,
@@ -75,8 +76,8 @@ export const DEAL_QUERY_KEYS = {
  * Shared hook to get consistent current user filter for Dashboard, Deals, and Reports
  */
 export function useCurrentUserFilter(): ScopedDealsFilter {
-  const { data: session, status } = useSession();
-  const role: UserRole = (session?.user as any)?.role || (status === 'loading' ? 'ao' : 'admin');
+  const { data: session } = useSession();
+  const role: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name;
   const domainAccount = (session?.user as any)?.DomainAccount;
   const accountGroup = (session?.user as any)?.AccountGroup;

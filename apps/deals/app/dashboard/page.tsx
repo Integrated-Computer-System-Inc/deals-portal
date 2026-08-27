@@ -1107,8 +1107,8 @@ export default function DashboardPage() {
                         {/* 1. Brand Deal */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-xs font-bold shrink-0">
-                              {deal.brand || 'General'}
+                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-xs font-bold uppercase shrink-0">
+                              {normalizeBrandName(deal.brand)}
                             </span>
                             <span className="font-mono text-xs font-semibold text-muted group-hover:text-primary transition-colors truncate">
                               {deal.dealRegID || `#${deal.dealID}`}

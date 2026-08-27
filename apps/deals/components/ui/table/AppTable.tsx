@@ -103,11 +103,9 @@ export function AppTable<RecordType extends object>({
           locale={{
             emptyText: (
               <AppEmptyState
-                title="No items found"
-                description="There is no data to display in this table."
-                imageSrc="/mascott/proport-mascott-idle.svg"
-                imageSize={70}
-                className="py-6 border-none bg-transparent"
+                title="No deals found"
+                description="No records match your active filters or search criteria."
+                className="py-10 border-none bg-transparent"
               />
             ),
           }}

@@ -24,6 +24,11 @@ export const CANONICAL_PRESET_BRANDS = [
   'TREND MICRO',
   'VEEAM',
   'RUCKUS',
+  'AUTODESK',
+  'RED HAT',
+  'VERTIV',
+  'WATCHGUARD',
+  'SONICWALL',
 ] as const;
 
 /**
@@ -127,6 +132,40 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
   'RUCKUS': 'RUCKUS',
   'RUCKUS NETWORKS': 'RUCKUS',
   'COMMPSCOPE RUCKUS': 'RUCKUS',
+
+  // Autodesk / AutoCAD
+  'AUTOCAD': 'AUTODESK',
+  'AUTODESK': 'AUTODESK',
+  'AUTODESK / AUTOCAD': 'AUTODESK',
+
+  // Acer & Asus
+  'ACER': 'ACER',
+  'ASUS': 'ASUS',
+
+  // Arcserve & Broadcom
+  'ARCSERVE': 'ARCSERVE',
+  'ARCESERVE': 'ARCSERVE',
+  'BROADCOM': 'BROADCOM',
+  'BORADCOM': 'BROADCOM',
+
+  // Red Hat, Samsung, Sonicwall, Vertiv, WatchGuard
+  'RED HAT': 'RED HAT',
+  'REDHAT': 'RED HAT',
+  'SAMSUNG': 'SAMSUNG',
+  'SAMSUNG TABLET': 'SAMSUNG',
+  'SILVER PEAK': 'SILVER PEAK',
+  'SILVERPEAK': 'SILVER PEAK',
+  'SKETCHUP': 'SKETCHUP',
+  'SONICWALL': 'SONICWALL',
+  'SONIC WALL': 'SONICWALL',
+  'VERTIV': 'VERTIV',
+  'VERIV': 'VERTIV',
+  'WATCHGUARD': 'WATCHGUARD',
+  'WATCGUARD': 'WATCHGUARD',
+  'RUIJIE': 'RUIJIE',
+  'RUIJIE NETWORKS': 'RUIJIE',
+  'OMNISSA': 'OMNISSA',
+  'OMNISSA VMWARE': 'VMWARE',
 };
 
 /**
@@ -151,20 +190,49 @@ export function normalizeBrandName(rawBrand?: string | null): string {
   }
 
   // 2. Prefix & Substring matching for compound entries
-  if (upper.startsWith('HP INC') || upper.startsWith('HPI ')) return 'HPI';
-  if (upper.startsWith('HPE ') || upper.startsWith('HEWLETT PACKARD ENTERPRISE')) return 'HPE';
-  if (upper.startsWith('DELL ') || upper.endsWith(' DELL')) return 'DELL';
-  if (upper.startsWith('CISCO ') || upper.endsWith(' CISCO')) return 'CISCO';
-  if (upper.startsWith('LENOVO ')) return 'LENOVO';
-  if (upper.startsWith('MICROSOFT ')) return 'MICROSOFT';
-  if (upper.startsWith('VMWARE ')) return 'VMWARE';
-  if (upper.startsWith('FORTINET ')) return 'FORTINET';
-  if (upper.startsWith('PALO ALTO ')) return 'PALO ALTO';
-  if (upper.startsWith('ARUBA ')) return 'ARUBA';
-  if (upper.startsWith('POLY ') || upper === 'POLY') return 'HP POLY';
+  if (upper.startsWith('HP INC') || upper.startsWith('HPI ') || upper === 'HPI' || upper === 'HP') return 'HPI';
+  if (upper.startsWith('HPE ') || upper.startsWith('HEWLETT PACKARD ENTERPRISE') || upper === 'HPE') return 'HPE';
+  if (upper.startsWith('HP POLY') || upper.startsWith('HP - POLY') || upper.startsWith('HPI - POLY') || upper.startsWith('POLY ') || upper === 'POLY' || upper === 'POLYCOM') return 'HP POLY';
+  if (upper.startsWith('DELL ') || upper.endsWith(' DELL') || upper === 'DELL') return 'DELL';
+  if (upper.startsWith('CISCO ') || upper.endsWith(' CISCO') || upper === 'CISCO') return 'CISCO';
+  if (upper.startsWith('LENOVO ') || upper === 'LENOVO') return 'LENOVO';
+  if (upper.startsWith('MICROSOFT ') || upper === 'MICROSOFT') return 'MICROSOFT';
+  if (upper.startsWith('VMWARE ') || upper.startsWith('VM WARE') || upper === 'VMWARE' || upper === 'VM WARE') return 'VMWARE';
+  if (upper.startsWith('FORTINET ') || upper === 'FORTINET' || upper === 'FORINET') return 'FORTINET';
+  if (upper.startsWith('PALO ALTO ') || upper === 'PALO ALTO') return 'PALO ALTO';
+  if (upper.startsWith('ARUBA ') || upper === 'ARUBA') return 'ARUBA';
+  if (upper.startsWith('AUTOCAD') || upper.startsWith('AUTODESK')) return 'AUTODESK';
+  if (upper.startsWith('SONICWALL') || upper.startsWith('SONIC WALL')) return 'SONICWALL';
+  if (upper.startsWith('TREND MICRO') || upper.startsWith('TRENDMICRO')) return 'TREND MICRO';
 
   // 3. Fallback for custom brands: Keep in clean uppercase if short or acronym, else standard uppercase
   return upper;
+}
+
+/**
+ * Returns all recognized database variants for a given brand name (e.g. 'HPI' -> ['HPI', 'HPi', 'Hpi', 'HP', 'HP Inc', 'Hewlett-Packard']).
+ */
+export function getBrandVariations(brand: string): string[] {
+  if (!brand) return [];
+  const norm = normalizeBrandName(brand);
+  const variations = new Set<string>([
+    brand,
+    brand.toLowerCase(),
+    brand.toUpperCase(),
+    norm,
+    norm.toLowerCase(),
+    norm.toUpperCase(),
+  ]);
+
+  for (const [alias, target] of Object.entries(BRAND_ALIAS_MAP)) {
+    if (target === norm) {
+      variations.add(alias);
+      variations.add(alias.toLowerCase());
+      variations.add(alias.charAt(0).toUpperCase() + alias.slice(1).toLowerCase());
+    }
+  }
+
+  return Array.from(variations);
 }
 
 export interface BrandDistributionItem {

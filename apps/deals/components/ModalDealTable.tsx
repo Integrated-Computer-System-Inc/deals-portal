@@ -136,7 +136,7 @@ export function ModalDealTable({
                         {deal.BU || deal.bu || 'BU5'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 font-medium text-foreground truncate">
+                    <td className="py-2.5 px-2 font-semibold uppercase text-foreground truncate">
                       {deal.brand}
                     </td>
                     <td className="py-2.5 px-2 text-muted truncate">

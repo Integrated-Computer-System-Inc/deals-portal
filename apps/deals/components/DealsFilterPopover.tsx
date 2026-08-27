@@ -22,6 +22,8 @@ export interface DealsFilterPopoverProps {
   onAoFiltersChange?: (aos: string[]) => void;
   availableAOs?: { name: string; count: number }[];
   hideAOFilter?: boolean;
+  currencyFilters?: string[];
+  onCurrencyFiltersChange?: (currencies: string[]) => void;
   expiryFilters: string[];
   onExpiryFiltersChange: (exps: string[]) => void;
   statusFilters: string[];
@@ -51,6 +53,8 @@ export function DealsFilterPopover({
   onAoFiltersChange,
   availableAOs = [],
   hideAOFilter = false,
+  currencyFilters = [],
+  onCurrencyFiltersChange,
   expiryFilters,
   onExpiryFiltersChange,
   statusFilters,
@@ -71,6 +75,7 @@ export function DealsFilterPopover({
   const activeCount =
     (hideBUFilter ? 0 : buFilters.length) +
     (!hideAOFilter && onAoFiltersChange ? aoFilters.length : 0) +
+    (onCurrencyFiltersChange ? currencyFilters.length : 0) +
     statusFilters.length +
     expiryFilters.length;
 
@@ -88,6 +93,15 @@ export function DealsFilterPopover({
       onAoFiltersChange(aoFilters.filter((a) => a !== aoName));
     } else {
       onAoFiltersChange([...aoFilters, aoName]);
+    }
+  };
+
+  const handleToggleCurrency = (curr: string) => {
+    if (!onCurrencyFiltersChange) return;
+    if (currencyFilters.includes(curr)) {
+      onCurrencyFiltersChange(currencyFilters.filter((c) => c !== curr));
+    } else {
+      onCurrencyFiltersChange([...currencyFilters, curr]);
     }
   };
 
@@ -110,6 +124,7 @@ export function DealsFilterPopover({
   const handleResetAll = () => {
     onBuFiltersChange([]);
     if (onAoFiltersChange) onAoFiltersChange([]);
+    if (onCurrencyFiltersChange) onCurrencyFiltersChange([]);
     onExpiryFiltersChange([]);
     onStatusFiltersChange([]);
     setIsOthersExpanded(false);
@@ -364,7 +379,54 @@ export function DealsFilterPopover({
         </FilterGroup>
       )}
 
-      {/* 4. Deal Status Filter Group (Multi-Select) */}
+      {/* 4. Currency Filter Group (PHP / USD) */}
+      {onCurrencyFiltersChange && (
+        <FilterGroup
+          title={`Currency${currencyFilters.length > 0 ? ` • ${currencyFilters.join(', ')}` : ''}`}
+          showReset={currencyFilters.length > 0}
+          onReset={() => onCurrencyFiltersChange([])}
+        >
+          <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+            <button
+              type="button"
+              onClick={() => onCurrencyFiltersChange([])}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                currencyFilters.length === 0
+                  ? 'bg-primary text-white border-primary shadow-xs'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleCurrency('PHP')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                currencyFilters.includes('PHP')
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+              }`}
+            >
+              <span className="font-bold text-[11px]">₱</span>
+              <span>PHP</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleCurrency('USD')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                currencyFilters.includes('USD')
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs font-bold'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+              }`}
+            >
+              <span className="font-bold text-[11px]">$</span>
+              <span>USD</span>
+            </button>
+          </div>
+        </FilterGroup>
+      )}
+
+      {/* 5. Deal Status Filter Group (Multi-Select) */}
       <FilterGroup
         title={`Deal Status${statusFilters.length > 0 ? ` • ${statusFilters.length} selected` : ''}`}
         showReset={statusFilters.length > 0}

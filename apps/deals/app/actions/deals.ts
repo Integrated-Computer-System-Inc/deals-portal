@@ -26,7 +26,7 @@ import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUti
 import { serverCache } from '@/lib/serverCache';
 import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
 import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
-import { normalizeBrandName } from '@/lib/brandUtils';
+import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -46,6 +46,76 @@ function parseSafeInt(val: any, fallback = 0): number {
 
 export async function invalidateServerDealsCache() {
   serverCache.invalidateTags(['deals', 'dashboard']);
+}
+
+/**
+ * Cached map of AO identifiers (AccountName, DomainAccount, Email, NickName) to their GAvatar URL.
+ */
+async function getAOAvatarMap(): Promise<Map<string, string>> {
+  const cacheKey = 'cdb_ao_avatars_map';
+  const cached = serverCache.get<Record<string, string>>(cacheKey);
+  if (cached) {
+    return new Map(Object.entries(cached));
+  }
+
+  try {
+    const accounts = await prisma.cdbAccounts.findMany({
+      where: {
+        GAvatar: { not: null },
+      },
+      select: {
+        AccountName: true,
+        DomainAccount: true,
+        Email: true,
+        NickName: true,
+        GAvatar: true,
+      },
+    });
+
+    const mapObj: Record<string, string> = {};
+    for (const acc of accounts) {
+      if (!acc.GAvatar) continue;
+      const avatar = acc.GAvatar.trim();
+      if (!avatar) continue;
+
+      if (acc.AccountName) {
+        mapObj[acc.AccountName.trim().toLowerCase()] = avatar;
+      }
+      if (acc.DomainAccount) {
+        mapObj[acc.DomainAccount.trim().toLowerCase()] = avatar;
+      }
+      if (acc.Email) {
+        mapObj[acc.Email.trim().toLowerCase()] = avatar;
+        const localPart = acc.Email.split('@')[0];
+        if (localPart) mapObj[localPart.toLowerCase()] = avatar;
+      }
+      if (acc.NickName) {
+        mapObj[acc.NickName.trim().toLowerCase()] = avatar;
+      }
+    }
+
+    serverCache.set(cacheKey, mapObj, 1000 * 60 * 15); // 15 mins
+    return new Map(Object.entries(mapObj));
+  } catch (err) {
+    console.warn('[getAOAvatarMap] Error querying AO avatars:', err);
+    return new Map();
+  }
+}
+
+function resolveAOAvatar(aoString: string | null | undefined, avatarMap: Map<string, string>): string | null {
+  if (!aoString) return null;
+  const cleaned = aoString.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  const direct = avatarMap.get(cleaned);
+  if (direct) return direct;
+
+  for (const [key, avatar] of avatarMap.entries()) {
+    if (key && (cleaned.includes(key) || key.includes(cleaned))) {
+      return avatar;
+    }
+  }
+  return null;
 }
 
 /**
@@ -93,13 +163,14 @@ export async function getScopedDeals(
     const buFilter = filter.buFilter;
     const aoFilter = filter.aoFilter;
     const brandFilter = filter.brandFilter;
+    const currencyFilter = filter.currencyFilter;
     const expiryFilter = filter.expiryFilter;
     const startDate = filter.startDate;
     const endDate = filter.endDate;
     const sortBy = filter.sortBy;
     const sortOrder = filter.sortOrder || 'desc';
 
-    const cacheKey = serverCache.generateKey('scoped_deals', {
+    const cacheKey = serverCache.generateKey('scoped_deals_v2', {
       userRole,
       accountName,
       domainAccount,
@@ -112,6 +183,7 @@ export async function getScopedDeals(
       buFilter,
       aoFilter,
       brandFilter,
+      currencyFilter,
       expiryFilter,
       startDate,
       endDate,
@@ -172,12 +244,36 @@ export async function getScopedDeals(
       }
     }
 
-    // Brand filter (single or multi-select array)
+    // Brand filter (single or multi-select array, expanded to match all DB variants)
     if (brandFilter) {
-      if (Array.isArray(brandFilter) && brandFilter.length > 0 && !brandFilter.includes('ALL')) {
-        andConditions.push({ brand: { in: brandFilter.map(String) } });
-      } else if (typeof brandFilter === 'string' && brandFilter !== 'ALL' && brandFilter !== '') {
-        andConditions.push({ brand: String(brandFilter) });
+      const brandsArray = Array.isArray(brandFilter) ? brandFilter : [brandFilter];
+      const activeBrands = brandsArray.filter((b) => b && b !== 'ALL');
+      if (activeBrands.length > 0) {
+        const allVariations = Array.from(
+          new Set(activeBrands.flatMap((b) => getBrandVariations(String(b))))
+        );
+        andConditions.push({
+          OR: [
+            { brand: { in: allVariations } },
+            ...activeBrands.map((b) => ({ brand: { contains: String(b).trim() } })),
+          ],
+        });
+      }
+    }
+
+    // Currency filter (e.g. PHP, USD, multi-select)
+    if (currencyFilter) {
+      const currArray = (Array.isArray(currencyFilter) ? currencyFilter : [currencyFilter])
+        .map((c) => String(c).trim().toUpperCase())
+        .filter((c) => c && c !== 'ALL');
+      if (currArray.length > 0) {
+        andConditions.push({
+          DealItems: {
+            some: {
+              currency: { in: currArray },
+            },
+          },
+        });
       }
     }
 
@@ -368,6 +464,8 @@ export async function getScopedDeals(
         : {}),
     });
 
+    const aoAvatarMap = await getAOAvatarMap();
+
     const formattedDeals: DealHeaderRecord[] = rawDeals.map((deal: any) => {
       const totalsByCurrency: CurrencyTotals = {};
 
@@ -392,7 +490,7 @@ export async function getScopedDeals(
         dtRegistered: deal.dtRegistered || new Date(),
         expiration: deal.expiration || null,
         expDt: deal.expDt || new Date(),
-        brand: deal.brand || '',
+        brand: normalizeBrandName(deal.brand),
         customerID: deal.customerID,
         dealRegID: deal.dealRegID || '',
         ProjectName: deal.ProjectName || '',
@@ -441,6 +539,7 @@ export async function getScopedDeals(
         renewals: sortedRenewals,
         latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
         aggregatedTotals: totalsByCurrency,
+        aoAvatar: resolveAOAvatar(deal.AssignedAO, aoAvatarMap),
       };
     });
 
@@ -549,7 +648,7 @@ export async function getDealById(
       dtRegistered: deal.dtRegistered || new Date(),
       expiration: deal.expiration || null,
       expDt: deal.expDt || new Date(),
-      brand: deal.brand || '',
+      brand: normalizeBrandName(deal.brand),
       customerID: deal.customerID,
       dealRegID: deal.dealRegID || '',
       ProjectName: deal.ProjectName || '',
@@ -598,6 +697,7 @@ export async function getDealById(
       renewals: sortedRenewals,
       latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
       aggregatedTotals: totalsByCurrency,
+      aoAvatar: resolveAOAvatar(deal.AssignedAO, await getAOAvatarMap()),
     };
 
     const cacheKey = `deal_detail:${id}`;
