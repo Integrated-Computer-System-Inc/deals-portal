@@ -23,10 +23,14 @@ async function testRoles() {
   console.log('Account 415 (Adeliana Sy-Lu):', admin.role, admin.isAuthorized ? '✓ Authorized' : '✗ Rejected');
   console.assert(admin.role === 'admin' && admin.isAuthorized, 'Test 415 failed');
 
-  // IT Admin override
-  const itAdmin = resolveUserRoleAndBUs(99999, 'jdoremon@ics.com.ph', 'HQ', 'USER', 1);
-  console.log('IT Admin override (jdoremon@ics.com.ph):', itAdmin.role, itAdmin.isAuthorized ? '✓ Authorized' : '✗ Rejected');
-  console.assert(itAdmin.role === 'admin' && itAdmin.isAuthorized, 'Test IT Admin failed');
+  // IT Admin overrides
+  const itAdmin1 = resolveUserRoleAndBUs(99999, 'jdoremon@ics.com.ph', 'HQ', 'USER', 1);
+  console.log('IT Admin 1 (jdoremon@ics.com.ph):', itAdmin1.role, itAdmin1.isAuthorized ? '✓ Authorized' : '✗ Rejected');
+  console.assert(itAdmin1.role === 'admin' && itAdmin1.isAuthorized, 'Test IT Admin 1 failed');
+
+  const itAdmin2 = resolveUserRoleAndBUs(1, 'bcandelaria@ics.com.ph', 'HQ', 'USER', 1);
+  console.log('IT Admin 2 (bcandelaria@ics.com.ph):', itAdmin2.role, itAdmin2.isAuthorized ? '✓ Authorized' : '✗ Rejected');
+  console.assert(itAdmin2.role === 'admin' && itAdmin2.isAuthorized, 'Test IT Admin 2 failed');
 
   // Active Generic AO
   const activeAo = resolveUserRoleAndBUs(705, 'camille.kilakiga@ics.com.ph', 'BU5', 'AO', 1);

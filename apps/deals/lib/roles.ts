@@ -111,6 +111,24 @@ export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
     assignedBUs: [],
     roleTitle: 'Administrator',
   },
+  1: {
+    accountId: 1,
+    name: 'BHARON CHRISTOPHER CANDELARIA',
+    email: 'bcandelaria@ics.com.ph',
+    domainAccount: 'BCANDELARIA',
+    role: 'admin',
+    assignedBUs: [],
+    roleTitle: 'Administrator',
+  },
+  99999: {
+    accountId: 99999,
+    name: 'JAMES PAOLO DOREMON',
+    email: 'jdoremon@ics.com.ph',
+    domainAccount: 'JDOREMON',
+    role: 'admin',
+    assignedBUs: [],
+    roleTitle: 'Administrator',
+  },
 
   // Account Officer (BU8)
   1458: {
@@ -236,51 +254,66 @@ export function getImpersonationPersona(accountId: number): ImpersonationPersona
 }
 
 /**
- * Helper to normalize and check if an email is configured in ADMIN_EMAILS environment variable
+ * Explicit list of authorized Superadmins who can access the Impersonation tool
+ */
+export const SUPERADMIN_EMAILS: readonly string[] = [
+  'jdoremon@ics.com.ph',
+  'bcandelaria@ics.com.ph',
+];
+
+/**
+ * Checks if an email belongs to a designated Superadmin
+ */
+export function isSuperadminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return SUPERADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === normalized);
+}
+
+/**
+ * Helper to check if an email is an admin (checks Superadmin list or explicit admin email)
  */
 export function isConfiguredAdminEmail(email?: string | null): boolean {
-  if (!email) return false;
-  const adminEmails = (process.env.ADMIN_EMAILS || 'jdoremon@ics.com.ph,bcandelaria@ics.com.ph')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return adminEmails.includes(email.trim().toLowerCase());
+  return isSuperadminEmail(email);
 }
 
 /**
  * Resolves the role, assigned business units, and authorization status for an account.
  *
  * Authorization logic:
- * 1. ADMIN_EMAILS list -> Admin
+ * 1. Explicit admin role from Users table OR Superadmin email -> Admin
  * 2. Explicit AccountID registry (BU Heads, Admin Assistant, Admin) -> Configured role
- * 3. All other accounts:
+ * 3. Explicit role from Users table -> Stored role
+ * 4. Fallback for new users: Validate cdbAccounts
  *    - MUST have AccountType === 'AO' (case-insensitive)
  *    - MUST have isActive === 1
  *    - If both match -> Account Officer ('ao')
  *    - Otherwise -> Rejected (isAuthorized: false)
  *
- * @param accountId Numeric or string AccountID from cdbAccounts
+ * @param accountId Numeric or string AccountID from Users or cdbAccounts
  * @param email Optional email for developer/admin override checks
  * @param accountGroupFallback Optional fallback BU/group from cdbAccounts.AccountGroup
  * @param accountType Optional AccountType from cdbAccounts.AccountType (e.g. 'AO', 'USER', 'CUSTOMER')
  * @param isActive Optional active flag from cdbAccounts.isActive (1 = active, 0 = inactive)
+ * @param explicitRole Optional role already stored in Users table (e.g. 'admin', 'bu', 'ao', 'aa')
  */
 export function resolveUserRoleAndBUs(
   accountId: number | string,
   email?: string | null,
   accountGroupFallback?: string | null,
   accountType?: string | null,
-  isActive?: number | null
+  isActive?: number | null,
+  explicitRole?: UserRole | null
 ): ResolvedUserAccess {
   const numericId = typeof accountId === 'string' ? parseInt(accountId.replace(/\D/g, ''), 10) : accountId;
   const config = !isNaN(numericId) ? ACCOUNT_ROLE_REGISTRY[numericId] : undefined;
 
-  // 1. Check if email is in ADMIN_EMAILS environment override
-  if (isConfiguredAdminEmail(email)) {
+  // 1. Check if explicit role is admin OR email is in SUPERADMIN_EMAILS
+  if (explicitRole === 'admin' || isSuperadminEmail(email)) {
     return {
       role: 'admin',
       assignedBUs: config?.assignedBUs || [],
-      roleTitle: 'Administrator (IT Superadmin)',
+      roleTitle: config?.roleTitle || 'Administrator (IT Superadmin)',
       isAuthorized: true,
       isBuHead: false,
       isAdmin: true,
@@ -303,7 +336,22 @@ export function resolveUserRoleAndBUs(
     };
   }
 
-  // 3. Fallback: Validate if account is tagged as an active 'AO'
+  // 3. Check if an explicit role is already provided from the Users table
+  if (explicitRole) {
+    const fallbackBUs = accountGroupFallback && accountGroupFallback.trim() ? [accountGroupFallback.trim()] : [];
+    return {
+      role: explicitRole,
+      assignedBUs: fallbackBUs,
+      roleTitle: explicitRole === 'bu' ? 'BU Head' : explicitRole === 'aa' ? 'Admin Assistant' : 'Account Officer',
+      isAuthorized: true,
+      isBuHead: explicitRole === 'bu',
+      isAdmin: false,
+      isAdminAssistant: explicitRole === 'aa',
+      isAccountOfficer: explicitRole === 'ao',
+    };
+  }
+
+  // 4. Fallback: Validate if account is tagged as an active 'AO' in cdbAccounts
   const normalizedType = (accountType || '').trim().toUpperCase();
   const isActiveAccount = isActive === 1;
 

@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from 'react';
 import { useSession } from 'next-auth/react';
-import { IMPERSONATION_PERSONAS, ImpersonationPersona } from '@/lib/roles';
+import { IMPERSONATION_PERSONAS, ImpersonationPersona, isSuperadminEmail } from '@/lib/roles';
 import { switchImpersonationTarget } from '@/app/actions/impersonation';
 import { useRouter } from 'next/navigation';
 import {
@@ -25,8 +25,8 @@ export const ImpersonationBanner: React.FC = () => {
 
   const u = session?.user as any;
   const isImpersonating = Boolean(u?.isImpersonating);
-  const originalAdminEmail = u?.originalAdminEmail || (u?.email === 'jdoremon@ics.com.ph' ? u?.email : null);
-  const isSuperadmin = u?.email === 'jdoremon@ics.com.ph' || Boolean(originalAdminEmail);
+  const originalAdminEmail = u?.originalAdminEmail || (isSuperadminEmail(u?.email) ? u?.email : null);
+  const isSuperadmin = isSuperadminEmail(u?.email) || Boolean(originalAdminEmail);
 
   // If not superadmin and not impersonating, do not render anything
   if (!isSuperadmin && !isImpersonating) {

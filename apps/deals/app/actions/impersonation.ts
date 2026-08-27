@@ -2,7 +2,7 @@
 
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { isConfiguredAdminEmail, getImpersonationPersona, IMPERSONATION_PERSONAS, ImpersonationPersona } from '@/lib/roles';
+import { isSuperadminEmail, getImpersonationPersona, IMPERSONATION_PERSONAS, ImpersonationPersona } from '@/lib/roles';
 import { serverCache } from '@/lib/serverCache';
 import { revalidatePath } from 'next/cache';
 
@@ -26,12 +26,12 @@ export async function isAuthorizedImpersonator(): Promise<{
   const isImpersonating = Boolean((session.user as any)?.isImpersonating);
   const currentRole = ((session.user as any)?.role as string) || null;
 
-  // Check if direct email or original admin email is in ADMIN_EMAILS
-  const authorized = isConfiguredAdminEmail(sessionEmail) || isConfiguredAdminEmail(originalAdminEmail);
+  // Check if direct email or original admin email is in SUPERADMIN_EMAILS
+  const authorized = isSuperadminEmail(sessionEmail) || isSuperadminEmail(originalAdminEmail);
 
   return {
     authorized,
-    adminEmail: originalAdminEmail || (isConfiguredAdminEmail(sessionEmail) ? sessionEmail : null),
+    adminEmail: originalAdminEmail || (isSuperadminEmail(sessionEmail) ? sessionEmail : null),
     currentRole,
     isImpersonating,
   };

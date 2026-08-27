@@ -4,7 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { UserRole } from '@my-app/types';
 import { prisma } from '@my-app/database';
 import { randomUUID } from 'crypto';
-import { resolveUserRoleAndBUs, isConfiguredAdminEmail, getImpersonationPersona, ACCOUNT_ROLE_REGISTRY } from './roles';
+import { resolveUserRoleAndBUs, isSuperadminEmail, isConfiguredAdminEmail, getImpersonationPersona, ACCOUNT_ROLE_REGISTRY } from './roles';
 
 const CDB_ACCOUNT_SELECT = {
   AccountID: true,
@@ -97,18 +97,19 @@ export const authOptions: NextAuthOptions = {
                 const accountId = Number(u.AccountID);
                 const userRole = u.UserRole as UserRole;
                 const accountName = u.AccountName || userEmail.split('@')[0].toUpperCase();
-                const userAccess = resolveUserRoleAndBUs(accountId, userEmail, 'HQ', 'AO', 1);
+                const userAccess = resolveUserRoleAndBUs(accountId, userEmail, 'HQ', 'AO', 1, userRole);
+                const assignedBUs = userRole === 'admin' ? ['ALL'] : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
 
                 return {
                   id: `usr_${accountId}`,
                   name: accountName,
                   email: userEmail,
                   DomainAccount: `CORP\\${userEmail.split('@')[0].toUpperCase()}`,
-                  AccountGroup: userAccess.assignedBUs.join(',') || 'BU5',
+                  AccountGroup: assignedBUs.join(',') || 'BU5',
                   AccountID: String(accountId),
                   AccountName: accountName,
                   role: userRole,
-                  assignedBUs: userAccess.assignedBUs,
+                  assignedBUs: assignedBUs,
                   RememberToken: u.RememberToken || rememberToken,
                 };
               }
@@ -283,18 +284,19 @@ export const authOptions: NextAuthOptions = {
               const accountName = existingUser.AccountName || user.name || emailLower.split('@')[0].toUpperCase();
               const rememberToken = existingUser.RememberToken || randomUUID();
 
-              // Resolve BU scopes
+              // Resolve BU scopes with explicit UserRole from Users table
               const userAccess = resolveUserRoleAndBUs(
                 accountId,
                 emailLower,
                 'HQ',
                 'AO',
-                1
+                1,
+                userRole
               );
 
-              const assignedBUs = userAccess.assignedBUs.length > 0
-                ? userAccess.assignedBUs
-                : (userRole === 'admin' ? ['ALL'] : ['BU5']);
+              const assignedBUs = userRole === 'admin'
+                ? ['ALL']
+                : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
 
               // Asynchronously update LastLogin in the background
               prisma.$executeRawUnsafe(`
@@ -319,8 +321,8 @@ export const authOptions: NextAuthOptions = {
             console.warn('[Google Sign-In] Fast-path lookup skipped, proceeding with directory verification:', fastPathError);
           }
 
-          // 3. Check if user is an Admin configured in ADMIN_EMAILS
-          const isAdmin = isConfiguredAdminEmail(emailLower) || isConfiguredAdminEmail(user.email);
+          // 3. Check if user is a designated Superadmin
+          const isSuperadmin = isSuperadminEmail(emailLower) || isSuperadminEmail(user.email);
 
           // 4. Query cdbAccounts with lightweight scalar projection (skipping binary blobs)
           let cdbAccount = await prisma.cdbAccounts.findFirst({
@@ -343,10 +345,10 @@ export const authOptions: NextAuthOptions = {
             });
           }
 
-          // 5. Block access if user does not exist in corporate directory AND is not in ADMIN_EMAILS
-          if (!cdbAccount && !isAdmin) {
+          // 5. Block access if user does not exist in corporate directory AND is not in Users/Superadmins
+          if (!cdbAccount && !isSuperadmin) {
             console.warn(
-              `[Google Sign-In] Access Denied: User ${user.email} (${user.name}) not found in cdbAccounts and not in ADMIN_EMAILS.`
+              `[Google Sign-In] Access Denied: User ${user.email} (${user.name}) not found in cdbAccounts and not in Users table.`
             );
             return '/login?error=AccessDenied';
           }
@@ -427,7 +429,7 @@ export const authOptions: NextAuthOptions = {
         token.assignedBUs = u.assignedBUs || [];
         token.RememberToken = u.RememberToken || null;
         token.isImpersonating = u.isImpersonating || false;
-        token.originalAdminEmail = u.originalAdminEmail || (isConfiguredAdminEmail(u.email) ? u.email : undefined);
+        token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
       }
 
       // Handle in-place session update (e.g. from useSession().update(...) or impersonation switch)
