@@ -769,8 +769,8 @@ function LoginContent() {
     router.prefetch('/deals/new');
   }, [router]);
 
-  // Trigger celebration animation and data prewarming on successful authentication
-  const handleAuthSuccess = useCallback(async () => {
+  // Trigger celebration animation and instant redirect to dashboard on successful authentication
+  const handleAuthSuccess = useCallback(() => {
     setAnimationStep('celebrating');
 
     // 1. Prefetch Next.js route chunks immediately
@@ -779,56 +779,41 @@ function LoginContent() {
     router.prefetch('/reports');
     router.prefetch('/deals/new');
 
-    // 2. Transition smoothly to loading state after brief celebration
-    setTimeout(async () => {
-      setAnimationStep('loading');
-      setLoadingStatus('Authenticating session...');
+    // 2. Non-blocking background prefetch for TanStack query cache (fire-and-forget)
+    getSession().then((session) => {
+      const role = (session?.user as any)?.role || 'admin';
+      const accountName = (session?.user as any)?.AccountName || session?.user?.name;
+      const accountGroup = (session?.user as any)?.AccountGroup;
 
-      try {
-        // Fetch fresh authenticated session
-        const session = await getSession();
-        const role = (session?.user as any)?.role || 'admin';
-        const accountName = (session?.user as any)?.AccountName || session?.user?.name;
-        const accountGroup = (session?.user as any)?.AccountGroup;
+      const scopedFilter = {
+        userRole: role,
+        accountName: accountName || undefined,
+        accountGroup: accountGroup || undefined,
+      };
 
-        const scopedFilter = {
-          userRole: role,
-          accountName: accountName || undefined,
-          accountGroup: accountGroup || undefined,
-        };
+      queryClient.prefetchQuery({
+        queryKey: DEAL_QUERY_KEYS.dashboard(),
+        queryFn: async () => {
+          const res = await getDashboardSummary();
+          return res.data || null;
+        },
+        staleTime: 1000 * 60 * 5,
+      }).catch(() => {});
 
-        setLoadingStatus('Pre-loading dashboard metrics & deals...');
+      queryClient.prefetchQuery({
+        queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
+        queryFn: async () => {
+          const res = await getScopedDeals(scopedFilter);
+          return res.data || [];
+        },
+        staleTime: 1000 * 60 * 5,
+      }).catch(() => {});
+    }).catch(() => {});
 
-        // Pre-warm TanStack Query caches with exact scoped keys
-        await Promise.allSettled([
-          queryClient.prefetchQuery({
-            queryKey: DEAL_QUERY_KEYS.dashboard(),
-            queryFn: async () => {
-              const res = await getDashboardSummary();
-              return res.data || null;
-            },
-            staleTime: 1000 * 60 * 5,
-          }),
-          queryClient.prefetchQuery({
-            queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
-            queryFn: async () => {
-              const res = await getScopedDeals(scopedFilter);
-              return res.data || [];
-            },
-            staleTime: 1000 * 60 * 5,
-          }),
-        ]);
-
-        setLoadingStatus('Workspace ready! Redirecting...');
-      } catch (e) {
-        console.warn('Pre-warming cache warning:', e);
-      }
-
-      // Smooth handoff to dashboard
-      setTimeout(() => {
-        router.replace('/dashboard');
-      }, 400);
-    }, 1200);
+    // 3. Fast, responsive handoff directly to dashboard (snappy 600ms celebration)
+    setTimeout(() => {
+      router.replace('/dashboard');
+    }, 600);
   }, [router, queryClient]);
 
   const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
