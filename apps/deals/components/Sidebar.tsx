@@ -39,7 +39,7 @@ const DEAL_STATUS_FILTERS = [
 ];
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() || '';
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentStatusParam = searchParams?.get('status') || '';
