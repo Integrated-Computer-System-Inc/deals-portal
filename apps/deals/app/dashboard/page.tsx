@@ -57,15 +57,30 @@ export default function DashboardPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
 
-  // If opened inside Google OAuth popup, close popup and redirect parent window
+  // If opened inside Google OAuth popup, notify opener across channels and close
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.opener && window.name === 'google_oauth_popup') {
-      try {
-        window.opener.location.href = '/dashboard';
-      } catch {
-        // Ignore cross-origin issues if any
+    if (typeof window !== 'undefined') {
+      const isPop = window.name === 'google_oauth_popup' || Boolean(window.opener && window.opener !== window);
+      if (isPop) {
+        const msg = { type: 'OAUTH_SUCCESS' };
+        try {
+          const bc = new BroadcastChannel('deals_google_auth');
+          bc.postMessage(msg);
+          bc.close();
+        } catch {}
+        try {
+          localStorage.setItem('deals_oauth_result', JSON.stringify({ msg, t: Date.now() }));
+        } catch {}
+        try {
+          if (window.opener && window.opener !== window) {
+            window.opener.postMessage(msg, window.location.origin);
+          }
+        } catch {}
+        window.close();
+        setTimeout(() => {
+          window.close();
+        }, 50);
       }
-      window.close();
     }
   }, []);
 

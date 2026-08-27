@@ -10,7 +10,6 @@ import {
   ShieldAlert,
   Loader2,
   Fingerprint,
-  Lock,
   X,
   Info,
 } from 'lucide-react';
@@ -411,7 +410,7 @@ function MobileHeroShapes({
 }
 
 // ---------------------------------------------------------------------------
-// Login Form (Direct Google OAuth 2.0 Integration with Popup Modal)
+// Login Form (Google OAuth Popup Modal with Animated Hand-off)
 // ---------------------------------------------------------------------------
 
 interface LoginFormProps {
@@ -462,7 +461,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
     const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
     const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
 
-    // Open popup synchronously on click to prevent browser popup blockers
+    // Open popup synchronously on click
     const popup = window.open(
       'about:blank',
       'google_oauth_popup',
@@ -484,8 +483,8 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
             </body>
           </html>
         `);
-      } catch (e) {
-        // Ignore potential cross-origin document notice
+      } catch {
+        // Ignore potential cross-origin notice
       }
     }
 
@@ -494,7 +493,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
       const csrfRes = await fetch('/api/auth/csrf');
       const { csrfToken } = await csrfRes.json();
 
-      // 2. Obtain Google authorization URL directly without top-level redirect
+      // 2. Obtain Google authorization URL directly
       const signinRes = await fetch('/api/auth/signin/google', {
         method: 'POST',
         headers: {
@@ -525,32 +524,71 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
 
       let isFinished = false;
 
-      // Listen for message from popup
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        if (event.data?.type === 'OAUTH_SUCCESS') {
-          isFinished = true;
-          window.removeEventListener('message', handleMessage);
-          clearInterval(pollTimer);
+      const cleanupListeners = () => {
+        isFinished = true;
+        if (bc) {
+          try {
+            bc.close();
+          } catch {}
+        }
+        window.removeEventListener('message', handleMessage);
+        window.removeEventListener('storage', handleStorage);
+        clearInterval(pollTimer);
+      };
+
+      const handleAuthResult = (data: { type: string; error?: string }) => {
+        if (isFinished) return;
+        cleanupListeners();
+        if (popup && !popup.closed) popup.close();
+
+        if (data.type === 'OAUTH_SUCCESS') {
           setIsSigningIn(false);
           onAuthSuccess();
-        } else if (event.data?.type === 'OAUTH_ERROR') {
-          isFinished = true;
-          window.removeEventListener('message', handleMessage);
-          clearInterval(pollTimer);
+        } else if (data.type === 'OAUTH_ERROR') {
           setIsSigningIn(false);
           onMoodChange('sad');
-          router.replace(`/login?error=${encodeURIComponent(event.data.error || 'OAuthCallbackError')}`);
+          const errInfo = resolveAuthError(data.error || null);
+          setLocalAuthError(errInfo || AUTH_ERROR_MESSAGES.Default);
         }
       };
 
+      // 1. BroadcastChannel listener (Cross-tab/popup sync)
+      let bc: BroadcastChannel | null = null;
+      try {
+        bc = new BroadcastChannel('deals_google_auth');
+        bc.onmessage = (event) => {
+          if (event.data) {
+            handleAuthResult(event.data);
+          }
+        };
+      } catch {}
+
+      // 2. LocalStorage storage event listener (Fallback)
+      const handleStorage = (event: StorageEvent) => {
+        if (event.key === 'deals_oauth_result' && event.newValue) {
+          try {
+            const parsed = JSON.parse(event.newValue);
+            if (parsed?.msg) {
+              handleAuthResult(parsed.msg);
+            }
+          } catch {}
+        }
+      };
+      window.addEventListener('storage', handleStorage);
+
+      // 3. postMessage listener
+      const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === 'OAUTH_SUCCESS' || event.data?.type === 'OAUTH_ERROR') {
+          handleAuthResult(event.data);
+        }
+      };
       window.addEventListener('message', handleMessage);
 
-      // Poll in case the popup closes
+      // 4. Poll in case popup is closed manually by user
       const pollTimer = setInterval(async () => {
         if (popup.closed && !isFinished) {
-          clearInterval(pollTimer);
-          window.removeEventListener('message', handleMessage);
+          cleanupListeners();
           const session = await getSession();
           if (session?.user) {
             setIsSigningIn(false);
@@ -671,44 +709,57 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
 
 type AnimationStep = 'idle' | 'celebrating' | 'expanding' | 'loading';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [animationStep, setAnimationStep] = useState<AnimationStep>('idle');
   const [characterMood, setCharacterMood] = useState<'idle' | 'sad'>('idle');
+  const [loadingStatus, setLoadingStatus] = useState<string>('Preparing your Deals Workspace...');
+  const queryClient = useQueryClient();
 
-  // Handle OAuth Popup Callback if inside the popup window or redirected
-  const isPopup = searchParams?.get('popup') === '1';
+  // If loaded inside the OAuth popup window, immediately communicate with opener and close
+  const [isInsidePopup, setIsInsidePopup] = useState(false);
 
   useEffect(() => {
-    if (isPopup && typeof window !== 'undefined') {
-      const error = searchParams?.get('error');
-      if (window.opener) {
+    if (typeof window !== 'undefined') {
+      const isPopup =
+        window.name === 'google_oauth_popup' ||
+        Boolean(window.opener && window.opener !== window) ||
+        searchParams?.get('popup') === '1' ||
+        (Boolean(searchParams?.get('error')) && window.name === 'google_oauth_popup');
+
+      if (isPopup) {
+        setIsInsidePopup(true);
+        const error = searchParams?.get('error');
+        const msg = error ? { type: 'OAUTH_ERROR', error } : { type: 'OAUTH_SUCCESS' };
+
+        // 1. BroadcastChannel (Reliable cross-window sync)
         try {
-          if (error) {
-            window.opener.postMessage({ type: 'OAUTH_ERROR', error }, window.location.origin);
-          } else {
-            window.opener.postMessage({ type: 'OAUTH_SUCCESS' }, window.location.origin);
+          const bc = new BroadcastChannel('deals_google_auth');
+          bc.postMessage(msg);
+          bc.close();
+        } catch {}
+
+        // 2. localStorage fallback
+        try {
+          localStorage.setItem('deals_oauth_result', JSON.stringify({ msg, t: Date.now() }));
+        } catch {}
+
+        // 3. postMessage fallback
+        try {
+          if (window.opener && window.opener !== window) {
+            window.opener.postMessage(msg, window.location.origin);
           }
-        } catch (e) {
-          console.error('Popup postMessage error:', e);
-        }
+        } catch {}
+
+        // Immediately close popup window
+        window.close();
         setTimeout(() => {
           window.close();
         }, 50);
-      } else {
-        // Fallback for mobile browser full-tab redirect
-        if (error) {
-          router.replace(`/login?error=${encodeURIComponent(error)}`);
-        } else {
-          router.replace('/dashboard');
-        }
       }
     }
-  }, [isPopup, searchParams, router]);
-
-  const queryClient = useQueryClient();
-  const [loadingStatus, setLoadingStatus] = useState<string>('Preparing your Deals Workspace...');
+  }, [searchParams]);
 
   // Prefetch main navigation routes on mount
   useEffect(() => {
@@ -785,8 +836,8 @@ export default function LoginPage() {
   const isSad = characterMood === 'sad' && !isCelebrating;
   const isLoading = animationStep === 'loading';
 
-  // If this window is the closing popup, render lightweight loader
-  if (isPopup) {
+  // If this window is the popup, render nothing (it will close instantly)
+  if (isInsidePopup) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white p-6">
         <div className="flex flex-col items-center gap-3 text-center">
@@ -912,5 +963,42 @@ export default function LoginPage() {
         <HeroShapes isCelebrating={isCelebrating} isSad={isSad} />
       </div>
     </div>
+  );
+}
+export default function LoginPage() {
+  return (
+    <>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            if (typeof window !== 'undefined') {
+              var isPop = (window.name === 'google_oauth_popup') || (window.opener && window.opener !== window) || (window.location.search.indexOf('popup=1') !== -1) || (window.location.search.indexOf('error=') !== -1 && window.name === 'google_oauth_popup');
+              if (isPop) {
+                document.documentElement.style.display = 'none';
+                var p = new URLSearchParams(window.location.search);
+                var err = p.get('error');
+                var m = err ? { type: 'OAUTH_ERROR', error: err } : { type: 'OAUTH_SUCCESS' };
+                try { var b = new BroadcastChannel('deals_google_auth'); b.postMessage(m); b.close(); } catch(e){}
+                try { localStorage.setItem('deals_oauth_result', JSON.stringify({ msg: m, t: Date.now() })); } catch(e){}
+                try { if (window.opener && window.opener !== window) window.opener.postMessage(m, window.location.origin); } catch(e){}
+                window.close();
+              }
+            }
+          `,
+        }}
+      />
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center bg-white p-6">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="w-8 h-8 border-3 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+              <p className="text-xs font-semibold text-zinc-500">Loading Deals Portal...</p>
+            </div>
+          </div>
+        }
+      >
+        <LoginContent />
+      </Suspense>
+    </>
   );
 }
