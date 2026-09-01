@@ -189,9 +189,6 @@ function DealsContent() {
 
   // Handle URL navigation parameters and restore view state
   useEffect(() => {
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
-
     const hasSearchParams = Boolean(searchParams && Array.from(searchParams.keys()).length > 0);
 
     if (hasSearchParams && searchParams) {
@@ -204,19 +201,31 @@ function DealsContent() {
       }
 
       const statusParam = searchParams.get('status');
-      if (statusParam) {
-        const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
-        if (statuses.length > 0) {
+      const expiryParam = searchParams.get('expiry') || searchParams.get('expiryFilter');
+
+      if (statusParam === 'expiring' || expiryParam === 'expiring' || expiryParam === 'all_expiring') {
+        setStatusFilters([]);
+        setExpiryFilters(['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30']);
+      } else {
+        if (statusParam) {
+          const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
           setStatusFilters(statuses);
+        } else if (isInitializedRef.current) {
+          setStatusFilters([]);
+        }
+
+        if (expiryParam) {
+          const exps = expiryParam.split(',').map((e) => e.trim()).filter(Boolean);
+          setExpiryFilters(exps);
+        } else if (isInitializedRef.current) {
+          setExpiryFilters([]);
         }
       }
 
       const currencyParam = searchParams.get('currency');
       if (currencyParam) {
         const currs = currencyParam.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
-        if (currs.length > 0) {
-          setCurrencyFilters(currs);
-        }
+        setCurrencyFilters(currs);
       }
 
       const brandParam = searchParams.get('brand');
@@ -246,7 +255,10 @@ function DealsContent() {
           setCurrentPage(p);
         }
       }
-    } else {
+
+      isInitializedRef.current = true;
+    } else if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
       // Only restore from sessionStorage if user navigated back from a deal detail page
       try {
         const isFromDetail = sessionStorage.getItem('DEALS_NAVIGATED_TO_DETAIL') === 'true';
@@ -271,29 +283,12 @@ function DealsContent() {
               }, 100);
             }
           }
-        } else {
-          // Fresh navigation from another page -> Default to clean "All" view
-          sessionStorage.removeItem('DEALS_REGISTRY_VIEW_STATE');
-          setStatusFilters([]);
-          setBuFilters([]);
-          setAoFilters([]);
-          setCurrencyFilters([]);
-          setExpiryFilters([]);
-          setSearchQuery('');
-          setCurrentPage(1);
-          setDateRange({ preset: 'ALL', label: 'All Time' });
         }
       } catch {}
-    }
-  }, [searchParams]);
-
-  // Keep status dynamic when changed via URL searchParams (e.g. sidebar navigation)
-  useEffect(() => {
-    if (!searchParams) return;
-    const statusParam = searchParams.get('status');
-    if (statusParam !== null) {
-      const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
-      setStatusFilters(statuses);
+    } else {
+      // User cleared search params or clicked Deals Registry menu
+      setStatusFilters([]);
+      setExpiryFilters([]);
     }
   }, [searchParams]);
 

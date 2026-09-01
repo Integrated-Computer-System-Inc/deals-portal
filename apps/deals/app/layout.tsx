@@ -8,6 +8,11 @@ import { SecurityGuard } from '../components/SecurityGuard';
 export const metadata = {
   title: 'ICS Deal Registration',
   description: 'Enterprise Deal Registration, Tracking and SLA Management',
+  icons: {
+    icon: '/api/icons/Favicon.png',
+    shortcut: '/api/icons/Favicon.png',
+    apple: '/api/icons/Favicon.png',
+  },
 };
 
 // Inline script to apply saved theme before React hydration (prevents flash)

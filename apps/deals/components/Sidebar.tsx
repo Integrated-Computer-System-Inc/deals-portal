@@ -29,13 +29,14 @@ import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 
 const DEAL_STATUS_FILTERS = [
-  { id: '1', label: 'Registered', color: 'bg-emerald-500' },
-  { id: '4', label: 'Pending', color: 'bg-amber-500' },
-  { id: '3', label: 'Waiting', color: 'bg-sky-500' },
-  { id: '6', label: 'Won', color: 'bg-indigo-500' },
-  { id: '7', label: 'Lost', color: 'bg-rose-600' },
-  { id: '5', label: 'Expired', color: 'bg-zinc-400' },
-  { id: '2', label: 'Declined', color: 'bg-rose-500' },
+  { id: '1', label: 'Registered', color: 'bg-emerald-500', href: '/deals?status=1' },
+  { id: 'expiring', label: 'Expiring', color: 'bg-amber-500', href: '/deals?expiry=expiring', isExpiry: true },
+  { id: '4', label: 'Pending', color: 'bg-amber-500', href: '/deals?status=4' },
+  { id: '3', label: 'Waiting', color: 'bg-sky-500', href: '/deals?status=3' },
+  { id: '6', label: 'Won', color: 'bg-indigo-500', href: '/deals?status=6' },
+  { id: '7', label: 'Lost', color: 'bg-rose-600', href: '/deals?status=7' },
+  { id: '5', label: 'Expired', color: 'bg-zinc-400', href: '/deals?status=5' },
+  { id: '2', label: 'Declined', color: 'bg-rose-500', href: '/deals?status=2' },
 ];
 
 export default function Sidebar() {
@@ -43,6 +44,7 @@ export default function Sidebar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentStatusParam = searchParams?.get('status') || '';
+  const currentExpiryParam = searchParams?.get('expiry') || searchParams?.get('expiryFilter') || '';
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
@@ -94,12 +96,17 @@ export default function Sidebar() {
         {/* Brand Header */}
         <AppSidebar.Header className={collapsed ? "p-3 border-b border-border/50 shrink-0" : "p-3.5 border-b border-border/50 shrink-0"}>
           {collapsed ? (
-            /* Collapsed Header: Centered ICS Logo & Centered Expand Button */
+            /* Collapsed Header: Centered Gary Mascot Logo & Centered Expand Button */
             <div className="flex flex-col items-center justify-center gap-2.5 w-full">
               <Tooltip title="ICS Deal Registration" placement="right">
-                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 cursor-default select-none mx-auto">
-                  ICS
-                </div>
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="ICS Deal Registration"
+                  className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 cursor-default select-none mx-auto"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
+                  }}
+                />
               </Tooltip>
 
               <Tooltip title="Expand Sidebar" placement="right">
@@ -119,9 +126,14 @@ export default function Sidebar() {
             /* Expanded Header: Full Brand Title & Collapse Button */
             <div className="flex items-center justify-between gap-2.5 w-full">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 select-none">
-                  ICS
-                </div>
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="ICS Deal Registration"
+                  className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 select-none"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
+                  }}
+                />
                 <div className="flex flex-col min-w-0">
                   <span className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
                     Deal Registration
@@ -196,7 +208,7 @@ export default function Sidebar() {
                 <AppSidebar.Item
                   href="/deals"
                   icon={<FileSpreadsheet size={18} />}
-                  active={pathname === '/deals' && !currentStatusParam}
+                  active={pathname === '/deals' && !currentStatusParam && !currentExpiryParam}
                   onClick={() => {
                     setMobileOpen(false);
                     setIsDealsSubmenuOpen(true);
@@ -233,11 +245,15 @@ export default function Sidebar() {
                 <div className="w-full pl-5 pr-2 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="border-l-2 border-border/60 pl-2.5 space-y-0.5">
                     {DEAL_STATUS_FILTERS.map((st) => {
-                      const isStatusActive = pathname === '/deals' && currentStatusParam === st.id;
+                      const isStatusActive =
+                        st.id === 'expiring'
+                          ? pathname === '/deals' && (currentStatusParam === 'expiring' || currentExpiryParam === 'expiring' || currentExpiryParam.includes('CRITICAL_3'))
+                          : pathname === '/deals' && currentStatusParam === st.id && !currentExpiryParam;
+
                       return (
                         <Link
                           key={st.id}
-                          href={`/deals?status=${st.id}`}
+                          href={st.href}
                           onClick={() => {
                             setMobileOpen(false);
                             try {
