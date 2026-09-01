@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   PlusCircle,
   BarChart2,
+  Users,
   LogOut,
   PanelLeftClose,
   PanelLeft,
@@ -62,7 +63,9 @@ export default function Sidebar() {
   const userBU = (session?.user as any)?.AccountGroup || 'HQ';
 
   const getRoleLabel = () => {
-    if (userRole === 'admin') return 'Administrator';
+    if (userRole === 'ITadmin') return 'IT Administrator';
+    if (userRole === 'admin') return 'Sales Administrator';
+    if (userRole === 'pm') return 'Product Manager';
     if (userRole === 'aa') return 'Admin Assistant';
     if (userRole === 'bu' || userRole === 'bu_admin') {
       return userBU && userBU !== 'HQ' ? `BU Head (${userBU})` : 'BU Head';
@@ -70,17 +73,20 @@ export default function Sidebar() {
     return 'Account Officer';
   };
 
-  const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao');
+  const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao' || userRole === 'pm');
 
   // Pre-load all main navigation route chunks in background on mount
   React.useEffect(() => {
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
+    if (userRole === 'ITadmin') {
+      router.prefetch('/admin/users');
+    }
     if (!isViewOnly) {
       router.prefetch('/deals/new');
     }
-  }, [router, isViewOnly]);
+  }, [router, isViewOnly, userRole]);
 
   return (
     <>
@@ -275,7 +281,28 @@ export default function Sidebar() {
               </AppSidebar.Item>
             </div>
 
-            {/* 4. Register Deal */}
+            {/* 4. User Management (IT Admin Only) */}
+            {userRole === 'ITadmin' && (
+              <div className="w-full flex justify-center">
+                <AppSidebar.Item
+                  href="/admin/users"
+                  icon={<Users size={18} />}
+                  active={pathname === '/admin/users' || pathname.startsWith('/admin/users/')}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setIsDealsSubmenuOpen(false);
+                    try {
+                      sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                    } catch {}
+                  }}
+                  tooltipPlacement="right"
+                >
+                  User Management
+                </AppSidebar.Item>
+              </div>
+            )}
+
+            {/* 5. Register Deal */}
             {!isViewOnly && (
               <div className="w-full flex justify-center">
                 <AppSidebar.Item
@@ -352,8 +379,8 @@ export default function Sidebar() {
                     className="shrink-0"
                   />
                   <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
-                      {accountName || 'Administrator'}
+                    <span className="text-xs font-semibold text-foreground truncate" title={accountName || getRoleLabel()}>
+                      {accountName || getRoleLabel()}
                     </span>
                     <span className="text-[10px] text-muted truncate">
                       {getRoleLabel()}

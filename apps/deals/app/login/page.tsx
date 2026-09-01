@@ -33,7 +33,7 @@ const AUTH_ERROR_MESSAGES: Record<string, AuthErrorInfo> = {
   AccessDenied: {
     title: 'Access Restricted / Unauthorized Role',
     description:
-      'Access restricted: Only Account Officers (AO), BU Heads, and Administrators are authorized to access the Deals Portal. If your account is unregistered or inactive, please contact IT Support.',
+      'Access restricted: Only Account Officers (AO), BU Heads, Product Managers (PM), Admin Assistants (AA), and Administrators are authorized to access the Deals Portal. If your account is unregistered or inactive, please contact IT Support.',
   },
   OAuthAccountNotLinked: {
     title: 'Account Already Linked',

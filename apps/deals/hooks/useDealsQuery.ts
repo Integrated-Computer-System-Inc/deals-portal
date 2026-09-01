@@ -82,6 +82,7 @@ export function useCurrentUserFilter(): ScopedDealsFilter {
   const domainAccount = (session?.user as any)?.DomainAccount;
   const accountGroup = (session?.user as any)?.AccountGroup;
   const assignedBUs = (session?.user as any)?.assignedBUs;
+  const assignedBrands = (session?.user as any)?.assignedBrands;
 
   return useMemo(
     () => ({
@@ -90,8 +91,9 @@ export function useCurrentUserFilter(): ScopedDealsFilter {
       domainAccount: domainAccount || undefined,
       accountGroup: accountGroup || undefined,
       assignedBUs: assignedBUs || undefined,
+      assignedBrands: assignedBrands || undefined,
     }),
-    [role, accountName, domainAccount, accountGroup, assignedBUs]
+    [role, accountName, domainAccount, accountGroup, assignedBUs, assignedBrands]
   );
 }
 

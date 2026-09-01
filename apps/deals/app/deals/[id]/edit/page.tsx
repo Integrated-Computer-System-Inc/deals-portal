@@ -106,7 +106,7 @@ export default function EditDealPage() {
   const [pendingFormData, setPendingFormData] = useState<UpdateDealFormData | null>(null);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
-  const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao';
+  const isViewOnly = userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao' || userRole === 'pm';
 
   React.useEffect(() => {
     if (session && isViewOnly) {
@@ -465,7 +465,7 @@ export default function EditDealPage() {
               <input
                 {...register('custName')}
                 disabled={isViewOnly}
-                placeholder="e.g. San Miguel Corporation or Department of Agriculture"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
                   errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -484,7 +484,7 @@ export default function EditDealPage() {
                   }
                 }}
                 disabled={isViewOnly}
-                placeholder="e.g. CUST-3184 or leave blank"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
                   errors.customerID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -536,7 +536,7 @@ export default function EditDealPage() {
               <input
                 {...register('assignedAO')}
                 disabled={isViewOnly}
-                placeholder="e.g. Juan Dela Cruz (AO-104)"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
                   errors.assignedAO ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -559,7 +559,7 @@ export default function EditDealPage() {
               <input
                 {...register('dealRegID')}
                 disabled={isViewOnly}
-                placeholder="e.g. 31842219 or REGI-0005491402"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
                   errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -578,7 +578,7 @@ export default function EditDealPage() {
                     onChange={field.onChange}
                     disabled={isViewOnly}
                     error={errors.brand?.message}
-                    placeholder="Select Brand..."
+                    placeholder=""
                   />
                 )}
               />
@@ -607,7 +607,7 @@ export default function EditDealPage() {
             <input
               {...register('projectName')}
               disabled={isViewOnly}
-              placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
+              placeholder=""
               className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
                 errors.projectName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
               }`}
@@ -679,7 +679,7 @@ export default function EditDealPage() {
               disabled={isViewOnly}
               required={!isViewOnly}
               error={errors.remarks?.message}
-              placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
+              placeholder=""
               rows={2}
             />
           </div>
@@ -819,7 +819,7 @@ export default function EditDealPage() {
                   <input
                     {...register(`items.${index}.itemDesc` as const)}
                     disabled={isViewOnly}
-                    placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
+                    placeholder=""
                     className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
                       errors.items?.[index]?.itemDesc ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                     }`}

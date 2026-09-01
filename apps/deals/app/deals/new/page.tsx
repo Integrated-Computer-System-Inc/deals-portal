@@ -331,7 +331,7 @@ export default function NewDealPage() {
               <label className="block text-xs font-semibold text-foreground mb-1">Company / Customer Name *</label>
               <input
                 {...register('custName')}
-                placeholder="e.g. HEALTHPROOF (MANILA) INC."
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
                   errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -365,7 +365,7 @@ export default function NewDealPage() {
                     setIsCustomerFromIceCream(false);
                   }
                 }}
-                placeholder="e.g. CUST-3184 or leave blank"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono text-foreground focus:outline-none focus:ring-2 input-autocaps ${
                   errors.customerID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -415,7 +415,7 @@ export default function NewDealPage() {
               <label className="block text-xs font-semibold text-foreground mb-1">Assigned Account Officer (AO) *</label>
               <input
                 {...register('assignedAO')}
-                placeholder="e.g. Juan Dela Cruz (AO-104)"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
                   errors.assignedAO ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -437,7 +437,7 @@ export default function NewDealPage() {
               <label className="block text-xs font-semibold text-foreground mb-1">Deal Registration ID *</label>
               <input
                 {...register('dealRegID')}
-                placeholder="e.g. 31842219 or REGI-0005491402"
+                placeholder=""
                 className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
                   errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                 }`}
@@ -455,7 +455,7 @@ export default function NewDealPage() {
                     value={field.value}
                     onChange={field.onChange}
                     error={errors.brand?.message}
-                    placeholder="Select Brand..."
+                    placeholder=""
                   />
                 )}
               />
@@ -482,7 +482,7 @@ export default function NewDealPage() {
             <label className="block text-xs font-semibold text-foreground mb-1">Project Name & Description *</label>
             <input
               {...register('projectName')}
-              placeholder="e.g. 2026 Dell Laptops Refresh for Executive Teams"
+              placeholder=""
               className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
                 errors.projectName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
               }`}
@@ -546,7 +546,7 @@ export default function NewDealPage() {
               {...register('remarks')}
               required
               error={errors.remarks?.message}
-              placeholder="Add any special pricing instructions, renewal context, or deal registration IDs..."
+              placeholder=""
               rows={2}
             />
           </div>
@@ -588,7 +588,7 @@ export default function NewDealPage() {
                   </label>
                   <input
                     {...register(`items.${index}.itemDesc` as const)}
-                    placeholder="e.g. Dell Pro 14 PC14250 Core Ultra 7"
+                    placeholder=""
                     className={`w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 ${
                       errors.items?.[index]?.itemDesc ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
                     }`}

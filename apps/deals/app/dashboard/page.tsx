@@ -116,6 +116,7 @@ export default function DashboardPage() {
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
   const accountGroup = (session?.user as any)?.AccountGroup || 'HQ';
   const assignedBUs = ((session?.user as any)?.assignedBUs as string[]) || [];
+  const assignedBrands = ((session?.user as any)?.assignedBrands as string[]) || [];
 
   const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
@@ -171,10 +172,13 @@ export default function DashboardPage() {
   // Brand Distribution Sorting State for Dashboard KPI card (default: Total Amount)
   const [dashboardBrandSort, setDashboardBrandSort] = useState<'value-desc' | 'value-asc' | 'count-desc' | 'count-asc' | 'name-asc' | 'name-desc'>('value-desc');
 
-  // Deals per Brand breakdown (strictly official BUs)
+  // Deals per Brand breakdown (strictly official BUs, scoped to assigned brands for PM)
   const brandDistributionList = useMemo(() => {
-    return calculateBrandDistribution(deals);
-  }, [deals]);
+    return calculateBrandDistribution(
+      deals,
+      role === 'pm' && assignedBrands.length > 0 ? assignedBrands : undefined
+    );
+  }, [deals, role, assignedBrands]);
 
   // Sorted list for Dashboard Brand card
   const sortedDashboardBrandList = useMemo(() => {
@@ -259,10 +263,12 @@ export default function DashboardPage() {
     return visibleOfficialBUs.map((bu) => [bu, officialCounts[bu]] as [string, number]);
   }, [deals, visibleOfficialBUs]);
 
-  const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao');
+  const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao' || role === 'pm');
 
   const getRoleHeaderLabel = () => {
+    if (role === 'ITadmin') return 'IT Administration (All BUs)';
     if (role === 'admin') return 'Sales Administration (All BUs)';
+    if (role === 'pm') return 'Product Manager (Brand Scoped)';
     if (role === 'aa') return 'Sales AA (All BUs)';
     if (role === 'bu' || role === 'bu_admin') return `BU Supervisor (${accountGroup})`;
     return `Account Officer (${accountGroup})`;
@@ -567,7 +573,7 @@ export default function DashboardPage() {
               <>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/20 text-white backdrop-blur-sm flex items-center gap-1 border border-white/25 max-w-full">
                   <User className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Welcome back, {accountName || 'Administrator'}</span>
+                  <span className="truncate">Welcome back, {accountName || getRoleHeaderLabel()}</span>
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/10 text-white border border-white/20 max-w-full truncate">
                   {getRoleHeaderLabel()}

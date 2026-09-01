@@ -45,7 +45,7 @@ export default function DealDetailsPage() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const canEdit = role === 'admin' || role === 'aa';
+  const canEdit = role === 'ITadmin' || role === 'admin' || role === 'aa';
 
   const dealID = params?.id ? Number(params.id) : null;
   const { data: deal = null, isLoading: loading } = useDealQuery(dealID, true);

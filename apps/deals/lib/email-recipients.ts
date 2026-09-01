@@ -1,5 +1,4 @@
 import { prisma } from '@my-app/database';
-import { ACCOUNT_ROLE_REGISTRY } from './roles';
 import { getAppsDevBccEmails } from './email-config';
 
 export interface DealEmailRecipients {
@@ -13,44 +12,25 @@ export interface DealEmailRecipients {
 }
 
 /**
- * Resolves the designated BU Head email for a given Business Unit name/code
+ * Resolves the designated BU Head email for a given Business Unit name/code.
+ * NOTE: ACCOUNT_ROLE_REGISTRY was removed in favour of dynamic DB roles.
+ * This function now always returns null; BU Head emails should be resolved
+ * via a live cdbAccounts query when the feature is re-enabled.
  */
-export function resolveBuHeadEmail(buName: string = ''): string | null {
-  const cleanBu = (buName || '').trim().toUpperCase();
-  if (!cleanBu) return null;
-
-  // 1. Search in ACCOUNT_ROLE_REGISTRY for matching BU
-  for (const config of Object.values(ACCOUNT_ROLE_REGISTRY)) {
-    if (
-      config.role === 'bu' &&
-      config.assignedBUs.some((b) => b.toUpperCase() === cleanBu)
-    ) {
-      if (config.email && config.email.trim()) {
-        return config.email.trim().toLowerCase();
-      }
-    }
-  }
-
+export function resolveBuHeadEmail(_buName: string = ''): string | null {
+  // BU head lookup via registry removed — use DB query when re-enabling CC logic.
   return null;
 }
 
 /**
- * Resolves static/registry Admin and Admin Assistant emails
+ * Returns the default Admin and Admin Assistant emails.
+ * NOTE: ACCOUNT_ROLE_REGISTRY was removed; these are hardcoded production defaults.
  */
 export function resolveAdminAndAssistantEmails(): { adminEmail: string; aaEmail: string } {
-  let adminEmail = 'asy-lu@ics.com.ph';
-  let aaEmail = 'afrancisco@ics.com.ph';
-
-  for (const config of Object.values(ACCOUNT_ROLE_REGISTRY)) {
-    if (config.role === 'admin' && config.email) {
-      adminEmail = config.email.trim().toLowerCase();
-    }
-    if (config.role === 'aa' && config.email) {
-      aaEmail = config.email.trim().toLowerCase();
-    }
-  }
-
-  return { adminEmail, aaEmail };
+  return {
+    adminEmail: 'asy-lu@ics.com.ph',
+    aaEmail: 'afrancisco@ics.com.ph',
+  };
 }
 
 /**

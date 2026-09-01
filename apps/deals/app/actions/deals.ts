@@ -24,7 +24,7 @@ import {
 } from '@/lib/email-templates';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { serverCache } from '@/lib/serverCache';
-import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
+import { buildAOScopingConditions, buildBUScopingConditions, buildPMScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
 import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
 import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
 
@@ -147,14 +147,16 @@ export async function getScopedDeals(
     const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
     const sessionAccountGroup = ((session?.user as any)?.AccountGroup || '').trim();
     const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+    const sessionAssignedBrands = (session?.user as any)?.assignedBrands as string[] | undefined;
 
-    // Security: Only allow client role override if session is admin/aa, otherwise enforce session claims strictly
-    const isSuperRole = sessionRole === 'admin' || sessionRole === 'aa';
+    // Security: Only allow client role override if session is ITadmin/admin/aa, otherwise enforce session claims strictly
+    const isSuperRole = sessionRole === 'ITadmin' || sessionRole === 'admin' || sessionRole === 'aa';
     const userRole = isSuperRole ? (filter.userRole || sessionRole || 'admin') : (sessionRole || 'ao');
     const accountName = isSuperRole ? (filter.accountName || sessionAccountName) : sessionAccountName;
     const domainAccount = isSuperRole ? (filter.domainAccount || sessionDomainAccount) : sessionDomainAccount;
     const accountGroup = isSuperRole ? (filter.accountGroup || sessionAccountGroup) : sessionAccountGroup;
     const assignedBUs = isSuperRole ? (filter.assignedBUs || sessionAssignedBUs) : sessionAssignedBUs;
+    const assignedBrands = isSuperRole ? (filter.assignedBrands || sessionAssignedBrands) : sessionAssignedBrands;
 
     const page = Math.max(1, filter.page || 1);
     const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
@@ -176,6 +178,7 @@ export async function getScopedDeals(
       domainAccount,
       accountGroup,
       assignedBUs,
+      assignedBrands,
       page,
       pageSize,
       searchQuery,
@@ -206,13 +209,16 @@ export async function getScopedDeals(
 
     const andConditions: any[] = [];
 
-    // Role-based scoping (handles case insensitivity, whitespace, createdBy, and BU formatting variations)
+    // Role-based scoping (handles case insensitivity, whitespace, createdBy, BU and Brand formatting variations)
     if (userRole === 'ao') {
       const aoConditions = buildAOScopingConditions(accountName, domainAccount, sessionEmail);
       andConditions.push({ OR: aoConditions });
     } else if (userRole === 'bu' || userRole === 'bu_admin') {
       const buConditions = buildBUScopingConditions(assignedBUs && assignedBUs.length > 0 ? assignedBUs : accountGroup);
       andConditions.push({ OR: buConditions });
+    } else if (userRole === 'pm') {
+      const pmConditions = buildPMScopingConditions(assignedBrands);
+      andConditions.push(...pmConditions);
     }
 
     // Status filter (single or multi-select array)
@@ -583,6 +589,7 @@ export async function getDealById(
     const sessionDomainAccount = ((session?.user as any)?.DomainAccount || '').trim();
     const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
     const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+    const sessionAssignedBrands = (session?.user as any)?.assignedBrands as string[] | undefined;
 
     const rawDeal = await prisma.dealHeader.findUnique({
       where: { dealID: id },
@@ -609,6 +616,7 @@ export async function getDealById(
         domainAccount: sessionDomainAccount,
         email: sessionEmail,
         assignedBUs: sessionAssignedBUs,
+        assignedBrands: sessionAssignedBrands,
       });
 
       if (!isAllowed) {

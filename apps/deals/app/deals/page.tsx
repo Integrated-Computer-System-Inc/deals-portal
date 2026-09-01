@@ -72,8 +72,8 @@ function DealsContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const canCreate = role === 'admin' || role === 'aa';
-  const canEdit = role === 'admin' || role === 'aa';
+  const canCreate = role === 'ITadmin' || role === 'admin' || role === 'aa';
+  const canEdit = role === 'ITadmin' || role === 'admin' || role === 'aa';
 
   const prefetchDealDetail = (dealID: number) => {
     if (!dealID || isNaN(dealID)) return;
@@ -808,7 +808,7 @@ function DealsContent() {
           <div className="flex-1 min-w-0">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search Project, Customer, Deal Reg ID, AO, Brand..."
+              placeholder=""
               value={searchQuery}
               onChange={(e: any) => setSearchQuery(e.target.value)}
               allowClear

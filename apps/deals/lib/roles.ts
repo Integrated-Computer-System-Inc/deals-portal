@@ -1,5 +1,6 @@
 import { UserRole } from '@my-app/types';
 import { normalizeBusinessUnit } from './searchUtils';
+import { getBrandVariations } from './brandUtils';
 
 /**
  * Interface representing resolved role and access scope for an account
@@ -7,10 +8,13 @@ import { normalizeBusinessUnit } from './searchUtils';
 export interface ResolvedUserAccess {
   role: UserRole | null;
   assignedBUs: string[];
+  assignedBrands?: string[];
   roleTitle: string;
   isAuthorized: boolean;
-  isBuHead: boolean;
+  isITAdmin: boolean;
   isAdmin: boolean;
+  isPM: boolean;
+  isBuHead: boolean;
   isAdminAssistant: boolean;
   isAccountOfficer: boolean;
   rejectionReason?: string;
@@ -32,116 +36,6 @@ export interface ResolvedUserAccess {
  * Admin:
  * - 415:   ADELIANA SY-LU (asy-lu@ics.com.ph) -> admin
  */
-export interface AccountRoleConfig {
-  accountId: number;
-  name: string;
-  email?: string;
-  domainAccount?: string;
-  role: UserRole;
-  assignedBUs: string[];
-  roleTitle: string;
-}
-
-export const ACCOUNT_ROLE_REGISTRY: Record<number, AccountRoleConfig> = {
-  // BU Heads
-  926: {
-    accountId: 926,
-    name: 'MYRNALENE CARANDANG',
-    email: 'mcarandang@ics.com.ph',
-    domainAccount: 'MCARANDANG',
-    role: 'bu',
-    assignedBUs: ['BU1'],
-    roleTitle: 'BU1 Head',
-  },
-  205: {
-    accountId: 205,
-    name: 'ROSETTE DE GUZMAN',
-    email: 'rdeguzman@ics.com.ph',
-    domainAccount: 'RDEGUZMAN',
-    role: 'bu',
-    assignedBUs: ['BU2'],
-    roleTitle: 'BU2 Head',
-  },
-  856: {
-    accountId: 856,
-    name: 'FLORDELIZA RICAFLANCA',
-    email: 'fricaflanca@ics.com.ph',
-    domainAccount: 'FRICAFLANCA',
-    role: 'bu',
-    assignedBUs: ['BU5'],
-    roleTitle: 'BU5 Head',
-  },
-  387: {
-    accountId: 387,
-    name: 'SHIELA MARIE PEÑALOSA-MARCELO',
-    email: 'smpenalosa@ics.com.ph',
-    domainAccount: 'SMPENALOSA',
-    role: 'bu',
-    assignedBUs: ['BU8', 'BU12', 'CE01'],
-    roleTitle: 'BU8 / BU12 / CE01 Head',
-  },
-  310: {
-    accountId: 310,
-    name: 'PATRICIA LORIA',
-    email: 'ploria@ics.com.ph',
-    domainAccount: 'PLORIA',
-    role: 'bu',
-    assignedBUs: ['BU10'],
-    roleTitle: 'BU10 Head',
-  },
-
-  // Admin Assistant
-  57835: {
-    accountId: 57835,
-    name: 'ATHENA BEATRICE FRANCISCO',
-    email: 'AFRANCISCO@ICS.COM.PH',
-    domainAccount: 'AFRANCISCO',
-    role: 'aa',
-    assignedBUs: [],
-    roleTitle: 'Admin Assistant',
-  },
-
-  // Admin
-  415: {
-    accountId: 415,
-    name: 'ADELIANA SY-LU',
-    email: 'asy-lu@ics.com.ph',
-    domainAccount: 'ASY-LU',
-    role: 'admin',
-    assignedBUs: [],
-    roleTitle: 'Administrator',
-  },
-  1: {
-    accountId: 1,
-    name: 'BHARON CHRISTOPHER CANDELARIA',
-    email: 'bcandelaria@ics.com.ph',
-    domainAccount: 'BCANDELARIA',
-    role: 'admin',
-    assignedBUs: [],
-    roleTitle: 'Administrator',
-  },
-  99999: {
-    accountId: 99999,
-    name: 'JAMES PAOLO DOREMON',
-    email: 'jdoremon@ics.com.ph',
-    domainAccount: 'JDOREMON',
-    role: 'admin',
-    assignedBUs: [],
-    roleTitle: 'Administrator',
-  },
-
-  // Account Officer (BU8)
-  1458: {
-    accountId: 1458,
-    name: 'TRACY LABANDA',
-    email: 'tlabanda@ics.com.ph',
-    domainAccount: 'TLABANDA',
-    role: 'ao',
-    assignedBUs: ['BU8'],
-    roleTitle: 'Account Officer (BU8)',
-  },
-};
-
 export interface ImpersonationPersona {
   accountId: number;
   name: string;
@@ -149,108 +43,11 @@ export interface ImpersonationPersona {
   domainAccount: string;
   role: UserRole;
   assignedBUs: string[];
+  assignedBrands?: string[];
   roleTitle: string;
-  category: 'ADMIN' | 'BU_HEAD' | 'ACCOUNT_OFFICER';
+  category: 'ADMIN' | 'BU_HEAD' | 'ACCOUNT_OFFICER' | 'PM';
+  GAvatar?: string | null;
   dealCountDescription?: string;
-}
-
-export const IMPERSONATION_PERSONAS: ImpersonationPersona[] = [
-  // Superadmin / Admin
-  {
-    accountId: 415,
-    name: 'ADELIANA SY-LU',
-    email: 'asy-lu@ics.com.ph',
-    domainAccount: 'ASY-LU',
-    role: 'admin',
-    assignedBUs: [],
-    roleTitle: 'Administrator',
-    category: 'ADMIN',
-    dealCountDescription: 'Full organization-wide access',
-  },
-  // Admin Assistant
-  {
-    accountId: 57835,
-    name: 'ATHENA BEATRICE FRANCISCO',
-    email: 'AFRANCISCO@ICS.COM.PH',
-    domainAccount: 'AFRANCISCO',
-    role: 'aa',
-    assignedBUs: [],
-    roleTitle: 'Admin Assistant',
-    category: 'ADMIN',
-    dealCountDescription: 'Global read/write access',
-  },
-  // BU Heads
-  {
-    accountId: 926,
-    name: 'MYRNALENE CARANDANG',
-    email: 'mcarandang@ics.com.ph',
-    domainAccount: 'MCARANDANG',
-    role: 'bu',
-    assignedBUs: ['BU1'],
-    roleTitle: 'BU1 Head',
-    category: 'BU_HEAD',
-    dealCountDescription: 'BU1 Deals (View Only)',
-  },
-  {
-    accountId: 205,
-    name: 'ROSETTE DE GUZMAN',
-    email: 'rdeguzman@ics.com.ph',
-    domainAccount: 'RDEGUZMAN',
-    role: 'bu',
-    assignedBUs: ['BU2'],
-    roleTitle: 'BU2 Head',
-    category: 'BU_HEAD',
-    dealCountDescription: 'BU2 Deals (View Only)',
-  },
-  {
-    accountId: 856,
-    name: 'FLORDELIZA RICAFLANCA',
-    email: 'fricaflanca@ics.com.ph',
-    domainAccount: 'FRICAFLANCA',
-    role: 'bu',
-    assignedBUs: ['BU5'],
-    roleTitle: 'BU5 Head',
-    category: 'BU_HEAD',
-    dealCountDescription: 'BU5 Deals (View Only)',
-  },
-  {
-    accountId: 387,
-    name: 'SHIELA MARIE PEÑALOSA-MARCELO',
-    email: 'smpenalosa@ics.com.ph',
-    domainAccount: 'SMPENALOSA',
-    role: 'bu',
-    assignedBUs: ['BU8', 'BU12', 'CE01'],
-    roleTitle: 'BU8 / BU12 / CE01 Head',
-    category: 'BU_HEAD',
-    dealCountDescription: 'BU8, BU12, CE01 Deals (View Only)',
-  },
-  {
-    accountId: 310,
-    name: 'PATRICIA LORIA',
-    email: 'ploria@ics.com.ph',
-    domainAccount: 'PLORIA',
-    role: 'bu',
-    assignedBUs: ['BU10'],
-    roleTitle: 'BU10 Head',
-    category: 'BU_HEAD',
-    dealCountDescription: 'BU10 Deals (View Only)',
-  },
-  // Account Officer
-  {
-    accountId: 1458,
-    name: 'TRACY LABANDA',
-    email: 'tlabanda@ics.com.ph',
-    domainAccount: 'TLABANDA',
-    role: 'ao',
-    assignedBUs: ['BU8'],
-    roleTitle: 'Account Officer (BU8)',
-    category: 'ACCOUNT_OFFICER',
-    dealCountDescription: '635 Deals assigned in BU8 (View Only)',
-  },
-];
-
-export function getImpersonationPersona(accountId: number): ImpersonationPersona | undefined {
-  return IMPERSONATION_PERSONAS.find((p) => p.accountId === accountId);
 }
 
 /**
@@ -259,6 +56,8 @@ export function getImpersonationPersona(accountId: number): ImpersonationPersona
 export const SUPERADMIN_EMAILS: readonly string[] = [
   'jdoremon@ics.com.ph',
   'bcandelaria@ics.com.ph',
+  'mescario@ics.com.ph',
+  'dramos@ics.com.ph',
 ];
 
 /**
@@ -281,21 +80,21 @@ export function isConfiguredAdminEmail(email?: string | null): boolean {
  * Resolves the role, assigned business units, and authorization status for an account.
  *
  * Authorization logic:
- * 1. Explicit admin role from Users table OR Superadmin email -> Admin
- * 2. Explicit AccountID registry (BU Heads, Admin Assistant, Admin) -> Configured role
- * 3. Explicit role from Users table -> Stored role
- * 4. Fallback for new users: Validate cdbAccounts
- *    - MUST have AccountType === 'AO' (case-insensitive)
- *    - MUST have isActive === 1
- *    - If both match -> Account Officer ('ao')
- *    - Otherwise -> Rejected (isAuthorized: false)
+ * 1. Explicit ITadmin role / Superadmin email / IT Admin AccountID → IT Administrator
+ * 2. Explicit 'admin' role from Users table → Sales Administrator
+ * 3. Explicit 'pm' role + AssignedBrand column → Product Manager
+ * 4. Any other explicit role from Users table + AssignedBU column → that role with BU scope
+ * 5. Fallback: validate cdbAccounts (AO / PMD allowed; IT Support rejected)
  *
- * @param accountId Numeric or string AccountID from Users or cdbAccounts
- * @param email Optional email for developer/admin override checks
- * @param accountGroupFallback Optional fallback BU/group from cdbAccounts.AccountGroup
- * @param accountType Optional AccountType from cdbAccounts.AccountType (e.g. 'AO', 'USER', 'CUSTOMER')
- * @param isActive Optional active flag from cdbAccounts.isActive (1 = active, 0 = inactive)
- * @param explicitRole Optional role already stored in Users table (e.g. 'admin', 'bu', 'ao', 'aa')
+ * @param accountId   Numeric or string AccountID from Users or cdbAccounts
+ * @param email       Optional email for developer/admin override checks
+ * @param accountGroupFallback  Fallback BU/group from cdbAccounts.AccountGroup
+ * @param accountType AccountType from cdbAccounts (e.g. 'AO', 'PM', 'SUPPORT')
+ * @param isActive    Active flag from cdbAccounts (1 = active)
+ * @param explicitRole Clean role enum stored in Users.UserRole (e.g. 'bu', 'pm', 'admin', 'ao')
+ *                     Also accepts legacy composite strings like 'bu:BU1,BU2' for backward compat.
+ * @param explicitBU   Comma-separated BU string from Users.AssignedBU (e.g. 'BU8,BU12,CE01')
+ * @param explicitBrand Comma-separated brand string from Users.AssignedBrand (e.g. 'DELL,HPI')
  */
 export function resolveUserRoleAndBUs(
   accountId: number | string,
@@ -303,85 +102,213 @@ export function resolveUserRoleAndBUs(
   accountGroupFallback?: string | null,
   accountType?: string | null,
   isActive?: number | null,
-  explicitRole?: UserRole | null
+  explicitRole?: UserRole | string | null,
+  explicitBU?: string | string[] | null,
+  explicitBrand?: string | string[] | null
 ): ResolvedUserAccess {
   const numericId = typeof accountId === 'string' ? parseInt(accountId.replace(/\D/g, ''), 10) : accountId;
-  const config = !isNaN(numericId) ? ACCOUNT_ROLE_REGISTRY[numericId] : undefined;
 
-  // 1. Check if explicit role is admin OR email is in SUPERADMIN_EMAILS
-  if (explicitRole === 'admin' || isSuperadminEmail(email)) {
+  // Parse the role — support both clean enum ('bu') and legacy composite ('bu:BU1,BU2')
+  let parsedRole: UserRole | null = null;
+  let legacyBUs: string[] | null = null;
+  let legacyBrands: string[] | null = null;
+
+  if (explicitRole) {
+    if (explicitRole.includes(':')) {
+      // Legacy composite format — migration hasn't run yet for this row
+      const colonIdx = explicitRole.indexOf(':');
+      const r = explicitRole.slice(0, colonIdx).trim() as UserRole;
+      const items = explicitRole.slice(colonIdx + 1).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+      parsedRole = r;
+      if (r === 'pm') {
+        legacyBrands = items;
+      } else {
+        legacyBUs = items;
+      }
+    } else {
+      parsedRole = explicitRole as UserRole;
+    }
+  }
+
+  // Resolve BUs: prefer dedicated column, fall back to legacy parsed, then accountGroupFallback
+  const resolveBUs = (): string[] => {
+    if (explicitBU) {
+      return Array.isArray(explicitBU)
+        ? explicitBU.map((b) => b.trim().toUpperCase()).filter(Boolean)
+        : explicitBU.split(',').map((b) => b.trim().toUpperCase()).filter(Boolean);
+    }
+    if (legacyBUs && legacyBUs.length > 0) return legacyBUs;
+    if (accountGroupFallback && accountGroupFallback.trim()) {
+      return accountGroupFallback.split(',').map((b) => b.trim().toUpperCase()).filter(Boolean);
+    }
+    return [];
+  };
+
+  // Resolve Brands: prefer dedicated column, fall back to legacy parsed
+  const resolveBrands = (): string[] => {
+    if (explicitBrand) {
+      return Array.isArray(explicitBrand)
+        ? explicitBrand.map((b) => b.trim().toUpperCase()).filter(Boolean)
+        : explicitBrand.split(',').map((b) => b.trim().toUpperCase()).filter(Boolean);
+    }
+    if (legacyBrands && legacyBrands.length > 0) return legacyBrands;
+    return [];
+  };
+
+  // 1. ITadmin check
+  if (
+    parsedRole === 'ITadmin' ||
+    isSuperadminEmail(email) ||
+    [57845, 57846, 57732, 56395].includes(numericId)
+  ) {
     return {
-      role: 'admin',
-      assignedBUs: config?.assignedBUs || [],
-      roleTitle: config?.roleTitle || 'Administrator (IT Superadmin)',
+      role: 'ITadmin',
+      assignedBUs: ['ALL'],
+      assignedBrands: ['ALL'],
+      roleTitle: 'IT Administrator',
       isAuthorized: true,
-      isBuHead: false,
+      isITAdmin: true,
       isAdmin: true,
+      isPM: false,
+      isBuHead: false,
       isAdminAssistant: false,
       isAccountOfficer: false,
     };
   }
 
-  // 2. Check explicit AccountID configuration in registry
-  if (config) {
+  // 2. Sales Admin
+  if (parsedRole === 'admin') {
     return {
-      role: config.role,
-      assignedBUs: config.assignedBUs,
-      roleTitle: config.roleTitle,
+      role: 'admin',
+      assignedBUs: ['ALL'],
+      assignedBrands: ['ALL'],
+      roleTitle: 'Sales Administrator',
       isAuthorized: true,
-      isBuHead: config.role === 'bu',
-      isAdmin: config.role === 'admin',
-      isAdminAssistant: config.role === 'aa',
-      isAccountOfficer: config.role === 'ao',
+      isITAdmin: false,
+      isAdmin: true,
+      isPM: false,
+      isBuHead: false,
+      isAdminAssistant: false,
+      isAccountOfficer: false,
     };
   }
 
-  // 3. Check if an explicit role is already provided from the Users table
-  if (explicitRole) {
-    const fallbackBUs = accountGroupFallback && accountGroupFallback.trim() ? [accountGroupFallback.trim()] : [];
+  // 3. Product Manager
+  if (parsedRole === 'pm') {
     return {
-      role: explicitRole,
-      assignedBUs: fallbackBUs,
-      roleTitle: explicitRole === 'bu' ? 'BU Head' : explicitRole === 'aa' ? 'Admin Assistant' : 'Account Officer',
+      role: 'pm',
+      assignedBUs: [],
+      assignedBrands: resolveBrands(),
+      roleTitle: 'Product Manager',
       isAuthorized: true,
-      isBuHead: explicitRole === 'bu',
+      isITAdmin: false,
       isAdmin: false,
-      isAdminAssistant: explicitRole === 'aa',
-      isAccountOfficer: explicitRole === 'ao',
+      isPM: true,
+      isBuHead: false,
+      isAdminAssistant: false,
+      isAccountOfficer: false,
     };
   }
 
-  // 4. Fallback: Validate if account is tagged as an active 'AO' in cdbAccounts
+  // 4. Any other explicit role from Users table (bu, ao, aa, bu_admin)
+  if (parsedRole) {
+    const assignedBUs = resolveBUs();
+    return {
+      role: parsedRole,
+      assignedBUs,
+      assignedBrands: resolveBrands(),
+      roleTitle:
+        parsedRole === 'bu'
+          ? assignedBUs.length > 0 ? `${assignedBUs.join(' / ')} Head` : 'BU Head'
+          : parsedRole === 'aa'
+          ? 'Admin Assistant'
+          : 'Account Officer',
+      isAuthorized: true,
+      isITAdmin: false,
+      isAdmin: false,
+      isPM: false,
+      isBuHead: parsedRole === 'bu' || parsedRole === ('bu_admin' as UserRole),
+      isAdminAssistant: parsedRole === 'aa',
+      isAccountOfficer: parsedRole === 'ao',
+    };
+  }
+
+  // 6. Fallback: Validate against cdbAccounts
   const normalizedType = (accountType || '').trim().toUpperCase();
+  const normalizedGroup = (accountGroupFallback || '').trim().toUpperCase();
   const isActiveAccount = isActive === 1;
 
+  // Block unauthorized IT support accounts that are not in the registry/Users table
+  if (normalizedGroup === 'IT' && normalizedType === 'SUPPORT') {
+    return {
+      role: null,
+      assignedBUs: [],
+      assignedBrands: [],
+      roleTitle: 'Unauthorized IT Account',
+      isAuthorized: false,
+      isITAdmin: false,
+      isAdmin: false,
+      isPM: false,
+      isBuHead: false,
+      isAdminAssistant: false,
+      isAccountOfficer: false,
+      rejectionReason: 'Account is not configured as an authorized IT Administrator. Access denied.',
+    };
+  }
+
+  // Match PM accounts (AccountGroup = 'PMD', AccountType = 'PM')
+  if (normalizedGroup === 'PMD' && normalizedType.startsWith('PM') && isActiveAccount) {
+    return {
+      role: 'pm',
+      assignedBUs: [],
+      assignedBrands: [],
+      roleTitle: 'Product Manager',
+      isAuthorized: true,
+      isITAdmin: false,
+      isAdmin: false,
+      isPM: true,
+      isBuHead: false,
+      isAdminAssistant: false,
+      isAccountOfficer: false,
+    };
+  }
+
+  // Match AO accounts (AccountType = 'AO')
   if (normalizedType === 'AO' && isActiveAccount) {
-    const fallbackBUs = accountGroupFallback && accountGroupFallback.trim() ? [accountGroupFallback.trim()] : [];
+    const fallbackBUs = accountGroupFallback && accountGroupFallback.trim()
+      ? accountGroupFallback.split(',').map((b) => b.trim().toUpperCase()).filter(Boolean)
+      : [];
     return {
       role: 'ao',
       assignedBUs: fallbackBUs,
+      assignedBrands: [],
       roleTitle: 'Account Officer',
       isAuthorized: true,
-      isBuHead: false,
+      isITAdmin: false,
       isAdmin: false,
+      isPM: false,
+      isBuHead: false,
       isAdminAssistant: false,
       isAccountOfficer: true,
     };
   }
 
-  // If not an active AO, reject authorization
+  // If not matching authorized pattern, reject
   const reason =
-    normalizedType !== 'AO'
-      ? `AccountType '${accountType || 'UNKNOWN'}' is not authorized for portal access. Only AO, BU Heads, and Administrators are permitted.`
+    !normalizedType.startsWith('AO') && !normalizedType.startsWith('PM')
+      ? `AccountType '${accountType || 'UNKNOWN'}' is not authorized for portal access. Only AO, BU Heads, PMs, and Administrators are permitted.`
       : `Account is inactive (isActive = ${isActive}). Please contact IT Support.`;
 
   return {
     role: null,
     assignedBUs: [],
+    assignedBrands: [],
     roleTitle: 'Unauthorized User',
     isAuthorized: false,
-    isBuHead: false,
+    isITAdmin: false,
     isAdmin: false,
+    isPM: false,
+    isBuHead: false,
     isAdminAssistant: false,
     isAccountOfficer: false,
     rejectionReason: reason,
@@ -393,7 +320,8 @@ export function resolveUserRoleAndBUs(
  */
 export function isBuHead(accountId: number | string): boolean {
   const numericId = typeof accountId === 'string' ? parseInt(accountId.replace(/\D/g, ''), 10) : accountId;
-  return ACCOUNT_ROLE_REGISTRY[numericId]?.role === 'bu';
+  const resolved = resolveUserRoleAndBUs(numericId);
+  return resolved.role === 'bu' || resolved.role === 'bu_admin';
 }
 
 /**
@@ -479,22 +407,61 @@ export function buildBUScopingConditions(assignedBUs?: string[] | string | null)
 }
 
 /**
+ * Builds Prisma OR conditions for a Product Manager (PM).
+ * Matches any assigned brands with exact match and all canonical/variations.
+ */
+export function buildPMScopingConditions(assignedBrands?: string[] | string | null): any[] {
+  const brandList = Array.isArray(assignedBrands)
+    ? assignedBrands
+    : (assignedBrands || '').split(',').map((b) => b.trim()).filter(Boolean);
+
+  if (brandList.length === 0) {
+    return [{ dealID: -1 }]; // No brands assigned -> empty scoping
+  }
+
+  const allVariations = Array.from(
+    new Set(brandList.flatMap((b) => getBrandVariations(String(b))))
+  );
+
+  return [
+    {
+      OR: [
+        { brand: { in: allVariations } },
+        ...brandList.map((b) => ({ brand: { contains: String(b).trim() } })),
+      ],
+    },
+  ];
+}
+
+/**
  * Validates if an individual deal is accessible to a user based on their role and claims.
  */
 export function isDealAccessibleByUser(
-  deal: { AssignedAO?: string | null; createdBy?: string | null; BU?: string | null } | null | undefined,
+  deal: { AssignedAO?: string | null; createdBy?: string | null; BU?: string | null; brand?: string | null } | null | undefined,
   user: {
     role?: UserRole | string | null;
     accountName?: string | null;
     domainAccount?: string | null;
     email?: string | null;
     assignedBUs?: string[] | null;
+    assignedBrands?: string[] | null;
   }
 ): boolean {
   if (!deal) return false;
   const role = user.role || 'ao';
-  if (role === 'admin' || role === 'aa') {
+  if (role === 'ITadmin' || role === 'admin' || role === 'aa') {
     return true;
+  }
+
+  if (role === 'pm') {
+    const userBrands = (user.assignedBrands || []).map((b) => b.trim().toUpperCase());
+    if (userBrands.length === 0) return false;
+    const dealBrand = (deal.brand || '').trim().toUpperCase();
+    if (!dealBrand) return false;
+    return userBrands.some((ub) => {
+      const vars = getBrandVariations(ub).map((v) => v.toUpperCase());
+      return vars.includes(dealBrand) || dealBrand.includes(ub) || ub.includes(dealBrand);
+    });
   }
 
   if (role === 'bu' || role === 'bu_admin') {

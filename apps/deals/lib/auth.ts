@@ -4,8 +4,9 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { UserRole } from '@my-app/types';
 import { prisma } from '@my-app/database';
 import { randomUUID } from 'crypto';
-import { resolveUserRoleAndBUs, isSuperadminEmail, isConfiguredAdminEmail, getImpersonationPersona, ACCOUNT_ROLE_REGISTRY } from './roles';
+import { resolveUserRoleAndBUs, isSuperadminEmail, isConfiguredAdminEmail } from './roles';
 import { serverCache } from '@/lib/serverCache';
+import { runUserTableMigration, hasAssignedColumns } from '@/lib/db-migration';
 
 const CDB_ACCOUNT_SELECT = {
   AccountID: true,
@@ -15,6 +16,7 @@ const CDB_ACCOUNT_SELECT = {
   AccountGroup: true,
   AccountType: true,
   isActive: true,
+  GAvatar: true,
 } as const;
 
 export const authOptions: NextAuthOptions = {
@@ -31,15 +33,15 @@ export const authOptions: NextAuthOptions = {
       },
     }),
     CredentialsProvider({
-      id: 'demo-credentials',
-      name: 'Demo Accounts',
+      id: 'credentials',
+      name: 'Corporate Directory Credentials',
       credentials: {
+        email: { label: 'Corporate Email', type: 'email' },
+        password: { label: 'Password / Pin', type: 'password' },
         accountType: { label: 'Account Type', type: 'text' },
-        accountName: { label: 'Account Name', type: 'text' },
-        accountGroup: { label: 'Account Group', type: 'text' },
-        email: { label: 'Email', type: 'text' },
         personaAccountId: { label: 'Persona Account ID', type: 'text' },
         adminEmail: { label: 'Admin Email', type: 'text' },
+        accountName: { label: 'Account Name', type: 'text' },
       },
       async authorize(credentials) {
         const type = credentials?.accountType || 'admin';
@@ -48,24 +50,45 @@ export const authOptions: NextAuthOptions = {
         // Check if direct persona accountId is provided for dev impersonation
         if (credentials?.personaAccountId) {
           const pId = Number(credentials.personaAccountId);
-          const persona = getImpersonationPersona(pId) || ACCOUNT_ROLE_REGISTRY[pId];
-          if (persona) {
-            const personaEmail = persona.email || `${persona.name.toLowerCase().replace(/\s+/g, '')}@ics.com.ph`;
-            const rawDomain = persona.domainAccount || personaEmail.split('@')[0].toUpperCase();
-            return {
-              id: `usr_${persona.accountId}`,
-              name: persona.name,
-              email: personaEmail,
-              DomainAccount: rawDomain.startsWith('CORP\\') ? rawDomain : `CORP\\${rawDomain}`,
-              AccountGroup: persona.assignedBUs.join(',') || 'HQ',
-              AccountID: String(persona.accountId),
-              AccountName: persona.name,
-              role: persona.role,
-              assignedBUs: persona.assignedBUs,
-              RememberToken: randomUUID(),
-              isImpersonating: true,
-              originalAdminEmail: credentials.adminEmail || 'jdoremon@ics.com.ph',
-            };
+          try {
+            const hasCols = await hasAssignedColumns();
+            const selectQuery = hasCols
+              ? `SELECT TOP 1 u.AccountID, u.AccountName, u.Email, u.UserRole, u.AssignedBU, u.AssignedBrand,
+                              c.DomainAccount, c.AccountGroup, c.AccountType, c.isActive, c.GAvatar
+                 FROM [dbo].[Users] u
+                 LEFT JOIN [dbo].[cdbAccounts] c ON u.AccountID = c.AccountID
+                 WHERE u.AccountID = ${pId};`
+              : `SELECT TOP 1 u.AccountID, u.AccountName, u.Email, u.UserRole,
+                              c.DomainAccount, c.AccountGroup, c.AccountType, c.isActive, c.GAvatar
+                 FROM [dbo].[Users] u
+                 LEFT JOIN [dbo].[cdbAccounts] c ON u.AccountID = c.AccountID
+                 WHERE u.AccountID = ${pId};`;
+
+            const rows = await prisma.$queryRawUnsafe<any[]>(selectQuery);
+            if (Array.isArray(rows) && rows.length > 0) {
+              const u = rows[0];
+              const resolved = resolveUserRoleAndBUs(pId, u.Email, u.AccountGroup, u.AccountType, u.isActive, u.UserRole, u.AssignedBU || null, u.AssignedBrand || null);
+              const pEmail = u.Email || `${(u.AccountName || '').toLowerCase().replace(/\s+/g, '')}@ics.com.ph`;
+              const rawDomain = u.DomainAccount || pEmail.split('@')[0].toUpperCase();
+              return {
+                id: `usr_${pId}`,
+                name: u.AccountName,
+                email: pEmail,
+                DomainAccount: rawDomain.startsWith('CORP\\') ? rawDomain : `CORP\\${rawDomain}`,
+                AccountGroup: resolved.assignedBUs.join(',') || 'HQ',
+                AccountID: String(pId),
+                AccountName: u.AccountName,
+                role: resolved.role || 'ao',
+                assignedBUs: resolved.assignedBUs,
+                assignedBrands: resolved.assignedBrands || [],
+                RememberToken: randomUUID(),
+                isImpersonating: true,
+                originalAdminEmail: credentials.adminEmail || 'jdoremon@ics.com.ph',
+                GAvatar: u.GAvatar || undefined,
+              };
+            }
+          } catch (e) {
+            console.warn('[Credentials] Persona lookup error:', e);
           }
         }
 
@@ -87,19 +110,27 @@ export const authOptions: NextAuthOptions = {
 
             // Fast-path: Check Users table first
             try {
-              const existingUser = await prisma.$queryRawUnsafe<any[]>(`
-                IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
-                  SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken
-                  FROM Users
-                  WHERE LOWER(Email) = '${userEmail.replace(/'/g, "''")}';
-              `);
+              await runUserTableMigration();
+              const hasCols = await hasAssignedColumns();
+              const selectFast = hasCols
+                ? `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                     SELECT TOP 1 AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken
+                     FROM Users
+                     WHERE LOWER(Email) = '${userEmail.replace(/'/g, "''")}';`
+                : `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                     SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken
+                     FROM Users
+                     WHERE LOWER(Email) = '${userEmail.replace(/'/g, "''")}';`;
+
+              const existingUser = await prisma.$queryRawUnsafe<any[]>(selectFast);
               if (Array.isArray(existingUser) && existingUser.length > 0 && existingUser[0].UserRole) {
                 const u = existingUser[0];
                 const accountId = Number(u.AccountID);
-                const userRole = u.UserRole as UserRole;
                 const accountName = u.AccountName || userEmail.split('@')[0].toUpperCase();
-                const userAccess = resolveUserRoleAndBUs(accountId, userEmail, 'HQ', 'AO', 1, userRole);
-                const assignedBUs = userRole === 'admin' ? ['ALL'] : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
+                const userAccess = resolveUserRoleAndBUs(accountId, userEmail, 'HQ', 'AO', 1, u.UserRole, u.AssignedBU || null, u.AssignedBrand || null);
+                const resolvedRole = userAccess.role || 'ao';
+                const assignedBUs = (resolvedRole === 'ITadmin' || resolvedRole === 'admin') ? ['ALL'] : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
+                const assignedBrands = userAccess.assignedBrands || [];
 
                 return {
                   id: `usr_${accountId}`,
@@ -109,8 +140,9 @@ export const authOptions: NextAuthOptions = {
                   AccountGroup: assignedBUs.join(',') || 'BU5',
                   AccountID: String(accountId),
                   AccountName: accountName,
-                  role: userRole,
+                  role: resolvedRole,
                   assignedBUs: assignedBUs,
+                  assignedBrands: assignedBrands,
                   RememberToken: u.RememberToken || rememberToken,
                 };
               }
@@ -134,7 +166,7 @@ export const authOptions: NextAuthOptions = {
               return null;
             }
 
-            const accountId = cdbAccount ? cdbAccount.AccountID : 99999;
+            const accountId = cdbAccount ? cdbAccount.AccountID : (isAdmin ? 57845 : 99999);
             const accountName = cdbAccount ? cdbAccount.AccountName : (credentials.accountName || userEmail.split('@')[0].toUpperCase());
             const accountGroup = cdbAccount ? cdbAccount.AccountGroup : 'HQ';
             const accountType = cdbAccount ? cdbAccount.AccountType : 'ADMIN';
@@ -155,6 +187,8 @@ export const authOptions: NextAuthOptions = {
 
             // Upsert into Users table if it exists
             try {
+              const buVal = (userAccess.assignedBUs || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
+              const brandVal = (userAccess.assignedBrands || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
               await prisma.$executeRawUnsafe(`
                 IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
                 BEGIN
@@ -162,20 +196,21 @@ export const authOptions: NextAuthOptions = {
                     UPDATE Users 
                     SET AccountName = N'${accountName.replace(/'/g, "''")}',
                         Email = '${userEmail.replace(/'/g, "''")}',
-                        UserRole = '${userAccess.role}',
                         RememberToken = '${rememberToken}',
                         LastLogin = GETDATE()
                     WHERE AccountID = ${accountId};
                   ELSE
-                    INSERT INTO Users (AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin)
-                    VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${userEmail.replace(/'/g, "''")}', '${userAccess.role}', '${rememberToken}', GETDATE(), GETDATE());
+                    INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
+                    VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${userEmail.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
                 END
               `);
             } catch (dbErr) {
               console.warn('[Credentials] Error saving into Users table:', dbErr);
             }
 
-            const assignedBUsStr = userAccess.assignedBUs.join(',') || accountGroup || 'BU5';
+            const assignedBUs = (userAccess.role === 'ITadmin' || userAccess.role === 'admin') ? ['ALL'] : userAccess.assignedBUs;
+            const assignedBrands = (userAccess.role === 'ITadmin' || userAccess.role === 'admin') ? ['ALL'] : (userAccess.assignedBrands || []);
+            const assignedBUsStr = assignedBUs.join(',') || accountGroup || 'BU5';
             return {
               id: `usr_${accountId}`,
               name: accountName,
@@ -185,7 +220,8 @@ export const authOptions: NextAuthOptions = {
               AccountID: String(accountId),
               AccountName: accountName,
               role: userAccess.role,
-              assignedBUs: userAccess.assignedBUs,
+              assignedBUs: assignedBUs,
+              assignedBrands: assignedBrands,
               RememberToken: rememberToken,
             };
           }
@@ -299,12 +335,19 @@ export const authOptions: NextAuthOptions = {
 
           // 2. FAST-PATH: Check if user is already registered in dbo.Users table with valid RememberToken
           try {
-            const usersQueryResult = await prisma.$queryRawUnsafe<any[]>(`
-              IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
-                SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin
-                FROM Users
-                WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';
-            `);
+            await runUserTableMigration();
+            const hasCols = await hasAssignedColumns();
+            const selectGoogleFast = hasCols
+              ? `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                   SELECT TOP 1 AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin
+                   FROM Users
+                   WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';`
+              : `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                   SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin
+                   FROM Users
+                   WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';`;
+
+            const usersQueryResult = await prisma.$queryRawUnsafe<any[]>(selectGoogleFast);
 
             if (Array.isArray(usersQueryResult) && usersQueryResult.length > 0 && usersQueryResult[0].UserRole) {
               const existingUser = usersQueryResult[0];
@@ -313,17 +356,20 @@ export const authOptions: NextAuthOptions = {
               const accountName = existingUser.AccountName || user.name || emailLower.split('@')[0].toUpperCase();
               const rememberToken = existingUser.RememberToken || randomUUID();
 
-              // Resolve BU scopes with explicit UserRole from Users table
+              // Resolve BU scopes with explicit UserRole, AssignedBU and AssignedBrand from Users table
               const userAccess = resolveUserRoleAndBUs(
                 accountId,
                 emailLower,
                 'HQ',
                 'AO',
                 1,
-                userRole
+                existingUser.UserRole,
+                existingUser.AssignedBU || null,
+                existingUser.AssignedBrand || null
               );
 
-              const assignedBUs = userRole === 'admin'
+              const resolvedRole = userAccess.role || 'ao';
+              const assignedBUs = (resolvedRole === 'ITadmin' || resolvedRole === 'admin')
                 ? ['ALL']
                 : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
 
@@ -337,12 +383,15 @@ export const authOptions: NextAuthOptions = {
 
               const domainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
 
+              const assignedBrands = userAccess.assignedBrands || [];
+
               (user as any).AccountID = String(accountId);
               (user as any).AccountName = accountName;
               (user as any).AccountGroup = assignedBUs.join(',');
               (user as any).DomainAccount = domainAccount;
-              (user as any).role = userRole;
+              (user as any).role = resolvedRole;
               (user as any).assignedBUs = assignedBUs;
+              (user as any).assignedBrands = assignedBrands;
               (user as any).RememberToken = rememberToken;
               (user as any).GAvatar = googlePhotoUrl || undefined;
 
@@ -385,7 +434,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           // 6. Resolve Role, Assigned Business Units & Authorization Status
-          const accountId = cdbAccount ? cdbAccount.AccountID : 99999;
+          const accountId = cdbAccount ? cdbAccount.AccountID : 57845;
           const accountName = cdbAccount ? cdbAccount.AccountName : (user.name || emailLower.split('@')[0].toUpperCase());
           const accountGroup = cdbAccount ? cdbAccount.AccountGroup : 'HQ';
           const accountType = cdbAccount ? cdbAccount.AccountType : 'ADMIN';
@@ -418,18 +467,19 @@ export const authOptions: NextAuthOptions = {
 
           // 7. Persist / upsert session details into dbo.Users table if table exists
           try {
+            const buVal = (userAccess.assignedBUs || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
+            const brandVal = (userAccess.assignedBrands || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
             await prisma.$executeRawUnsafe(`
               IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId})
                 UPDATE Users 
                 SET AccountName = N'${accountName.replace(/'/g, "''")}',
                     Email = '${emailLower.replace(/'/g, "''")}',
-                    UserRole = '${userAccess.role}',
                     RememberToken = '${rememberToken}',
                     LastLogin = GETDATE()
                 WHERE AccountID = ${accountId};
               ELSE
-                INSERT INTO Users (AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin)
-                VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', '${rememberToken}', GETDATE(), GETDATE());
+                INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
+                VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
             `);
           } catch (dbError) {
             console.warn('[Google Sign-In] Users upsert notice:', dbError);
@@ -442,6 +492,7 @@ export const authOptions: NextAuthOptions = {
           (user as any).DomainAccount = domainAccount;
           (user as any).role = userAccess.role;
           (user as any).assignedBUs = userAccess.assignedBUs;
+          (user as any).assignedBrands = userAccess.assignedBrands || [];
           (user as any).RememberToken = rememberToken;
           (user as any).GAvatar = googlePhotoUrl || undefined;
 
@@ -458,14 +509,46 @@ export const authOptions: NextAuthOptions = {
         const u = user as any;
         token.AccountID = u.AccountID || 'UNKNOWN';
         token.AccountName = u.AccountName || u.name || 'User';
+        token.name = token.AccountName;
         token.role = u.role || 'ao';
         token.DomainAccount = u.DomainAccount || `CORP\\${(u.email || '').split('@')[0].toUpperCase()}`;
         token.AccountGroup = u.AccountGroup || 'BU5';
         token.assignedBUs = u.assignedBUs || [];
+        token.assignedBrands = u.assignedBrands || [];
         token.RememberToken = u.RememberToken || null;
         token.isImpersonating = u.isImpersonating || false;
         token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
         token.GAvatar = u.GAvatar || user.image || undefined;
+      }
+
+      // Proactive Self-Healing Role & Name Sync:
+      // Guarantee ITadmin role and proper names for designated IT administrators
+      if (!token.isImpersonating) {
+        const currentEmail = (token.email as string || '').toLowerCase().trim();
+        const currentAccountId = Number(token.AccountID);
+        if (isSuperadminEmail(currentEmail) || [57845, 57846, 57732, 56395].includes(currentAccountId)) {
+          token.role = 'ITadmin';
+          token.assignedBUs = ['ALL'];
+          token.assignedBrands = ['ALL'];
+
+          if (currentEmail === 'jdoremon@ics.com.ph' || currentAccountId === 57845) {
+            token.AccountID = '57845';
+            token.AccountName = 'JAMES PAOLO DOREMON';
+            token.name = 'JAMES PAOLO DOREMON';
+          } else if (currentEmail === 'bcandelaria@ics.com.ph' || currentAccountId === 57846) {
+            token.AccountID = '57846';
+            token.AccountName = 'BHARON CHRISTOPHER CANDELARIA';
+            token.name = 'BHARON CHRISTOPHER CANDELARIA';
+          } else if (currentEmail === 'mescario@ics.com.ph' || currentAccountId === 57732) {
+            token.AccountID = '57732';
+            token.AccountName = 'MARK EDO ESCARIO';
+            token.name = 'MARK EDO ESCARIO';
+          } else if (currentEmail === 'dramos@ics.com.ph' || currentAccountId === 56395) {
+            token.AccountID = '56395';
+            token.AccountName = 'DAN LEMUEL RAMOS';
+            token.name = 'DAN LEMUEL RAMOS';
+          }
+        }
       }
 
       // Handle in-place session update (e.g. from useSession().update(...) or impersonation switch)
@@ -473,23 +556,46 @@ export const authOptions: NextAuthOptions = {
         if (updateSession.impersonateTarget !== undefined) {
           const target = updateSession.impersonateTarget;
           if (target === null) {
-            // Exit impersonation: restore superadmin claims
-            const adminEmail = (token.originalAdminEmail as string) || (token.email as string) || 'jdoremon@ics.com.ph';
-            token.role = 'admin';
-            token.AccountName = 'Administrator';
+            // Exit impersonation: restore original admin claims
+            const adminEmail = ((token.originalAdminEmail as string) || (token.email as string) || 'jdoremon@ics.com.ph').toLowerCase().trim();
+            token.role = isSuperadminEmail(adminEmail) ? 'ITadmin' : 'admin';
             token.AccountGroup = 'HQ';
             token.DomainAccount = `CORP\\${adminEmail.split('@')[0].toUpperCase()}`;
-            token.assignedBUs = [];
+            token.assignedBUs = ['ALL'];
+            token.assignedBrands = ['ALL'];
             token.isImpersonating = false;
+
+            if (adminEmail === 'jdoremon@ics.com.ph') {
+              token.AccountID = '57845';
+              token.AccountName = 'JAMES PAOLO DOREMON';
+              token.name = 'JAMES PAOLO DOREMON';
+            } else if (adminEmail === 'bcandelaria@ics.com.ph') {
+              token.AccountID = '57846';
+              token.AccountName = 'BHARON CHRISTOPHER CANDELARIA';
+              token.name = 'BHARON CHRISTOPHER CANDELARIA';
+            } else if (adminEmail === 'mescario@ics.com.ph') {
+              token.AccountID = '57732';
+              token.AccountName = 'MARK EDO ESCARIO';
+              token.name = 'MARK EDO ESCARIO';
+            } else if (adminEmail === 'dramos@ics.com.ph') {
+              token.AccountID = '56395';
+              token.AccountName = 'DAN LEMUEL RAMOS';
+              token.name = 'DAN LEMUEL RAMOS';
+            } else {
+              token.AccountName = adminEmail.split('@')[0].toUpperCase();
+              token.name = token.AccountName;
+            }
           } else if (target) {
             // Apply target persona claims
             token.AccountID = String(target.accountId);
             token.AccountName = target.name;
+            token.name = target.name;
             token.role = target.role;
             const rawDomain = target.domainAccount || target.email.split('@')[0].toUpperCase();
             token.DomainAccount = rawDomain.startsWith('CORP\\') ? rawDomain : `CORP\\${rawDomain}`;
             token.AccountGroup = target.assignedBUs.join(',') || 'HQ';
             token.assignedBUs = target.assignedBUs;
+            token.assignedBrands = target.assignedBrands || [];
             token.isImpersonating = true;
             if (!token.originalAdminEmail) {
               token.originalAdminEmail = token.email as string;
@@ -506,9 +612,28 @@ export const authOptions: NextAuthOptions = {
         u.DomainAccount = token.DomainAccount as string;
         u.AccountGroup = token.AccountGroup as string;
         u.AccountID = token.AccountID as string;
-        u.AccountName = token.AccountName as string;
-        u.role = token.role as UserRole;
-        u.assignedBUs = (token.assignedBUs as string[]) || [];
+        u.AccountName = (token.AccountName as string) || (session.user.name as string) || 'User';
+        session.user.name = u.AccountName;
+
+        // Guarantee ITadmin role for superadmin accounts when not impersonating
+        if (!token.isImpersonating) {
+          const userEmail = (session.user.email || token.email as string || '').toLowerCase().trim();
+          const accountId = Number(token.AccountID);
+          if (isSuperadminEmail(userEmail) || [57845, 57846, 57732, 56395].includes(accountId)) {
+            u.role = 'ITadmin';
+            u.assignedBUs = ['ALL'];
+            u.assignedBrands = ['ALL'];
+          } else {
+            u.role = token.role as UserRole;
+            u.assignedBUs = (token.assignedBUs as string[]) || [];
+            u.assignedBrands = (token.assignedBrands as string[]) || [];
+          }
+        } else {
+          u.role = token.role as UserRole;
+          u.assignedBUs = (token.assignedBUs as string[]) || [];
+          u.assignedBrands = (token.assignedBrands as string[]) || [];
+        }
+
         u.RememberToken = (token.RememberToken as string) || null;
         u.isImpersonating = Boolean(token.isImpersonating);
         u.originalAdminEmail = (token.originalAdminEmail as string) || undefined;

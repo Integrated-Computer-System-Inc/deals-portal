@@ -2,8 +2,6 @@ import {
   buildAOScopingConditions,
   buildBUScopingConditions,
   isDealAccessibleByUser,
-  getImpersonationPersona,
-  IMPERSONATION_PERSONAS,
 } from '../lib/roles';
 
 function runTests() {
@@ -130,7 +128,36 @@ function runTests() {
   assert('Admin can access any deal', isDealAccessibleByUser(otherDeal, adminUser) === true);
   assert('Sales AA can access any deal', isDealAccessibleByUser(otherDeal, aaUser) === true);
 
-  // 5. Prisma scoping conditions builder tests
+  // 5. Product Manager (PM) Brand Scoping tests
+  const pmUser = {
+    role: 'pm',
+    accountName: 'JOSE LEONARDO MEDINA',
+    assignedBrands: ['DELL', 'HPI', 'HPE'],
+  };
+
+  const dellDeal = {
+    dealID: 401,
+    brand: 'DELL Technologies PowerEdge',
+    BU: 'BU2',
+  };
+
+  const hpeDeal = {
+    dealID: 6537,
+    brand: 'HPeHCL ARUBA Project',
+    BU: 'BU2',
+  };
+
+  const ciscoDeal = {
+    dealID: 402,
+    brand: 'CISCO Meraki Switch',
+    BU: 'BU2',
+  };
+
+  assert('PM can access assigned DELL deal', isDealAccessibleByUser(dellDeal, pmUser) === true);
+  assert('PM can access assigned HPE deal (deal #6537)', isDealAccessibleByUser(hpeDeal, pmUser) === true);
+  assert('PM CANNOT access unassigned CISCO deal', isDealAccessibleByUser(ciscoDeal, pmUser) === false);
+
+  // 6. Prisma scoping conditions builder tests
   const aoScoping = buildAOScopingConditions('Dan Lemuel Ramos', 'CORP\\DRAMOS', 'dramos@ics.com.ph');
   assert('AO Scoping conditions array is non-empty', Array.isArray(aoScoping) && aoScoping.length > 0);
   assert(
@@ -147,30 +174,6 @@ function runTests() {
     buScoping.some((c) => c.BU === 'BU12') &&
     buScoping.some((c) => c.BU === 'CE01')
   );
-
-  // 6. Impersonation personas and Tracy Labanda tests
-  const tracyPersona = getImpersonationPersona(1458);
-  assert('Tracy Labanda persona is defined in registry', tracyPersona !== undefined && tracyPersona.role === 'ao');
-  assert('Tracy Labanda is assigned to BU8', tracyPersona?.assignedBUs.includes('BU8') === true);
-
-  const tracyDeal = {
-    dealID: 501,
-    AssignedAO: 'TRACY LABANDA',
-    createdBy: 'CORP\\TLABANDA',
-    BU: 'BU8',
-  };
-
-  const tracyUser = {
-    role: 'ao',
-    accountName: 'TRACY LABANDA',
-    domainAccount: 'CORP\\TLABANDA',
-    email: 'tlabanda@ics.com.ph',
-    assignedBUs: ['BU8'],
-  };
-
-  assert('Tracy Labanda can access her assigned BU8 deal', isDealAccessibleByUser(tracyDeal, tracyUser) === true);
-  assert('Tracy Labanda CANNOT access Dan Lemuel Ramos deal', isDealAccessibleByUser(otherDeal, tracyUser) === false);
-  assert('All 8 Impersonation personas are registered', IMPERSONATION_PERSONAS.length === 8);
 
   console.log(`\n--- Test Summary: ${passed} Passed, ${failed} Failed ---`);
   if (failed > 0) process.exit(1);

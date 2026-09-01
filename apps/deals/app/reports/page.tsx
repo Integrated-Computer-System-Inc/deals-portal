@@ -274,10 +274,15 @@ export default function ReportsPage() {
     });
   }, [deals]);
 
-  // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue (strictly official BUs)
+  // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue (strictly official BUs, scoped for PM)
   const brandDistributionList = useMemo(() => {
-    return calculateBrandDistribution(deals);
-  }, [deals]);
+    return calculateBrandDistribution(
+      deals,
+      scopedFilter.userRole === 'pm' && scopedFilter.assignedBrands && scopedFilter.assignedBrands.length > 0
+        ? scopedFilter.assignedBrands
+        : undefined
+    );
+  }, [deals, scopedFilter.userRole, scopedFilter.assignedBrands]);
 
   // Filtered and Sorted Brands List for Section 3
   const processedBrandList = useMemo(() => {
