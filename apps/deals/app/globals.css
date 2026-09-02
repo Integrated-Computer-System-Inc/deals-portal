@@ -9,6 +9,13 @@ body {
   min-height: 100vh;
 }
 
+/* Allow text selection everywhere when Developer Mode is enabled */
+html[data-dev-mode="true"],
+html[data-dev-mode="true"] * {
+  user-select: auto !important;
+  -webkit-user-select: auto !important;
+}
+
 /* Remove spin buttons and wheel scroll from number inputs */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
