@@ -1,9 +1,17 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useDevMode } from './DevModeContext';
 
 export function SecurityGuard() {
+  const { isDevMode } = useDevMode();
+
   useEffect(() => {
+    // If IT Admin has enabled Developer Mode, allow right-click & DevTools shortcuts
+    if (isDevMode) {
+      return;
+    }
+
     // 1. Disable Right-Click Context Menu
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
@@ -67,7 +75,8 @@ export function SecurityGuard() {
       document.removeEventListener('contextmenu', handleContextMenu, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, []);
+  }, [isDevMode]);
 
   return null;
 }
+

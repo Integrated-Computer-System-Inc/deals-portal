@@ -4,6 +4,7 @@ import NextAuthProvider from '../components/NextAuthProvider';
 import QueryProvider from '../components/QueryProvider';
 import AppShell from '../components/AppShell';
 import { SecurityGuard } from '../components/SecurityGuard';
+import { DevModeProvider } from '../components/DevModeContext';
 
 export const metadata = {
   title: 'ICS Deal Registration',
@@ -53,10 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="antialiased font-sans min-h-screen bg-background text-foreground select-none">
         <NextAuthProvider>
-          <QueryProvider>
-            <SecurityGuard />
-            <AppShell>{children}</AppShell>
-          </QueryProvider>
+          <DevModeProvider>
+            <QueryProvider>
+              <SecurityGuard />
+              <AppShell>{children}</AppShell>
+            </QueryProvider>
+          </DevModeProvider>
         </NextAuthProvider>
       </body>
     </html>
