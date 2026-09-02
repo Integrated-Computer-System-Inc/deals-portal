@@ -20,6 +20,6 @@ export default withAuth(
 export const config = {
   matcher: [
     // Protect everything except /login and public assets
-    '/((?!api|_next/static|_next/image|favicon.ico|login).*)',
+    '/((?!api|icons|_next/static|_next/image|favicon.ico|login).*)',
   ],
 };

@@ -327,7 +327,6 @@ export const authOptions: NextAuthOptions = {
                 },
               });
               serverCache.delete('cdb_ao_avatars_map');
-              serverCache.invalidateTags(['deals', 'dashboard']);
             } catch (syncPhotoError) {
               console.warn('[Google Sign-In] Auto-syncing Google profile photo error:', syncPhotoError);
             }

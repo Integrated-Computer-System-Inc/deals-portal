@@ -151,17 +151,45 @@ type ClickedChar = 'blue' | 'black' | 'orange' | 'yellow' | null;
 function GaryHeroMascot({
   isCelebrating = false,
   isSad = false,
+  isMinimized = false,
 }: {
   isCelebrating?: boolean;
   isSad?: boolean;
+  isMinimized?: boolean;
 }) {
+  const sadVideoRef = useRef<HTMLVideoElement>(null);
+  const welcomeVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (isCelebrating) {
+      welcomeVideoRef.current?.pause();
+      sadVideoRef.current?.pause();
+      return;
+    }
+    if (isSad) {
+      welcomeVideoRef.current?.pause();
+      if (sadVideoRef.current) {
+        sadVideoRef.current.currentTime = 0;
+        sadVideoRef.current.play().catch(() => {});
+      }
+    } else {
+      sadVideoRef.current?.pause();
+      welcomeVideoRef.current?.play().catch(() => {});
+    }
+  }, [isCelebrating, isSad]);
+
   if (isCelebrating) {
     return (
-      <div key="hero-celebrating" className="relative w-full flex items-end justify-center select-none animate-in fade-in zoom-in-95 duration-500">
+      <div key="hero-celebrating" className="relative w-full flex items-end justify-center select-none animate-in fade-in zoom-in-95 duration-300">
         <img
           src="/api/icons/Success_Message.png"
           alt="Login Success"
-          className="h-[380px] lg:h-[430px] xl:h-[480px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-0 pb-3"
+          className={cn(
+            "w-auto max-w-full object-contain drop-shadow-2xl translate-y-0 transition-all duration-500",
+            isMinimized
+              ? "h-[380px] lg:h-[440px] xl:h-[500px] pb-3 lg:pb-4"
+              : "h-[380px] lg:h-[430px] xl:h-[480px] pb-3"
+          )}
           onError={(e) => {
             (e.target as HTMLImageElement).src = '/icons/Success_Message.png';
           }}
@@ -172,36 +200,36 @@ function GaryHeroMascot({
 
   return (
     <div className="relative w-full flex items-end justify-center select-none">
-      {/* Welcome Peeking Video */}
+      {/* Welcome Peeking Animation - Preloaded & Active by default */}
       <video
-        src="/api/icons/Peeking_Welcome.webm"
+        ref={welcomeVideoRef}
         autoPlay
         loop
         muted
         playsInline
-        className={`h-[580px] lg:h-[660px] xl:h-[740px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-14 lg:translate-y-16 transition-opacity duration-500 ease-in-out ${
+        preload="auto"
+        className={`h-[580px] lg:h-[660px] xl:h-[740px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-14 lg:translate-y-16 transition-opacity duration-200 ease-in-out ${
           isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
+        <source src="/icons/Welcome.webm" type="video/webm" />
         <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
-        <source src="/icons/Peeking_Welcome.webm" type="video/webm" />
-        <source src="/api/icons/Peeking_Welcome.webp" type="image/webp" />
       </video>
 
-      {/* Failed Login Sad Video - Proportioned to match welcome frame and smoothly crossfaded */}
+      {/* Failed Login Sad Animation - Preloaded in memory for 0ms instant display */}
       <video
-        src="/api/icons/Failed_Login.webm"
-        autoPlay
+        ref={sadVideoRef}
         loop
         muted
         playsInline
-        className={`absolute bottom-0 h-[470px] lg:h-[535px] xl:h-[600px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-12 lg:translate-y-14 transition-opacity duration-500 ease-in-out ${
+        preload="auto"
+        className={`absolute bottom-0 h-[580px] lg:h-[660px] xl:h-[740px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-14 lg:translate-y-16 transition-opacity duration-200 ease-in-out ${
           isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
         <source src="/api/icons/Failed_Login.webm" type="video/webm" />
         <source src="/icons/Failed_Login.webm" type="video/webm" />
-        <source src="/api/icons/Failed_Login.mp4" type="video/mp4" />
       </video>
     </div>
   );
@@ -214,9 +242,30 @@ function MobileGaryHeroMascot({
   isCelebrating?: boolean;
   isSad?: boolean;
 }) {
+  const mobileSadRef = useRef<HTMLVideoElement>(null);
+  const mobileWelcomeRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (isCelebrating) {
+      mobileWelcomeRef.current?.pause();
+      mobileSadRef.current?.pause();
+      return;
+    }
+    if (isSad) {
+      mobileWelcomeRef.current?.pause();
+      if (mobileSadRef.current) {
+        mobileSadRef.current.currentTime = 0;
+        mobileSadRef.current.play().catch(() => {});
+      }
+    } else {
+      mobileSadRef.current?.pause();
+      mobileWelcomeRef.current?.play().catch(() => {});
+    }
+  }, [isCelebrating, isSad]);
+
   if (isCelebrating) {
     return (
-      <div key="mobile-hero-celebrating" className="relative w-full h-full flex items-end justify-center select-none pb-1 animate-in fade-in duration-500">
+      <div key="mobile-hero-celebrating" className="relative w-full h-full flex items-end justify-center select-none pb-1 animate-in fade-in zoom-in-95 duration-300">
         <img
           src="/api/icons/Success_Message.png"
           alt="Login Success"
@@ -231,36 +280,36 @@ function MobileGaryHeroMascot({
 
   return (
     <div className="relative w-full h-full flex items-end justify-center select-none pb-1">
-      {/* Mobile Welcome Video */}
+      {/* Mobile Welcome Animation */}
       <video
-        src="/api/icons/Peeking_Welcome.webm"
+        ref={mobileWelcomeRef}
         autoPlay
         loop
         muted
         playsInline
-        className={`max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-500 ease-in-out ${
+        preload="auto"
+        className={`max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-200 ease-in-out ${
           isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
+        <source src="/icons/Welcome.webm" type="video/webm" />
         <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
-        <source src="/icons/Peeking_Welcome.webm" type="video/webm" />
-        <source src="/api/icons/Peeking_Welcome.webp" type="image/webp" />
       </video>
 
-      {/* Mobile Failed Login Video */}
+      {/* Mobile Failed Login Animation */}
       <video
-        src="/api/icons/Failed_Login.webm"
-        autoPlay
+        ref={mobileSadRef}
         loop
         muted
         playsInline
-        className={`absolute bottom-1 max-h-[135px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-500 ease-in-out ${
+        preload="auto"
+        className={`absolute bottom-1 max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-200 ease-in-out ${
           isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
         <source src="/api/icons/Failed_Login.webm" type="video/webm" />
         <source src="/icons/Failed_Login.webm" type="video/webm" />
-        <source src="/api/icons/Failed_Login.mp4" type="video/mp4" />
       </video>
     </div>
   );
@@ -285,6 +334,17 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<AuthErrorInfo | null>(null);
+  const [cachedCsrfToken, setCachedCsrfToken] = useState<string | null>(null);
+
+  // Pre-fetch NextAuth CSRF token on mount for 0ms popup opening
+  useEffect(() => {
+    fetch('/api/auth/csrf')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.csrfToken) setCachedCsrfToken(data.csrfToken);
+      })
+      .catch(() => {});
+  }, []);
 
   const visibleAuthError = localAuthError || (!isErrorDismissed ? authError : null);
 
@@ -346,9 +406,13 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
     }
 
     try {
-      // 1. Fetch CSRF token from NextAuth
-      const csrfRes = await fetch('/api/auth/csrf');
-      const { csrfToken } = await csrfRes.json();
+      // 1. Fetch CSRF token from NextAuth (instant from cache or parallel fallback)
+      let csrfToken = cachedCsrfToken;
+      if (!csrfToken) {
+        const csrfRes = await fetch('/api/auth/csrf');
+        const csrfData = await csrfRes.json();
+        csrfToken = csrfData?.csrfToken;
+      }
 
       // 2. Obtain Google authorization URL directly
       const signinRes = await fetch('/api/auth/signin/google', {
@@ -357,7 +421,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          csrfToken,
+          csrfToken: csrfToken || '',
           callbackUrl: `${window.location.origin}/login?popup=1`,
           json: 'true',
         }),
@@ -371,10 +435,34 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
         throw new Error('Failed to obtain Google authorization URL');
       }
 
+      // Check if user already closed the popup before Google URL was retrieved
+      if (popup && popup.closed) {
+        setIsSigningIn(false);
+        onMoodChange('sad');
+        setLocalAuthError({
+          title: 'Login Cancelled / Unauthorized Account',
+          description:
+            'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+        });
+        return;
+      }
+
       if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-        popup.focus();
-      } else {
+        try {
+          popup.location.href = authUrl;
+          popup.focus();
+        } catch {
+          setIsSigningIn(false);
+          onMoodChange('sad');
+          setLocalAuthError({
+            title: 'Login Cancelled / Unauthorized Account',
+            description:
+              'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+          });
+          return;
+        }
+      } else if (!popup) {
+        // Popup was completely blocked by browser popup blocker
         window.location.href = authUrl;
         return;
       }
@@ -447,43 +535,47 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
       window.addEventListener('message', handleMessage);
 
       // 4. Active Session Polling Fallback: Detects when NextAuth cookie/session is set on server
-      // Runs every 250ms — ultra-fast detection without waiting
+      let isCheckingSession = false;
       const sessionPollTimer = setInterval(async () => {
-        if (isFinished) return;
+        if (isFinished || isCheckingSession) return;
+        isCheckingSession = true;
         try {
           const session = await getSession();
           if (session?.user) {
             handleAuthResult({ type: 'OAUTH_SUCCESS' });
           }
-        } catch { }
-      }, 250);
+        } catch { } finally {
+          isCheckingSession = false;
+        }
+      }, 1000);
 
       // 5. Poll in case popup is closed manually by user or closed after OAuth error
-      const pollTimer = setInterval(async () => {
+      const pollTimer = setInterval(() => {
         if (isFinished) return;
         let isClosed = false;
         try {
-          isClosed = Boolean(popup.closed);
+          isClosed = Boolean(popup?.closed);
         } catch {
           // Cross-origin restriction
         }
         if (isClosed) {
           cleanupListeners();
-          const session = await getSession();
-          if (session?.user) {
-            setIsSigningIn(false);
-            onAuthSuccess();
-          } else {
-            setIsSigningIn(false);
-            onMoodChange('sad');
-            setLocalAuthError({
-              title: 'Login Cancelled / Unauthorized Account',
-              description:
-                'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
-            });
-          }
+          setIsSigningIn(false);
+          onMoodChange('sad');
+          setLocalAuthError({
+            title: 'Login Cancelled / Unauthorized Account',
+            description:
+              'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+          });
+          // Background non-blocking check in case session was set just before closing
+          getSession().then((session) => {
+            if (session?.user) {
+              setIsSigningIn(false);
+              onAuthSuccess();
+            }
+          }).catch(() => {});
         }
-      }, 250);
+      }, 60);
 
       // 6. Timeout Safety Net: Prevents infinite hanging spinner if network stalls
       const timeoutTimer = setTimeout(async () => {
@@ -688,17 +780,35 @@ function LoginContent() {
     router.prefetch('/deals/new');
   }, [router]);
 
+  const [hasLoggedIn, setHasLoggedIn] = useState(false);
+
+  // Preload celebration and loading assets on login page mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const img = new Image();
+      img.src = '/api/icons/Success_Message.png';
+
+      const v = document.createElement('video');
+      v.preload = 'auto';
+      v.src = '/api/icons/Loading.webm';
+      v.load();
+    }
+  }, []);
+
   // Trigger celebration animation and smooth loading screen handoff to dashboard
   const handleAuthSuccess = useCallback(() => {
-    setAnimationStep('celebrating');
+    // 1. Immediately trigger layout animation: purple panel minimizes, left shows Loading.webm
+    setHasLoggedIn(true);
+    setAnimationStep('loading');
+    setLoadingStatus('Entering Deals Portal...');
 
-    // 1. Prefetch Next.js route chunks immediately
+    // 2. Prefetch Next.js route chunks immediately
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
     router.prefetch('/deals/new');
 
-    // 2. Start prewarming session and data non-blockingly in background
+    // 3. Start prewarming session and data non-blockingly in background
     (async () => {
       try {
         const session = await getSession();
@@ -733,18 +843,14 @@ function LoginContent() {
       }
     })();
 
-    // 3. Fast and crisp transition into dashboard (250ms total animation)
-    setAnimationStep('expanding');
-
+    // 4. Transition to Dashboard after the smooth side-by-side animation completes
     setTimeout(() => {
-      setAnimationStep('loading');
-      setLoadingStatus('Entering Deals Portal...');
       router.replace('/dashboard');
-    }, 250);
+    }, 1100);
   }, [router, queryClient]);
 
-  const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
-  const isCelebrating = animationStep === 'celebrating' || animationStep === 'expanding' || animationStep === 'loading';
+  const isExpanded = animationStep === 'loading';
+  const isCelebrating = hasLoggedIn || animationStep === 'celebrating' || animationStep === 'loading';
   const isSad = characterMood === 'sad' && !isCelebrating;
   const isLoading = animationStep === 'loading';
 
@@ -776,35 +882,39 @@ function LoginContent() {
     <div className="login-light-scope relative flex min-h-screen bg-[#ffffff] overflow-hidden selection:bg-purple-300/50">
       {/* Left White Panel */}
       <div
-        className={`login-panel-expand relative flex flex-col justify-between p-8 sm:p-12 z-20 bg-white min-h-screen ${isExpanded
-          ? 'w-full absolute inset-0 z-40'
-          : 'w-full md:w-1/2 lg:w-[45%]'
-          }`}
+        className={cn(
+          "login-panel-expand relative flex flex-col justify-between p-8 sm:p-12 z-20 bg-white min-h-screen",
+          isExpanded ? "w-full md:w-[55%] lg:w-[56%]" : "w-full md:w-1/2 lg:w-[45%]"
+        )}
       >
         {/* Polished Loading State with Gary Running Video */}
         {isLoading ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white login-fade-in">
             <div className="flex flex-col items-center max-w-sm text-center">
-              <div className="relative mb-2 w-60 h-60 flex items-center justify-center select-none">
+              <div className="relative mb-3 w-60 h-60 flex items-center justify-center select-none">
                 <video
                   autoPlay
                   loop
                   muted
                   playsInline
+                  preload="auto"
+                  src="/api/icons/Loading.webm"
                   className="w-full h-full object-contain drop-shadow-md"
                 >
                   <source src="/api/icons/Loading.webm" type="video/webm" />
                   <source src="/icons/Loading.webm" type="video/webm" />
                   <source src="/api/icons/Loading.mp4" type="video/mp4" />
+                  <source src="/icons/Loading.mp4" type="video/mp4" />
                 </video>
               </div>
-              <h3 className={`${outfit.className} text-xl font-bold text-zinc-900 tracking-tight`}>
+
+              <h3 className={`${outfit.className} text-2xl font-bold text-zinc-900 tracking-tight`}>
                 Signing In
               </h3>
               <p className={`${inter.className} text-xs font-medium text-zinc-500 mt-1.5 transition-all duration-200`}>
                 {loadingStatus}
               </p>
-              <div className="w-48 h-1 bg-zinc-100 rounded-full overflow-hidden mt-4">
+              <div className="w-48 h-1.5 bg-zinc-100 rounded-full overflow-hidden mt-4">
                 <div className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full animate-pulse w-3/4" />
               </div>
             </div>
@@ -830,7 +940,10 @@ function LoginContent() {
 
             {/* Mobile Gary Hero Banner (Visible on mobile screens < md) */}
             <div
-              className="md:hidden relative w-full overflow-hidden flex flex-col items-center justify-between pt-6 sm:pt-8 pb-0 shrink-0 shadow-xs border-y border-purple-300/40 my-4 rounded-2xl"
+              className={cn(
+                "md:hidden relative w-full overflow-hidden flex flex-col items-center justify-between pt-6 sm:pt-8 pb-0 shrink-0 shadow-xs border-y border-purple-300/40 my-4 rounded-2xl login-panel-expand",
+                isExpanded ? "max-h-0 p-0 my-0 opacity-0 pointer-events-none -translate-y-4" : "max-h-[360px] opacity-100 translate-y-0"
+              )}
               style={{
                 background:
                   'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
@@ -853,19 +966,37 @@ function LoginContent() {
             </div>
 
             <main className="flex-1 flex flex-col justify-center items-center py-4">
-              <Suspense
-                fallback={
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+              {animationStep === 'celebrating' ? (
+                <div className="flex flex-col items-center text-center p-6 max-w-sm animate-in fade-in zoom-in-95 duration-300">
+                  <div className="w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-200 text-emerald-600 flex items-center justify-center mb-4 shadow-sm">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-500 animate-in zoom-in-50 duration-300" />
                   </div>
-                }
-              >
-                <LoginForm
-                  onMoodChange={setCharacterMood}
-                  onAuthSuccess={handleAuthSuccess}
-                  isBusy={animationStep !== 'idle'}
-                />
-              </Suspense>
+                  <h2 className={`${outfit.className} text-2xl font-bold text-zinc-900 tracking-tight`}>
+                    Login Successful!
+                  </h2>
+                  <p className={`${inter.className} text-sm text-zinc-600 font-medium mt-1.5`}>
+                    Welcome back. Preparing your Deals Workspace...
+                  </p>
+                  <div className="flex items-center gap-2 mt-4 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span>Entering portal shortly...</span>
+                  </div>
+                </div>
+              ) : (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+                    </div>
+                  }
+                >
+                  <LoginForm
+                    onMoodChange={setCharacterMood}
+                    onAuthSuccess={handleAuthSuccess}
+                    isBusy={animationStep !== 'idle'}
+                  />
+                </Suspense>
+              )}
             </main>
 
             {/* Footer */}
@@ -881,7 +1012,12 @@ function LoginContent() {
 
       {/* Right Gradient Hero Panel with Gary Hedges Mascot */}
       <div
-        className="relative hidden md:flex w-1/2 lg:w-[55%] text-white overflow-hidden flex-col justify-between pt-16 pb-0 px-12 lg:px-24 transition-opacity duration-500 min-h-screen"
+        className={cn(
+          "login-panel-expand relative hidden md:flex text-white overflow-hidden flex-col justify-between pt-12 lg:pt-16 pb-0 min-h-screen",
+          isExpanded
+            ? "w-full md:w-[45%] lg:w-[44%] px-8 lg:px-14"
+            : "w-1/2 lg:w-[55%] px-12 lg:px-24"
+        )}
         style={{
           background:
             'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
@@ -899,9 +1035,14 @@ function LoginContent() {
           </p>
         </div>
 
-        {/* Gary Mascot firmly anchored to the absolute bottom and centered horizontally */}
-        <div className="absolute bottom-0 inset-x-0 z-20 pointer-events-none flex items-end justify-center">
-          <GaryHeroMascot isCelebrating={isCelebrating} isSad={isSad} />
+        {/* Gary Mascot firmly anchored and adjusted upward */}
+        <div
+          className={cn(
+            "absolute inset-x-0 z-20 pointer-events-none flex items-end justify-center transition-all duration-500",
+            isExpanded ? "bottom-4 lg:bottom-6" : "bottom-0"
+          )}
+        >
+          <GaryHeroMascot isCelebrating={isCelebrating} isSad={isSad} isMinimized={isExpanded} />
         </div>
       </div>
     </div>
@@ -910,6 +1051,9 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <>
+      {/* Preload critical post-login media assets */}
+      <link rel="preload" as="image" href="/api/icons/Success_Message.png" />
+      <link rel="preload" as="video" href="/api/icons/Loading.webm" type="video/webm" />
       <script
         dangerouslySetInnerHTML={{
           __html: `
