@@ -1,5 +1,6 @@
 /* ─── Base Color Variables & Tokens ────────────────────────────────────────── */
 :root {
+  color-scheme: light;
   --background: #FFFFFF;
   --background-rgb: 255 255 255;
   --foreground: #0f172a;
@@ -42,6 +43,7 @@
 /* ─── Modern Grayish Dark Theme (Aer-Inspired) ─────────────────────────── */
 [data-theme='dark'],
 .dark {
+  color-scheme: dark;
   --background: #26282d;
   --background-rgb: 38 40 45;
   --foreground: #f5f6f8;

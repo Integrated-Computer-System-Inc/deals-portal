@@ -168,7 +168,11 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
             });
           } else {
             // Resolve TO, CC, BCC
-            const recipients = await resolveDealEmailRecipients(deal.AssignedAO || '', deal.BU || '');
+            const recipients = await resolveDealEmailRecipients(
+              deal.AssignedAO || '',
+              deal.BU || '',
+              deal.brand || ''
+            );
 
             // Generate HTML template
             const { subject, message } = generateExpiringDealEmail({
@@ -192,13 +196,15 @@ export async function scanExpiringDeals(): Promise<ExpiringScanResult> {
               );
               const nextNotifId = Number(maxNotifResult?.[0]?.maxId || 0) + 1;
 
+              const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
               await tx.$executeRawUnsafe(
                 `INSERT INTO [dbo].[deals_reg_notification] (
                   [email_id], [creator], [subject], [message], [sendTo], [sendCC], [sendBCC], [dateCreated], [status]
                 ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
                 nextNotifId,
                 'SYSTEM_CRON',
-                subject,
+                finalSubject,
                 message,
                 recipients.sendTo,
                 recipients.sendCC,

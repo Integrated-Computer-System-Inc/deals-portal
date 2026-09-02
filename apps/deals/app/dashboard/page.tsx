@@ -116,6 +116,7 @@ export default function DashboardPage() {
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
   const accountGroup = (session?.user as any)?.AccountGroup || 'HQ';
   const assignedBUs = ((session?.user as any)?.assignedBUs as string[]) || [];
+  const assignedBrands = ((session?.user as any)?.assignedBrands as string[]) || [];
 
   const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
@@ -171,10 +172,30 @@ export default function DashboardPage() {
   // Brand Distribution Sorting State for Dashboard KPI card (default: Total Amount)
   const [dashboardBrandSort, setDashboardBrandSort] = useState<'value-desc' | 'value-asc' | 'count-desc' | 'count-asc' | 'name-asc' | 'name-desc'>('value-desc');
 
-  // Deals per Brand breakdown (strictly official BUs)
+  // Deals per Brand breakdown (strictly official BUs, scoped to assigned brands for PM)
   const brandDistributionList = useMemo(() => {
-    return calculateBrandDistribution(deals);
-  }, [deals]);
+    return calculateBrandDistribution(
+      deals,
+      role === 'pm' && assignedBrands.length > 0 ? assignedBrands : undefined
+    );
+  }, [deals, role, assignedBrands]);
+
+  // Totals & maximums for accurate bar graphing and percentage share calculations
+  const totalBrandValue = useMemo(() => {
+    return brandDistributionList.reduce((acc, b) => acc + b.totalValue, 0);
+  }, [brandDistributionList]);
+
+  const totalBrandDealsCount = useMemo(() => {
+    return brandDistributionList.reduce((acc, b) => acc + b.count, 0);
+  }, [brandDistributionList]);
+
+  const maxBrandValue = useMemo(() => {
+    return Math.max(...brandDistributionList.map((b) => b.totalValue), 1);
+  }, [brandDistributionList]);
+
+  const maxBrandCount = useMemo(() => {
+    return Math.max(...brandDistributionList.map((b) => b.count), 1);
+  }, [brandDistributionList]);
 
   // Sorted list for Dashboard Brand card
   const sortedDashboardBrandList = useMemo(() => {
@@ -259,10 +280,12 @@ export default function DashboardPage() {
     return visibleOfficialBUs.map((bu) => [bu, officialCounts[bu]] as [string, number]);
   }, [deals, visibleOfficialBUs]);
 
-  const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao');
+  const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao' || role === 'pm');
 
   const getRoleHeaderLabel = () => {
+    if (role === 'ITadmin') return 'IT Administration (All BUs)';
     if (role === 'admin') return 'Sales Administration (All BUs)';
+    if (role === 'pm') return 'Product Manager (Brand Scoped)';
     if (role === 'aa') return 'Sales AA (All BUs)';
     if (role === 'bu' || role === 'bu_admin') return `BU Supervisor (${accountGroup})`;
     return `Account Officer (${accountGroup})`;
@@ -567,7 +590,7 @@ export default function DashboardPage() {
               <>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/20 text-white backdrop-blur-sm flex items-center gap-1 border border-white/25 max-w-full">
                   <User className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Welcome back, {accountName || 'Administrator'}</span>
+                  <span className="truncate">Welcome back, {accountName || getRoleHeaderLabel()}</span>
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/10 text-white border border-white/20 max-w-full truncate">
                   {getRoleHeaderLabel()}
@@ -786,7 +809,12 @@ export default function DashboardPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-sky-600" />
-                <h2 className="font-bold text-sm text-foreground">Deals Distribution by Brand</h2>
+                <div>
+                  <h2 className="font-bold text-sm text-foreground">Deals Distribution by Brand</h2>
+                  <p className="text-[10px] text-muted font-normal">
+                    Bar &amp; % indicate {dashboardBrandSort.startsWith('count') ? 'share of total deal registrations' : 'share of total brand pipeline value (PHP)'}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <select
@@ -823,7 +851,15 @@ export default function DashboardPage() {
                 ))
               ) : (
                 sortedDashboardBrandList.slice(0, 10).map((item, idx) => {
-                  const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                  const isCountSort = dashboardBrandSort.startsWith('count');
+                  const valuePct = totalBrandValue > 0 ? ((item.totalValue / totalBrandValue) * 100).toFixed(1) : '0';
+                  const countPct = totalBrandDealsCount > 0 ? ((item.count / totalBrandDealsCount) * 100).toFixed(1) : '0';
+                  const activePct = isCountSort ? countPct : valuePct;
+
+                  const barWidth = isCountSort
+                    ? Math.max(Math.round((item.count / maxBrandCount) * 100), 4)
+                    : Math.max(Math.round((item.totalValue / maxBrandValue) * 100), 4);
+
                   return (
                     <div
                       key={item.brand}
@@ -831,7 +867,7 @@ export default function DashboardPage() {
                         setSelectedBrandForDeals(item.brand);
                         setIsBrandDealsModalOpen(true);
                       }}
-                      className="space-y-1 p-2 sm:p-2.5 rounded-xl border border-transparent hover:border-sky-500/30 hover:bg-sky-500/5 cursor-pointer transition-all duration-200 group"
+                      className="space-y-1.5 p-2 sm:p-2.5 rounded-xl border border-transparent hover:border-sky-500/30 hover:bg-sky-500/5 cursor-pointer transition-all duration-200 group"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
                         <div className="flex items-center gap-1.5 min-w-0 shrink-0">
@@ -842,8 +878,11 @@ export default function DashboardPage() {
                           <span className="text-foreground/90 font-bold whitespace-nowrap">
                             PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
-                          <span className="text-[11px] text-muted whitespace-nowrap">
-                            ({item.count} • {percentage}%)
+                          <span
+                            className="text-[11px] text-muted whitespace-nowrap bg-neutral/60 px-1.5 py-0.5 rounded border border-border/40"
+                            title={`${item.count} deal${item.count === 1 ? '' : 's'} (${countPct}% of deals) • PHP ${item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${valuePct}% of pipeline value)`}
+                          >
+                            {item.count} {item.count === 1 ? 'deal' : 'deals'} • <strong className="text-foreground font-semibold">{activePct}%</strong>
                           </span>
                         </div>
                       </div>
@@ -860,10 +899,11 @@ export default function DashboardPage() {
                         </span>
                       </div>
 
-                      <div className="w-full h-1 bg-neutral rounded-full overflow-hidden border border-border/40">
+                      <div className="w-full h-1.5 bg-neutral rounded-full overflow-hidden border border-border/40">
                         <div
                           className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.max(percentage, 3)}%` }}
+                          style={{ width: `${barWidth}%` }}
+                          title={`${item.brand}: ${isCountSort ? `${item.count} deals (${countPct}%)` : `PHP ${item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${valuePct}% of pipeline value)`}`}
                         />
                       </div>
                     </div>
@@ -1107,8 +1147,8 @@ export default function DashboardPage() {
                         {/* 1. Brand Deal */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-xs font-bold shrink-0">
-                              {deal.brand || 'General'}
+                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-xs font-bold uppercase shrink-0">
+                              {normalizeBrandName(deal.brand)}
                             </span>
                             <span className="font-mono text-xs font-semibold text-muted group-hover:text-primary transition-colors truncate">
                               {deal.dealRegID || `#${deal.dealID}`}
@@ -1224,7 +1264,8 @@ export default function DashboardPage() {
                     </tr>
                   ) : (
                     filteredBrandsInModal.map((item, idx) => {
-                      const percentage = deals.length > 0 ? ((item.count / deals.length) * 100).toFixed(1) : '0';
+                      const valuePct = totalBrandValue > 0 ? ((item.totalValue / totalBrandValue) * 100).toFixed(1) : '0';
+                      const countPct = totalBrandDealsCount > 0 ? ((item.count / totalBrandDealsCount) * 100).toFixed(1) : '0';
 
                       return (
                         <tr
@@ -1259,10 +1300,11 @@ export default function DashboardPage() {
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono">
                             <span className="font-semibold text-foreground">{item.count}</span>
-                            <span className="text-[10px] text-muted ml-1">({percentage}%)</span>
+                            <span className="text-[10px] text-muted ml-1" title={`${countPct}% of registered deals`}>({countPct}%)</span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-foreground truncate">
-                            PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            <span>PHP {item.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span className="text-[10px] font-normal text-muted ml-1" title={`${valuePct}% of pipeline value`}>({valuePct}%)</span>
                           </td>
                           <td className="py-2.5 px-2 text-center">
                             <span className="p-1 text-muted hover:text-sky-600 rounded transition inline-flex items-center">

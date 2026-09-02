@@ -24,6 +24,11 @@ export const CANONICAL_PRESET_BRANDS = [
   'TREND MICRO',
   'VEEAM',
   'RUCKUS',
+  'AUTODESK',
+  'RED HAT',
+  'VERTIV',
+  'WATCHGUARD',
+  'SONICWALL',
 ] as const;
 
 /**
@@ -57,6 +62,9 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
   'DELL TECHNOLOGIES': 'DELL',
   'DELL EMC': 'DELL',
   'EMC': 'DELL',
+  'DELL SERVER': 'DELL',
+  'DELLSERVER': 'DELL',
+  'DELLSERVER PROJECT': 'DELL',
 
   // Cisco variations
   'CISCO': 'CISCO',
@@ -68,6 +76,7 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
   'LENOVO': 'LENOVO',
   'LENOVO ISG': 'LENOVO',
   'LENOVO IDG': 'LENOVO',
+  'LENOVO SERVER': 'LENOVO',
 
   // Microsoft variations
   'MICROSOFT': 'MICROSOFT',
@@ -76,11 +85,14 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
 
   // VMware variations
   'VMWARE': 'VMWARE',
+  'WMWARE': 'VMWARE',
   'BROADCOM VMWARE': 'VMWARE',
+  'OMNISSA VMWARE': 'VMWARE',
 
   // Fortinet variations
   'FORTINET': 'FORTINET',
   'FORTI': 'FORTINET',
+  'FORINET': 'FORTINET',
 
   // Palo Alto variations
   'PALO ALTO': 'PALO ALTO',
@@ -91,7 +103,6 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
   // Aruba variations
   'ARUBA': 'ARUBA',
   'ARUBA NETWORKS': 'ARUBA',
-  'HPE ARUBA': 'ARUBA',
 
   // Sophos variations
   'SOPHOS': 'SOPHOS',
@@ -127,11 +138,44 @@ const BRAND_ALIAS_MAP: Record<string, string> = {
   'RUCKUS': 'RUCKUS',
   'RUCKUS NETWORKS': 'RUCKUS',
   'COMMPSCOPE RUCKUS': 'RUCKUS',
+
+  // Autodesk / AutoCAD
+  'AUTOCAD': 'AUTODESK',
+  'AUTODESK': 'AUTODESK',
+  'AUTODESK / AUTOCAD': 'AUTODESK',
+
+  // Acer & Asus
+  'ACER': 'ACER',
+  'ASUS': 'ASUS',
+
+  // Arcserve & Broadcom
+  'ARCSERVE': 'ARCSERVE',
+  'ARCESERVE': 'ARCSERVE',
+  'BROADCOM': 'BROADCOM',
+  'BORADCOM': 'BROADCOM',
+
+  // Red Hat, Samsung, Sonicwall, Vertiv, WatchGuard
+  'RED HAT': 'RED HAT',
+  'REDHAT': 'RED HAT',
+  'SAMSUNG': 'SAMSUNG',
+  'SAMSUNG TABLET': 'SAMSUNG',
+  'SILVER PEAK': 'SILVER PEAK',
+  'SILVERPEAK': 'SILVER PEAK',
+  'SKETCHUP': 'SKETCHUP',
+  'SONICWALL': 'SONICWALL',
+  'SONIC WALL': 'SONICWALL',
+  'VERTIV': 'VERTIV',
+  'VERIV': 'VERTIV',
+  'WATCHGUARD': 'WATCHGUARD',
+  'WATCGUARD': 'WATCHGUARD',
+  'RUIJIE': 'RUIJIE',
+  'RUIJIE NETWORKS': 'RUIJIE',
+  'OMNISSA': 'OMNISSA',
 };
 
 /**
  * Normalizes any raw brand string into a clean, canonical uppercase brand name.
- * Handles case-insensitivity, leading/trailing whitespace, common punctuation, and abbreviations.
+ * Handles case-insensitivity, leading/trailing whitespace, compound project strings, and abbreviations.
  */
 export function normalizeBrandName(rawBrand?: string | null): string {
   if (!rawBrand) return 'UNSPECIFIED';
@@ -150,21 +194,85 @@ export function normalizeBrandName(rawBrand?: string | null): string {
     return BRAND_ALIAS_MAP[upper];
   }
 
-  // 2. Prefix & Substring matching for compound entries
-  if (upper.startsWith('HP INC') || upper.startsWith('HPI ')) return 'HPI';
-  if (upper.startsWith('HPE ') || upper.startsWith('HEWLETT PACKARD ENTERPRISE')) return 'HPE';
-  if (upper.startsWith('DELL ') || upper.endsWith(' DELL')) return 'DELL';
-  if (upper.startsWith('CISCO ') || upper.endsWith(' CISCO')) return 'CISCO';
-  if (upper.startsWith('LENOVO ')) return 'LENOVO';
-  if (upper.startsWith('MICROSOFT ')) return 'MICROSOFT';
-  if (upper.startsWith('VMWARE ')) return 'VMWARE';
-  if (upper.startsWith('FORTINET ')) return 'FORTINET';
-  if (upper.startsWith('PALO ALTO ')) return 'PALO ALTO';
-  if (upper.startsWith('ARUBA ')) return 'ARUBA';
-  if (upper.startsWith('POLY ') || upper === 'POLY') return 'HP POLY';
+  // 2. HP Poly check first (to prevent generic HP match on HP Poly variants)
+  if (upper.includes('POLY') || upper.includes('POLYCOM') || upper.includes('PLANTRONICS')) return 'HP POLY';
 
-  // 3. Fallback for custom brands: Keep in clean uppercase if short or acronym, else standard uppercase
+  // 3. HPE check (includes HPEHCL ARUBA Project, HPE ARUBA, HP ENTERPRISE, etc.)
+  if (upper.startsWith('HPE') || upper.includes('HEWLETT PACKARD ENTERPRISE') || upper.includes('HP ENTERPRISE')) return 'HPE';
+
+  // 4. HPI check
+  if (upper.startsWith('HPI') || upper.startsWith('HP INC') || upper === 'HP' || upper.startsWith('HP ')) return 'HPI';
+
+  // 5. DELL check (includes DellServer Project, Dell Technologies, Dell EMC, etc.)
+  if (upper.startsWith('DELL') || upper.includes('DELL ') || upper.endsWith(' DELL') || upper.includes('EMC')) return 'DELL';
+
+  // 6. CISCO check
+  if (upper.startsWith('CISCO') || upper.includes('CISCO ') || upper.includes('MERAKI')) return 'CISCO';
+
+  // 7. ARUBA check
+  if (upper.startsWith('ARUBA') || upper.includes('ARUBA')) return 'ARUBA';
+
+  // 8. LENOVO check
+  if (upper.startsWith('LENOVO')) return 'LENOVO';
+
+  // 9. VMWARE check (including Wmware, Broadcom Vmware)
+  if (upper.startsWith('VMWARE') || upper.startsWith('WMWARE') || upper.startsWith('VM WARE') || upper.includes('VMWARE')) return 'VMWARE';
+
+  // 10. FORTINET check
+  if (upper.startsWith('FORTINET') || upper.startsWith('FORTI') || upper.startsWith('FORINET')) return 'FORTINET';
+
+  // 11. PALO ALTO check
+  if (upper.startsWith('PALO ALTO') || upper.startsWith('PALOALTO')) return 'PALO ALTO';
+
+  // 12. AUTODESK check
+  if (upper.startsWith('AUTOCAD') || upper.startsWith('AUTODESK')) return 'AUTODESK';
+
+  // 13. SONICWALL check
+  if (upper.startsWith('SONICWALL') || upper.startsWith('SONIC WALL')) return 'SONICWALL';
+
+  // 14. WATCHGUARD check
+  if (upper.startsWith('WATCHGUARD') || upper.startsWith('WATCH GUARD') || upper.startsWith('WATCGUARD')) return 'WATCHGUARD';
+
+  // 15. TREND MICRO check
+  if (upper.startsWith('TREND MICRO') || upper.startsWith('TRENDMICRO')) return 'TREND MICRO';
+
+  // 16. RED HAT check
+  if (upper.startsWith('RED HAT') || upper.startsWith('REDHAT')) return 'RED HAT';
+
+  // 17. VERTIV check
+  if (upper.startsWith('VERTIV') || upper.startsWith('VERIV')) return 'VERTIV';
+
+  // 18. BROADCOM check
+  if (upper.startsWith('BROADCOM') || upper.startsWith('BORADCOM')) return 'BROADCOM';
+
+  // 19. Fallback for custom brands
   return upper;
+}
+
+/**
+ * Returns all recognized database variants for a given brand name (e.g. 'HPI' -> ['HPI', 'HPi', 'Hpi', 'HP', 'HP Inc', 'Hewlett-Packard']).
+ */
+export function getBrandVariations(brand: string): string[] {
+  if (!brand) return [];
+  const norm = normalizeBrandName(brand);
+  const variations = new Set<string>([
+    brand,
+    brand.toLowerCase(),
+    brand.toUpperCase(),
+    norm,
+    norm.toLowerCase(),
+    norm.toUpperCase(),
+  ]);
+
+  for (const [alias, target] of Object.entries(BRAND_ALIAS_MAP)) {
+    if (target === norm) {
+      variations.add(alias);
+      variations.add(alias.toLowerCase());
+      variations.add(alias.charAt(0).toUpperCase() + alias.slice(1).toLowerCase());
+    }
+  }
+
+  return Array.from(variations);
 }
 
 export interface BrandDistributionItem {
@@ -216,13 +324,30 @@ export function categorizeDealStatus(deal: DealHeaderRecord) {
 }
 
 /**
- * Calculates aggregated brand distribution metrics with status breakdown (Active, Approved, Waiting, Lost)
+ * Calculates aggregated brand distribution metrics with status breakdown (Active, Approved, Waiting, Lost).
+ * Optionally filters to only allowedBrands (e.g. for Product Managers).
  */
-export function calculateBrandDistribution(deals: DealHeaderRecord[]): BrandDistributionItem[] {
+export function calculateBrandDistribution(
+  deals: DealHeaderRecord[],
+  allowedBrands?: string[] | null
+): BrandDistributionItem[] {
   const map: Record<string, BrandDistributionItem> = {};
+  const normalizedAllowed =
+    allowedBrands && allowedBrands.length > 0
+      ? allowedBrands.map((b) => normalizeBrandName(b))
+      : null;
 
   deals.forEach((deal) => {
     const brand = normalizeBrandName(deal.brand);
+    if (!brand || brand === 'UNSPECIFIED' || brand === 'DEMO ONLY' || brand === 'PC REFRESH 2025 - MANILA' || brand === 'WE') {
+      return;
+    }
+
+    // Scoped filtering: if allowedBrands is provided (e.g. for PM user), only include matching registered brands
+    if (normalizedAllowed && !normalizedAllowed.includes(brand)) {
+      return;
+    }
+
     if (!map[brand]) {
       map[brand] = {
         brand,

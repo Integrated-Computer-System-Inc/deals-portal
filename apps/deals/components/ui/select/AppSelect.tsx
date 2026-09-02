@@ -103,8 +103,6 @@ export const AppSelect = ({
                     <AppEmptyState
                         title={notFoundTitle || "No options found"}
                         description={notFoundDescription}
-                        imageSrc={notFoundImageSrc || "/aria-mascott-sad.svg"}
-                        imageSize={120}
                         className="py-4 gap-1.5"
                     />
                 }

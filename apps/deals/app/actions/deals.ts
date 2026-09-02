@@ -24,9 +24,9 @@ import {
 } from '@/lib/email-templates';
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { serverCache } from '@/lib/serverCache';
-import { buildAOScopingConditions, buildBUScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
+import { buildAOScopingConditions, buildBUScopingConditions, buildPMScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
 import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
-import { normalizeBrandName } from '@/lib/brandUtils';
+import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -46,6 +46,76 @@ function parseSafeInt(val: any, fallback = 0): number {
 
 export async function invalidateServerDealsCache() {
   serverCache.invalidateTags(['deals', 'dashboard']);
+}
+
+/**
+ * Cached map of AO identifiers (AccountName, DomainAccount, Email, NickName) to their GAvatar URL.
+ */
+async function getAOAvatarMap(): Promise<Map<string, string>> {
+  const cacheKey = 'cdb_ao_avatars_map';
+  const cached = serverCache.get<Record<string, string>>(cacheKey);
+  if (cached) {
+    return new Map(Object.entries(cached));
+  }
+
+  try {
+    const accounts = await prisma.cdbAccounts.findMany({
+      where: {
+        GAvatar: { not: null },
+      },
+      select: {
+        AccountName: true,
+        DomainAccount: true,
+        Email: true,
+        NickName: true,
+        GAvatar: true,
+      },
+    });
+
+    const mapObj: Record<string, string> = {};
+    for (const acc of accounts) {
+      if (!acc.GAvatar) continue;
+      const avatar = acc.GAvatar.trim();
+      if (!avatar) continue;
+
+      if (acc.AccountName) {
+        mapObj[acc.AccountName.trim().toLowerCase()] = avatar;
+      }
+      if (acc.DomainAccount) {
+        mapObj[acc.DomainAccount.trim().toLowerCase()] = avatar;
+      }
+      if (acc.Email) {
+        mapObj[acc.Email.trim().toLowerCase()] = avatar;
+        const localPart = acc.Email.split('@')[0];
+        if (localPart) mapObj[localPart.toLowerCase()] = avatar;
+      }
+      if (acc.NickName) {
+        mapObj[acc.NickName.trim().toLowerCase()] = avatar;
+      }
+    }
+
+    serverCache.set(cacheKey, mapObj, 1000 * 60 * 15); // 15 mins
+    return new Map(Object.entries(mapObj));
+  } catch (err) {
+    console.warn('[getAOAvatarMap] Error querying AO avatars:', err);
+    return new Map();
+  }
+}
+
+function resolveAOAvatar(aoString: string | null | undefined, avatarMap: Map<string, string>): string | null {
+  if (!aoString) return null;
+  const cleaned = aoString.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  const direct = avatarMap.get(cleaned);
+  if (direct) return direct;
+
+  for (const [key, avatar] of avatarMap.entries()) {
+    if (key && (cleaned.includes(key) || key.includes(cleaned))) {
+      return avatar;
+    }
+  }
+  return null;
 }
 
 /**
@@ -77,14 +147,16 @@ export async function getScopedDeals(
     const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
     const sessionAccountGroup = ((session?.user as any)?.AccountGroup || '').trim();
     const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+    const sessionAssignedBrands = (session?.user as any)?.assignedBrands as string[] | undefined;
 
-    // Security: Only allow client role override if session is admin/aa, otherwise enforce session claims strictly
-    const isSuperRole = sessionRole === 'admin' || sessionRole === 'aa';
+    // Security: Only allow client role override if session is ITadmin/admin/aa, otherwise enforce session claims strictly
+    const isSuperRole = sessionRole === 'ITadmin' || sessionRole === 'admin' || sessionRole === 'aa';
     const userRole = isSuperRole ? (filter.userRole || sessionRole || 'admin') : (sessionRole || 'ao');
     const accountName = isSuperRole ? (filter.accountName || sessionAccountName) : sessionAccountName;
     const domainAccount = isSuperRole ? (filter.domainAccount || sessionDomainAccount) : sessionDomainAccount;
     const accountGroup = isSuperRole ? (filter.accountGroup || sessionAccountGroup) : sessionAccountGroup;
     const assignedBUs = isSuperRole ? (filter.assignedBUs || sessionAssignedBUs) : sessionAssignedBUs;
+    const assignedBrands = isSuperRole ? (filter.assignedBrands || sessionAssignedBrands) : sessionAssignedBrands;
 
     const page = Math.max(1, filter.page || 1);
     const pageSize = filter.pageSize !== undefined ? filter.pageSize : 0;
@@ -93,18 +165,20 @@ export async function getScopedDeals(
     const buFilter = filter.buFilter;
     const aoFilter = filter.aoFilter;
     const brandFilter = filter.brandFilter;
+    const currencyFilter = filter.currencyFilter;
     const expiryFilter = filter.expiryFilter;
     const startDate = filter.startDate;
     const endDate = filter.endDate;
     const sortBy = filter.sortBy;
     const sortOrder = filter.sortOrder || 'desc';
 
-    const cacheKey = serverCache.generateKey('scoped_deals', {
+    const cacheKey = serverCache.generateKey('scoped_deals_v2', {
       userRole,
       accountName,
       domainAccount,
       accountGroup,
       assignedBUs,
+      assignedBrands,
       page,
       pageSize,
       searchQuery,
@@ -112,6 +186,7 @@ export async function getScopedDeals(
       buFilter,
       aoFilter,
       brandFilter,
+      currencyFilter,
       expiryFilter,
       startDate,
       endDate,
@@ -134,13 +209,16 @@ export async function getScopedDeals(
 
     const andConditions: any[] = [];
 
-    // Role-based scoping (handles case insensitivity, whitespace, createdBy, and BU formatting variations)
+    // Role-based scoping (handles case insensitivity, whitespace, createdBy, BU and Brand formatting variations)
     if (userRole === 'ao') {
       const aoConditions = buildAOScopingConditions(accountName, domainAccount, sessionEmail);
       andConditions.push({ OR: aoConditions });
     } else if (userRole === 'bu' || userRole === 'bu_admin') {
       const buConditions = buildBUScopingConditions(assignedBUs && assignedBUs.length > 0 ? assignedBUs : accountGroup);
       andConditions.push({ OR: buConditions });
+    } else if (userRole === 'pm') {
+      const pmConditions = buildPMScopingConditions(assignedBrands);
+      andConditions.push(...pmConditions);
     }
 
     // Status filter (single or multi-select array)
@@ -172,12 +250,36 @@ export async function getScopedDeals(
       }
     }
 
-    // Brand filter (single or multi-select array)
+    // Brand filter (single or multi-select array, expanded to match all DB variants)
     if (brandFilter) {
-      if (Array.isArray(brandFilter) && brandFilter.length > 0 && !brandFilter.includes('ALL')) {
-        andConditions.push({ brand: { in: brandFilter.map(String) } });
-      } else if (typeof brandFilter === 'string' && brandFilter !== 'ALL' && brandFilter !== '') {
-        andConditions.push({ brand: String(brandFilter) });
+      const brandsArray = Array.isArray(brandFilter) ? brandFilter : [brandFilter];
+      const activeBrands = brandsArray.filter((b) => b && b !== 'ALL');
+      if (activeBrands.length > 0) {
+        const allVariations = Array.from(
+          new Set(activeBrands.flatMap((b) => getBrandVariations(String(b))))
+        );
+        andConditions.push({
+          OR: [
+            { brand: { in: allVariations } },
+            ...activeBrands.map((b) => ({ brand: { contains: String(b).trim() } })),
+          ],
+        });
+      }
+    }
+
+    // Currency filter (e.g. PHP, USD, multi-select)
+    if (currencyFilter) {
+      const currArray = (Array.isArray(currencyFilter) ? currencyFilter : [currencyFilter])
+        .map((c) => String(c).trim().toUpperCase())
+        .filter((c) => c && c !== 'ALL');
+      if (currArray.length > 0) {
+        andConditions.push({
+          DealItems: {
+            some: {
+              currency: { in: currArray },
+            },
+          },
+        });
       }
     }
 
@@ -368,6 +470,8 @@ export async function getScopedDeals(
         : {}),
     });
 
+    const aoAvatarMap = await getAOAvatarMap();
+
     const formattedDeals: DealHeaderRecord[] = rawDeals.map((deal: any) => {
       const totalsByCurrency: CurrencyTotals = {};
 
@@ -392,7 +496,7 @@ export async function getScopedDeals(
         dtRegistered: deal.dtRegistered || new Date(),
         expiration: deal.expiration || null,
         expDt: deal.expDt || new Date(),
-        brand: deal.brand || '',
+        brand: normalizeBrandName(deal.brand),
         customerID: deal.customerID,
         dealRegID: deal.dealRegID || '',
         ProjectName: deal.ProjectName || '',
@@ -441,6 +545,7 @@ export async function getScopedDeals(
         renewals: sortedRenewals,
         latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
         aggregatedTotals: totalsByCurrency,
+        aoAvatar: resolveAOAvatar(deal.AssignedAO, aoAvatarMap),
       };
     });
 
@@ -484,6 +589,7 @@ export async function getDealById(
     const sessionDomainAccount = ((session?.user as any)?.DomainAccount || '').trim();
     const sessionEmail = ((session?.user as any)?.Email || session?.user?.email || '').trim();
     const sessionAssignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
+    const sessionAssignedBrands = (session?.user as any)?.assignedBrands as string[] | undefined;
 
     const rawDeal = await prisma.dealHeader.findUnique({
       where: { dealID: id },
@@ -510,6 +616,7 @@ export async function getDealById(
         domainAccount: sessionDomainAccount,
         email: sessionEmail,
         assignedBUs: sessionAssignedBUs,
+        assignedBrands: sessionAssignedBrands,
       });
 
       if (!isAllowed) {
@@ -549,7 +656,7 @@ export async function getDealById(
       dtRegistered: deal.dtRegistered || new Date(),
       expiration: deal.expiration || null,
       expDt: deal.expDt || new Date(),
-      brand: deal.brand || '',
+      brand: normalizeBrandName(deal.brand),
       customerID: deal.customerID,
       dealRegID: deal.dealRegID || '',
       ProjectName: deal.ProjectName || '',
@@ -598,6 +705,7 @@ export async function getDealById(
       renewals: sortedRenewals,
       latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
       aggregatedTotals: totalsByCurrency,
+      aoAvatar: resolveAOAvatar(deal.AssignedAO, await getAOAvatarMap()),
     };
 
     const cacheKey = `deal_detail:${id}`;
@@ -724,8 +832,9 @@ export async function createDeal(
       // 4. Target Table: deals_reg_notification (Skip if BU == 'BU6')
       const buVal = payload.BU || payload.bu;
       const aoVal = payload.AssignedAO || payload.assignedAO;
+      const brandVal = payload.brand || '';
       if (buVal !== 'BU6') {
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const currencyVal = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
         const { subject, message } = generateCreateDealEmail({
           dealID: nextDealID,
@@ -744,6 +853,8 @@ export async function createDeal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -755,7 +866,7 @@ export async function createDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1057,7 +1168,11 @@ export async function updateDeal(
           });
         }
 
-        const recipients = await resolveDealEmailRecipients(payload.AssignedAO, payload.BU);
+        const recipients = await resolveDealEmailRecipients(
+          payload.AssignedAO,
+          payload.BU,
+          normalizedBrand || payload.brand || ''
+        );
         const { subject, message } = generateUpdateDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1077,6 +1192,8 @@ export async function updateDeal(
           changes: changes,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1088,7 +1205,7 @@ export async function updateDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1225,7 +1342,8 @@ export async function saveLostDeal(
       const buVal = currentDeal.BU || '';
       if (buVal !== 'BU6') {
         const aoVal = currentDeal.AssignedAO || '';
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const brandVal = currentDeal.brand || '';
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const { subject, message } = generateLostDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1245,6 +1363,8 @@ export async function saveLostDeal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1256,7 +1376,7 @@ export async function saveLostDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1391,8 +1511,9 @@ export async function saveDealRenewal(
       // 4. Send Email Notification if requested and BU != 'BU6'
       const buVal = currentDeal.BU || 'BU5';
       const aoVal = currentDeal.AssignedAO || 'Unassigned';
+      const brandVal = currentDeal.brand || '';
       if (payload.toEmail !== false && buVal !== 'BU6') {
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const { subject, message } = generateRenewDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1410,6 +1531,8 @@ export async function saveDealRenewal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1421,7 +1544,7 @@ export async function saveDealRenewal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,

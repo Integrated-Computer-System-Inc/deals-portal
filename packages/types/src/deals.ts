@@ -75,7 +75,7 @@ export interface UpdateWTNPayload {
   whenToNotify?: string | Date;
 }
 
-export type UserRole = 'admin' | 'bu' | 'ao' | 'aa' | 'bu_admin';
+export type UserRole = 'ITadmin' | 'admin' | 'bu' | 'ao' | 'aa' | 'bu_admin' | 'pm';
 
 export interface ScopedDealsFilter {
   userRole?: UserRole;
@@ -83,6 +83,7 @@ export interface ScopedDealsFilter {
   domainAccount?: string;
   accountGroup?: string;
   assignedBUs?: string[];
+  assignedBrands?: string[];
   page?: number;
   pageSize?: number;
   searchQuery?: string;
@@ -90,6 +91,7 @@ export interface ScopedDealsFilter {
   buFilter?: string | string[];
   aoFilter?: string | string[];
   brandFilter?: string | string[];
+  currencyFilter?: string | string[];
   expiryFilter?: string | string[];
   startDate?: string | Date;
   endDate?: string | Date;
@@ -173,6 +175,7 @@ export interface DealHeaderRecord {
   renewals?: DealRenewalRecord[];
   latestRenewal?: DealRenewalRecord | null;
   aggregatedTotals?: CurrencyTotals;
+  aoAvatar?: string | null;
 }
 
 export const ACTIVE_BUSINESS_UNITS = [

@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import { FileQuestion, Home, ArrowLeft } from 'lucide-react';
@@ -5,9 +7,14 @@ import { FileQuestion, Home, ArrowLeft } from 'lucide-react';
 export default function NotFound() {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center space-y-4">
-      <div className="w-14 h-14 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-500 shadow-xs">
-        <FileQuestion className="w-7 h-7" />
-      </div>
+      <img
+        src="/api/icons/404_Error.png"
+        alt="404 Page Not Found"
+        className="w-48 h-48 object-contain drop-shadow-sm select-none"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = '/icons/404_Error.png';
+        }}
+      />
 
       <div className="space-y-1.5 max-w-md">
         <h2 className="text-xl font-bold text-foreground tracking-tight">404 - Page Not Found</h2>

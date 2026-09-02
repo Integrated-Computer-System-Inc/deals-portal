@@ -65,9 +65,17 @@ if (-not (Test-Path $logsDir)) {
     Write-Host "  [OK] Created logs directory: $logsDir" -ForegroundColor Green
 }
 
-# 3. Monorepo Dependencies Installation
+# 3. Stop running PM2 process to release file locks on Windows
+Write-Host "`n[3/6] Releasing Windows file locks..." -ForegroundColor Yellow
+try {
+    pm2 stop deals-portal 2>$null
+} catch {
+    Write-Host "  PM2 was not running."
+}
+
+# 4. Monorepo Dependencies Installation
 if (-not $SkipInstall) {
-    Write-Host "`n[3/6] Installing monorepo dependencies..." -ForegroundColor Yellow
+    Write-Host "`n[4/6] Installing monorepo dependencies..." -ForegroundColor Yellow
     npm install
     if ($LASTEXITCODE -ne 0) {
         Write-Error "npm install failed. Please check for dependency errors."
@@ -75,11 +83,11 @@ if (-not $SkipInstall) {
     }
     Write-Host "  [OK] Dependencies installed successfully." -ForegroundColor Green
 } else {
-    Write-Host "`n[3/6] Skipping npm install (-SkipInstall specified)" -ForegroundColor Gray
+    Write-Host "`n[4/6] Skipping npm install (-SkipInstall specified)" -ForegroundColor Gray
 }
 
-# 4. Generate Database Client (Prisma)
-Write-Host "`n[4/6] Generating Prisma Client..." -ForegroundColor Yellow
+# 5. Generate Database Client (Prisma)
+Write-Host "`n[5/6] Generating Prisma Client..." -ForegroundColor Yellow
 npm run db:generate
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Prisma generation failed. Please verify packages/database/prisma/schema.prisma."
@@ -87,9 +95,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  [OK] Prisma client generated successfully." -ForegroundColor Green
 
-# 5. Build Monorepo (Next.js & Packages)
+# 6. Build Monorepo (Next.js & Packages)
 if (-not $SkipBuild) {
-    Write-Host "`n[5/6] Building production bundle (Turborepo & Next.js)..." -ForegroundColor Yellow
+    Write-Host "`n[6/6] Building production bundle (Turborepo & Next.js)..." -ForegroundColor Yellow
     $env:NODE_ENV = "production"
     npm run build
     if ($LASTEXITCODE -ne 0) {
@@ -98,30 +106,30 @@ if (-not $SkipBuild) {
     }
     Write-Host "  [OK] Production build completed successfully." -ForegroundColor Green
 } else {
-    Write-Host "`n[5/6] Skipping build step (-SkipBuild specified)" -ForegroundColor Gray
+    Write-Host "`n[6/6] Skipping build step (-SkipBuild specified)" -ForegroundColor Gray
 }
 
-# 6. Start / Reload with PM2
-Write-Host "`n[6/6] Managing PM2 process..." -ForegroundColor Yellow
+# 7. Start / Restart PM2
+Write-Host "`n[PM2] Managing PM2 process..." -ForegroundColor Yellow
 
 $ecosystemFile = Join-Path $PSScriptRoot "ecosystem.config.js"
 
 # Check if deals-portal is already registered in PM2
 $pm2Status = pm2 jlist | ConvertFrom-Json 2>$null
-$appRunning = $false
+$appRegistered = $false
 
 if ($pm2Status) {
     foreach ($app in $pm2Status) {
         if ($app.name -eq "deals-portal") {
-            $appRunning = $true
+            $appRegistered = $true
             break
         }
     }
 }
 
-if ($appRunning) {
-    Write-Host "  Reloading running 'deals-portal' process..." -ForegroundColor Cyan
-    pm2 reload $ecosystemFile --env production
+if ($appRegistered) {
+    Write-Host "  Restarting 'deals-portal' process..." -ForegroundColor Cyan
+    pm2 restart deals-portal --update-env
 } else {
     Write-Host "  Starting 'deals-portal' process..." -ForegroundColor Cyan
     pm2 start $ecosystemFile --env production

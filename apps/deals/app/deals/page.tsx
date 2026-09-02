@@ -64,6 +64,7 @@ import {
 import DealsFilterPopover from '@/components/DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU, filterOfficialDeals } from '@/lib/buUtils';
+import { normalizeBrandName } from '@/lib/brandUtils';
 
 function DealsContent() {
   const router = useRouter();
@@ -71,8 +72,8 @@ function DealsContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const role: UserRole = (session?.user as any)?.role || 'admin';
-  const canCreate = role === 'admin' || role === 'aa';
-  const canEdit = role === 'admin' || role === 'aa';
+  const canCreate = role === 'ITadmin' || role === 'admin' || role === 'aa';
+  const canEdit = role === 'ITadmin' || role === 'admin' || role === 'aa';
 
   const prefetchDealDetail = (dealID: number) => {
     if (!dealID || isNaN(dealID)) return;
@@ -91,6 +92,7 @@ function DealsContent() {
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [buFilters, setBuFilters] = useState<string[]>([]);
   const [aoFilters, setAoFilters] = useState<string[]>([]);
+  const [currencyFilters, setCurrencyFilters] = useState<string[]>([]);
   const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     preset: 'ALL',
@@ -127,6 +129,7 @@ function DealsContent() {
       statusFilter: statusFilters.length > 0 ? statusFilters : undefined,
       buFilter: buFilters.length > 0 ? buFilters : undefined,
       aoFilter: aoFilters.length > 0 ? aoFilters : undefined,
+      currencyFilter: currencyFilters.length > 0 ? currencyFilters : undefined,
       expiryFilter: expiryFilters.length > 0 ? expiryFilters : undefined,
       startDate: dateRange.preset !== 'ALL' && dateRange.startDate ? dateRange.startDate : undefined,
       endDate: dateRange.preset !== 'ALL' && dateRange.endDate ? dateRange.endDate : undefined,
@@ -141,6 +144,7 @@ function DealsContent() {
     statusFilters,
     buFilters,
     aoFilters,
+    currencyFilters,
     expiryFilters,
     dateRange,
     sortConfig,
@@ -148,7 +152,7 @@ function DealsContent() {
     pageSize,
   ]);
 
-  const { data: queryResult, isLoading: loading, refetch: fetchDeals } = usePaginatedDealsQuery(queryFilter);
+  const { data: queryResult, isLoading: loading, isFetching, refetch: fetchDeals } = usePaginatedDealsQuery(queryFilter);
 
   const rawDeals: DealHeaderRecord[] = queryResult?.data || [];
   const totalRecords = queryResult?.totalCount || 0;
@@ -170,6 +174,7 @@ function DealsContent() {
         statusFilters,
         buFilters,
         aoFilters,
+        currencyFilters,
         expiryFilters,
         dateRange,
         sortConfig,
@@ -178,14 +183,12 @@ function DealsContent() {
         scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
       };
       sessionStorage.setItem('DEALS_REGISTRY_VIEW_STATE', JSON.stringify(state));
+      sessionStorage.setItem('DEALS_NAVIGATED_TO_DETAIL', 'true');
     } catch {}
   };
 
   // Handle URL navigation parameters and restore view state
   useEffect(() => {
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
-
     const hasSearchParams = Boolean(searchParams && Array.from(searchParams.keys()).length > 0);
 
     if (hasSearchParams && searchParams) {
@@ -198,11 +201,31 @@ function DealsContent() {
       }
 
       const statusParam = searchParams.get('status');
-      if (statusParam) {
-        const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
-        if (statuses.length > 0) {
+      const expiryParam = searchParams.get('expiry') || searchParams.get('expiryFilter');
+
+      if (statusParam === 'expiring' || expiryParam === 'expiring' || expiryParam === 'all_expiring') {
+        setStatusFilters([]);
+        setExpiryFilters(['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30']);
+      } else {
+        if (statusParam) {
+          const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
           setStatusFilters(statuses);
+        } else if (isInitializedRef.current) {
+          setStatusFilters([]);
         }
+
+        if (expiryParam) {
+          const exps = expiryParam.split(',').map((e) => e.trim()).filter(Boolean);
+          setExpiryFilters(exps);
+        } else if (isInitializedRef.current) {
+          setExpiryFilters([]);
+        }
+      }
+
+      const currencyParam = searchParams.get('currency');
+      if (currencyParam) {
+        const currs = currencyParam.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+        setCurrencyFilters(currs);
       }
 
       const brandParam = searchParams.get('brand');
@@ -232,38 +255,40 @@ function DealsContent() {
           setCurrentPage(p);
         }
       }
-    } else {
-      // Restore from sessionStorage if user navigated back without search params
+
+      isInitializedRef.current = true;
+    } else if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      // Only restore from sessionStorage if user navigated back from a deal detail page
       try {
-        const saved = sessionStorage.getItem('DEALS_REGISTRY_VIEW_STATE');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.searchQuery !== undefined) setSearchQuery(parsed.searchQuery);
-          if (parsed.statusFilters) setStatusFilters(parsed.statusFilters);
-          if (parsed.buFilters) setBuFilters(parsed.buFilters);
-          if (parsed.aoFilters) setAoFilters(parsed.aoFilters);
-          if (parsed.expiryFilters) setExpiryFilters(parsed.expiryFilters);
-          if (parsed.dateRange) setDateRange(parsed.dateRange);
-          if (parsed.sortConfig) setSortConfig(parsed.sortConfig);
-          if (parsed.currentPage) setCurrentPage(parsed.currentPage);
-          if (parsed.pageSize) setPageSize(parsed.pageSize);
-          if (parsed.scrollY && typeof window !== 'undefined') {
-            setTimeout(() => {
-              window.scrollTo({ top: parsed.scrollY, behavior: 'instant' });
-            }, 100);
+        const isFromDetail = sessionStorage.getItem('DEALS_NAVIGATED_TO_DETAIL') === 'true';
+        if (isFromDetail) {
+          sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+          const saved = sessionStorage.getItem('DEALS_REGISTRY_VIEW_STATE');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.searchQuery !== undefined) setSearchQuery(parsed.searchQuery);
+            if (parsed.statusFilters) setStatusFilters(parsed.statusFilters);
+            if (parsed.buFilters) setBuFilters(parsed.buFilters);
+            if (parsed.aoFilters) setAoFilters(parsed.aoFilters);
+            if (parsed.currencyFilters) setCurrencyFilters(parsed.currencyFilters);
+            if (parsed.expiryFilters) setExpiryFilters(parsed.expiryFilters);
+            if (parsed.dateRange) setDateRange(parsed.dateRange);
+            if (parsed.sortConfig) setSortConfig(parsed.sortConfig);
+            if (parsed.currentPage) setCurrentPage(parsed.currentPage);
+            if (parsed.pageSize) setPageSize(parsed.pageSize);
+            if (parsed.scrollY && typeof window !== 'undefined') {
+              setTimeout(() => {
+                window.scrollTo({ top: parsed.scrollY, behavior: 'instant' });
+              }, 100);
+            }
           }
         }
       } catch {}
-    }
-  }, [searchParams]);
-
-  // Keep status dynamic when changed via URL searchParams (e.g. sidebar navigation)
-  useEffect(() => {
-    if (!searchParams) return;
-    const statusParam = searchParams.get('status');
-    if (statusParam !== null) {
-      const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
-      setStatusFilters(statuses);
+    } else {
+      // User cleared search params or clicked Deals Registry menu
+      setStatusFilters([]);
+      setExpiryFilters([]);
     }
   }, [searchParams]);
 
@@ -473,6 +498,7 @@ function DealsContent() {
           <div className="space-y-0.5 max-w-[210px]">
             <Link
               href={`/deals/${record.dealID}`}
+              onClick={saveViewState}
               onMouseEnter={() => prefetchDealDetail(record.dealID)}
               className="font-bold text-xs text-foreground hover:text-sky-600 transition truncate block hover:underline"
               title={record.custName}
@@ -495,8 +521,8 @@ function DealsContent() {
       width: 100,
       render: (_: any, record: DealHeaderRecord) => (
         <div className="space-y-1">
-          <div className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-neutral text-foreground border border-border">
-            {record.brand}
+          <div className="inline-block px-2 py-0.5 rounded-md text-xs font-bold uppercase bg-neutral text-foreground border border-border">
+            {normalizeBrandName(record.brand)}
           </div>
           <div>
             <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-300 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
@@ -509,17 +535,36 @@ function DealsContent() {
     {
       title: 'Assigned AO',
       key: 'ao',
-      width: 130,
-      render: (_: any, record: DealHeaderRecord) => (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-          <div className="h-6 w-6 rounded-full bg-neutral flex items-center justify-center text-muted dark:text-zinc-300 border border-border text-[10px] shrink-0">
-            <User className="w-3 h-3" />
+      width: 140,
+      render: (_: any, record: DealHeaderRecord) => {
+        const aoName = record.AssignedAO || record.assignedAO || 'Unassigned';
+        const avatarUrl = record.aoAvatar;
+        return (
+          <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={aoName}
+                referrerPolicy="no-referrer"
+                className="h-6 w-6 rounded-full object-cover border border-border shrink-0 shadow-2xs"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                  const fallback = e.currentTarget.nextElementSibling;
+                  if (fallback) (fallback as HTMLElement).classList.remove('hidden');
+                }}
+              />
+            ) : null}
+            <div
+              className={`h-6 w-6 rounded-full bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 ${avatarUrl ? 'hidden' : 'flex'}`}
+            >
+              {aoName !== 'Unassigned' ? aoName.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
+            </div>
+            <span className="truncate text-foreground dark:text-zinc-100" title={aoName}>
+              {aoName}
+            </span>
           </div>
-          <span className="truncate text-foreground dark:text-zinc-100" title={record.AssignedAO || record.assignedAO}>
-            {record.AssignedAO || record.assignedAO}
-          </span>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'Total Deal Value',
@@ -758,7 +803,7 @@ function DealsContent() {
           <div className="flex-1 min-w-0">
             <AppInput
               prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder="Search Project, Customer, Deal Reg ID, AO, Brand..."
+              placeholder=""
               value={searchQuery}
               onChange={(e: any) => setSearchQuery(e.target.value)}
               allowClear
@@ -767,7 +812,7 @@ function DealsContent() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Filter Popover (Multi-select BU, AO, Status, Expiry) */}
+            {/* Filter Popover (Multi-select BU, AO, Currency, Status, Expiry) */}
             <DealsFilterPopover
               buFilters={buFilters}
               onBuFiltersChange={setBuFilters}
@@ -775,6 +820,8 @@ function DealsContent() {
               onAoFiltersChange={setAoFilters}
               availableAOs={availableAOs}
               hideAOFilter={role === 'ao'}
+              currencyFilters={currencyFilters}
+              onCurrencyFiltersChange={setCurrencyFilters}
               expiryFilters={expiryFilters}
               onExpiryFiltersChange={setExpiryFilters}
               statusFilters={statusFilters}
@@ -795,7 +842,7 @@ function DealsContent() {
         </div>
 
         {/* Active Filter Indicator Chips (Visible only when filters are active) */}
-        {(buFilters.length > 0 || aoFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
+        {(buFilters.length > 0 || aoFilters.length > 0 || currencyFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40 text-xs">
             <span className="text-[11px] font-semibold text-muted mr-1">Active Filters:</span>
 
@@ -849,6 +896,24 @@ function DealsContent() {
               </span>
             ))}
 
+            {/* Currency Active Chips */}
+            {currencyFilters.map((curr) => (
+              <span
+                key={curr}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold"
+              >
+                Currency: {curr}
+                <button
+                  type="button"
+                  onClick={() => setCurrencyFilters(currencyFilters.filter((c) => c !== curr))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${curr} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
             {/* Status Active Chips */}
             {statusFilters.map((st) => (
               <span
@@ -891,6 +956,7 @@ function DealsContent() {
                 setSearchQuery('');
                 setBuFilters([]);
                 setAoFilters([]);
+                setCurrencyFilters([]);
                 setExpiryFilters([]);
                 setStatusFilters([]);
                 try {
@@ -899,72 +965,85 @@ function DealsContent() {
               }}
               className="text-[11px] font-semibold text-rose-500 hover:underline ml-1 cursor-pointer"
             >
-              Clear all filters
+              Clear all
             </button>
           </div>
         )}
       </AppCard>
 
-      {/* Upgraded Data Table with Shimmer Skeleton */}
+      {/* Upgraded Data Table with Smooth Table-Matched Skeleton */}
       <AppCard className="border border-border/50 rounded-xl overflow-hidden shadow-xs bg-card-bg">
         {loading && deals.length === 0 ? (
-          <div className="p-4 space-y-4">
-            {/* Header skeleton */}
-            <div className="flex items-center justify-between pb-3 border-b border-border/50">
-              <div className="shimmer-skeleton h-4 w-32 rounded" />
-              <div className="shimmer-skeleton h-4 w-24 rounded" />
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[1000px]">
+              <thead>
+                <tr className="border-b border-border/60 bg-neutral/40 dark:bg-zinc-800/30 text-xs font-bold text-muted">
+                  <th className="py-3 px-4 w-[160px]">Registration & Validity</th>
+                  <th className="py-3 px-4">Customer & Project</th>
+                  <th className="py-3 px-3 w-[100px]">Brand & BU</th>
+                  <th className="py-3 px-3 w-[140px]">Assigned AO</th>
+                  <th className="py-3 px-3 w-[120px] text-right">Total Deal Value</th>
+                  <th className="py-3 px-3 w-[130px]">SLA & Status</th>
+                  <th className="py-3 px-3 w-[48px] text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                  <tr key={i} className="h-16">
+                    {/* Validity Column */}
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-1.5">
+                        <div className="shimmer-skeleton h-3.5 w-24 rounded" />
+                        <div className="shimmer-skeleton h-3 w-16 rounded" />
+                      </div>
+                    </td>
 
-            {/* Rows skeleton */}
-            <div className="divide-y divide-border/50">
-              {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="py-4 flex items-center justify-between gap-4">
-                  {/* Validity Column */}
-                  <div className="space-y-2 w-32 shrink-0">
-                    <div className="shimmer-skeleton h-3.5 w-24 rounded" />
-                    <div className="shimmer-skeleton h-3 w-20 rounded" />
-                  </div>
+                    {/* Customer & Project Column */}
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-1.5 max-w-sm">
+                        <div className="shimmer-skeleton h-4 rounded" style={{ width: `${140 + (i % 4) * 35}px` }} />
+                        <div className="shimmer-skeleton h-3 w-full rounded" />
+                        <div className="shimmer-skeleton h-2.5 w-24 rounded" />
+                      </div>
+                    </td>
 
-                  {/* Customer & Project Column */}
-                  <div className="space-y-2 flex-1 max-w-sm">
-                    <div className="shimmer-skeleton h-4 rounded" style={{ width: `${160 + (i % 4) * 40}px` }} />
-                    <div className="shimmer-skeleton h-3 w-full rounded" />
-                    <div className="shimmer-skeleton h-2.5 w-28 rounded" />
-                  </div>
+                    {/* Brand & BU Column */}
+                    <td className="py-3.5 px-3">
+                      <div className="space-y-1">
+                        <div className="shimmer-skeleton h-5 w-14 rounded-md" />
+                        <div className="shimmer-skeleton h-4 w-10 rounded" />
+                      </div>
+                    </td>
 
-                  {/* Brand & BU Column */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="shimmer-skeleton h-5 w-14 rounded" />
-                    <div className="shimmer-skeleton h-5 w-10 rounded" />
-                  </div>
+                    {/* Assigned AO Column */}
+                    <td className="py-3.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="shimmer-skeleton h-6 w-6 rounded-full shrink-0" />
+                        <div className="shimmer-skeleton h-3.5 w-20 rounded" />
+                      </div>
+                    </td>
 
-                  {/* Assigned AO Column */}
-                  <div className="flex items-center gap-2 w-36 shrink-0">
-                    <div className="shimmer-skeleton h-6 w-6 rounded-full shrink-0" />
-                    <div className="shimmer-skeleton h-3.5 w-24 rounded" />
-                  </div>
+                    {/* Amount Column */}
+                    <td className="py-3.5 px-3 text-right">
+                      <div className="shimmer-skeleton h-4 w-20 rounded ml-auto" />
+                    </td>
 
-                  {/* Amount Column */}
-                  <div className="w-28 shrink-0 text-right space-y-1">
-                    <div className="shimmer-skeleton h-4 w-24 rounded ml-auto" />
-                  </div>
+                    {/* Status Column */}
+                    <td className="py-3.5 px-3">
+                      <div className="shimmer-skeleton h-6 w-20 rounded-full" />
+                    </td>
 
-                  {/* Status Column */}
-                  <div className="w-24 shrink-0">
-                    <div className="shimmer-skeleton h-6 w-20 rounded-full" />
-                  </div>
-
-                  {/* Actions Column */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="shimmer-skeleton h-7 w-12 rounded-lg" />
-                    <div className="shimmer-skeleton h-7 w-12 rounded-lg" />
-                  </div>
-                </div>
-              ))}
-            </div>
+                    {/* Actions Column */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="shimmer-skeleton h-8 w-8 rounded-lg mx-auto" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
-          <div className="space-y-0">
+          <div className={`space-y-0 relative transition-opacity duration-150 ${isFetching ? 'opacity-85' : 'opacity-100'}`}>
             <AppTable
               columns={columns}
               dataSource={paginatedDeals}

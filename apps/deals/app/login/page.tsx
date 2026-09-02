@@ -12,8 +12,10 @@ import {
   Fingerprint,
   X,
   Info,
+  CheckCircle2,
 } from 'lucide-react';
 import { Inter, Outfit } from 'next/font/google';
+import { cn } from '@/components/utils/cn';
 
 const inter = Inter({ subsets: ['latin'] });
 const outfit = Outfit({ subsets: ['latin'] });
@@ -31,7 +33,7 @@ const AUTH_ERROR_MESSAGES: Record<string, AuthErrorInfo> = {
   AccessDenied: {
     title: 'Access Restricted / Unauthorized Role',
     description:
-      'Access restricted: Only Account Officers (AO), BU Heads, and Administrators are authorized to access the Deals Portal. If your account is unregistered or inactive, please contact IT Support.',
+      'Access restricted: Only Account Officers (AO), BU Heads, Product Managers (PM), Admin Assistants (AA), and Administrators are authorized to access the Deals Portal. If your account is unregistered or inactive, please contact IT Support.',
   },
   OAuthAccountNotLinked: {
     title: 'Account Already Linked',
@@ -80,332 +82,236 @@ function resolveAuthError(code: string | null): AuthErrorInfo | null {
 }
 
 // ---------------------------------------------------------------------------
-// Playful geometric hero characters (Right gradient panel)
-// Pupils track the cursor; characters float and blink for ambient life.
+// Proport Interactive Characters (Right gradient panel)
+// Pure HTML/CSS characters with pupil tracking, blinking, click physics, and scaling.
 // ---------------------------------------------------------------------------
 
-interface SvgPoint {
-  x: number;
-  y: number;
-}
-
-const HERO_VIEWBOX = { width: 560, height: 600 };
-const MOBILE_HERO_VIEWBOX = { width: 380, height: 130 };
-
-function useSvgCursor(
-  svgRef: React.RefObject<SVGSVGElement | null>,
-  viewBox: { width: number; height: number } = HERO_VIEWBOX
-): SvgPoint {
-  const [cursor, setCursor] = useState<SvgPoint>({ x: viewBox.width / 2, y: viewBox.height / 3 });
+function Eye({
+  className,
+  pupilClassName,
+  maxOffset = 9,
+  blinkDelay,
+  disableBlink = false,
+  isSad = false,
+}: {
+  className?: string;
+  pupilClassName?: string;
+  maxOffset?: number;
+  blinkDelay?: string;
+  disableBlink?: boolean;
+  isSad?: boolean;
+}) {
+  const eyeRef = useRef<HTMLDivElement>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    let frame = 0;
-
-    const update = (clientX: number, clientY: number) => {
-      const svg = svgRef.current;
-      if (!svg) return;
-      const rect = svg.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      setCursor({
-        x: ((clientX - rect.left) / rect.width) * viewBox.width,
-        y: ((clientY - rect.top) / rect.height) * viewBox.height,
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!eyeRef.current) return;
+      const rect = eyeRef.current.getBoundingClientRect();
+      const eyeCenterX = rect.left + rect.width / 2;
+      const eyeCenterY = rect.top + rect.height / 2;
+      const angle = Math.atan2(e.clientY - eyeCenterY, e.clientX - eyeCenterX);
+      const dist = Math.hypot(e.clientX - eyeCenterX, e.clientY - eyeCenterY);
+      const moveDist = Math.min(maxOffset, dist / 15);
+      setOffset({
+        x: Math.cos(angle) * moveDist,
+        y: isSad ? maxOffset * 0.7 : Math.sin(angle) * moveDist,
       });
     };
 
-    const handleMove = (e: MouseEvent) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => update(e.clientX, e.clientY));
-    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [maxOffset, isSad]);
 
-    const handleTouch = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(() => update(e.touches[0].clientX, e.touches[0].clientY));
-      }
-    };
-
-    window.addEventListener('mousemove', handleMove, { passive: true });
-    window.addEventListener('pointermove', handleMove, { passive: true });
-    window.addEventListener('touchmove', handleTouch, { passive: true });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('touchmove', handleTouch);
-    };
-  }, [svgRef, viewBox.width, viewBox.height]);
-
-  return cursor;
+  return (
+    <div
+      ref={eyeRef}
+      className={cn(
+        "w-14 h-14 rounded-full bg-white border-2 border-[#1e1b18] flex items-center justify-center relative overflow-hidden shrink-0 shadow-sm",
+        !disableBlink && "eye-blink",
+        className
+      )}
+      style={{
+        ...(blinkDelay ? { animationDelay: blinkDelay } : {})
+      }}
+    >
+      <div
+        className={cn("w-6 h-6 rounded-full bg-[#1e1b18] absolute", pupilClassName)}
+        style={{
+          transform: `translate(${offset.x}px, ${offset.y}px)`,
+          transition: 'transform 0.05s ease-out',
+        }}
+      />
+    </div>
+  );
 }
 
-// Sequential blink controller: Blue (0) -> Black (1) -> Yellow (2) -> Orange (3)
-function useSequentialBlink() {
-  const [blinkState, setBlinkState] = useState<{ [key: number]: boolean }>({
-    0: false, // Blue
-    1: false, // Black
-    2: false, // Yellow
-    3: false, // Orange
-  });
+type ClickedChar = 'blue' | 'black' | 'orange' | 'yellow' | null;
+
+function GaryHeroMascot({
+  isCelebrating = false,
+  isSad = false,
+  isMinimized = false,
+}: {
+  isCelebrating?: boolean;
+  isSad?: boolean;
+  isMinimized?: boolean;
+}) {
+  const sadVideoRef = useRef<HTMLVideoElement>(null);
+  const welcomeVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    let currentChar = 0;
-    const interval = setInterval(() => {
-      const target = currentChar;
-      setBlinkState((prev) => ({ ...prev, [target]: true }));
+    if (isCelebrating) {
+      welcomeVideoRef.current?.pause();
+      sadVideoRef.current?.pause();
+      return;
+    }
+    if (isSad) {
+      welcomeVideoRef.current?.pause();
+      if (sadVideoRef.current) {
+        sadVideoRef.current.currentTime = 0;
+        sadVideoRef.current.play().catch(() => {});
+      }
+    } else {
+      sadVideoRef.current?.pause();
+      welcomeVideoRef.current?.play().catch(() => {});
+    }
+  }, [isCelebrating, isSad]);
 
-      // Natural gentle blink closure for 200ms
-      setTimeout(() => {
-        setBlinkState((prev) => ({ ...prev, [target]: false }));
-      }, 200);
-
-      // Cycle gently: 0 -> 1 -> 2 -> 3 -> 0
-      currentChar = (currentChar + 1) % 4;
-    }, 2200);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  return blinkState;
-}
-
-function Eye({
-  cx,
-  cy,
-  r,
-  cursor,
-  isBlinking = false,
-  isSad = false,
-}: {
-  cx: number;
-  cy: number;
-  r: number;
-  cursor: SvgPoint;
-  isBlinking?: boolean;
-  isSad?: boolean;
-}) {
-  const vx = cursor.x - cx;
-  const vy = cursor.y - cy;
-  const dist = Math.hypot(vx, vy) || 1;
-  const maxOffset = r * 0.52;
-  const offset = Math.min(maxOffset, Math.max(5, dist * 0.25));
-  const dx = isSad ? 0 : (vx / dist) * offset;
-  const dy = isSad ? r * 0.38 : (vy / dist) * offset;
-
-  const ry = isBlinking ? Math.max(1.5, r * 0.08) : r;
-  const pupilRy = isBlinking ? Math.max(1, r * 0.45 * 0.08) : r * 0.45;
+  if (isCelebrating) {
+    return (
+      <div key="hero-celebrating" className="relative w-full flex items-end justify-center select-none animate-in fade-in zoom-in-95 duration-300">
+        <img
+          src="/api/icons/Success_Message.png"
+          alt="Login Success"
+          className={cn(
+            "w-auto max-w-full object-contain drop-shadow-2xl translate-y-0 transition-all duration-500",
+            isMinimized
+              ? "h-[380px] lg:h-[440px] xl:h-[500px] pb-3 lg:pb-4"
+              : "h-[380px] lg:h-[430px] xl:h-[480px] pb-3"
+          )}
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = '/icons/Success_Message.png';
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
-    <g>
-      {/* Sclera (White Eye) */}
-      <ellipse
-        cx={cx}
-        cy={cy}
-        rx={r}
-        ry={ry}
-        fill="#ffffff"
-        style={{
-          transition: 'ry 100ms ease-in-out',
-        }}
-      />
-      {/* Pupil (Black) */}
-      <ellipse
-        cx={cx + dx}
-        cy={cy + (isBlinking ? 0 : dy)}
-        rx={r * 0.45}
-        ry={pupilRy}
-        fill="#141414"
-        style={{
-          transition: 'all 200ms ease-in-out',
-        }}
-      />
-    </g>
+    <div className="relative w-full flex items-end justify-center select-none">
+      {/* Welcome Peeking Animation - Preloaded & Active by default */}
+      <video
+        ref={welcomeVideoRef}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        className={`h-[580px] lg:h-[660px] xl:h-[740px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-14 lg:translate-y-16 transition-opacity duration-200 ease-in-out ${
+          isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+      >
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
+        <source src="/icons/Welcome.webm" type="video/webm" />
+        <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
+      </video>
+
+      {/* Failed Login Sad Animation - Preloaded in memory for 0ms instant display */}
+      <video
+        ref={sadVideoRef}
+        loop
+        muted
+        playsInline
+        preload="auto"
+        className={`absolute bottom-0 h-[580px] lg:h-[660px] xl:h-[740px] w-auto max-w-none object-contain drop-shadow-2xl translate-y-14 lg:translate-y-16 transition-opacity duration-200 ease-in-out ${
+          isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
+        <source src="/icons/Failed_Login.webm" type="video/webm" />
+      </video>
+    </div>
   );
 }
 
-function HeroShapes({
+function MobileGaryHeroMascot({
   isCelebrating = false,
   isSad = false,
 }: {
   isCelebrating?: boolean;
   isSad?: boolean;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const cursor = useSvgCursor(svgRef);
-  const blinkState = useSequentialBlink();
+  const mobileSadRef = useRef<HTMLVideoElement>(null);
+  const mobileWelcomeRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (isCelebrating) {
+      mobileWelcomeRef.current?.pause();
+      mobileSadRef.current?.pause();
+      return;
+    }
+    if (isSad) {
+      mobileWelcomeRef.current?.pause();
+      if (mobileSadRef.current) {
+        mobileSadRef.current.currentTime = 0;
+        mobileSadRef.current.play().catch(() => {});
+      }
+    } else {
+      mobileSadRef.current?.pause();
+      mobileWelcomeRef.current?.play().catch(() => {});
+    }
+  }, [isCelebrating, isSad]);
+
+  if (isCelebrating) {
+    return (
+      <div key="mobile-hero-celebrating" className="relative w-full h-full flex items-end justify-center select-none pb-1 animate-in fade-in zoom-in-95 duration-300">
+        <img
+          src="/api/icons/Success_Message.png"
+          alt="Login Success"
+          className="max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = '/icons/Success_Message.png';
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox="0 0 560 600"
-      aria-hidden="true"
-      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[560px] max-w-[92%] drop-shadow-xl"
-    >
-      {/* 1. Tall indigo character (Blue) */}
-      <g className={isCelebrating ? 'hero-celebrate-0' : isSad ? 'hero-sad-slump' : 'hero-float-slow'}>
-        <rect x="150" y="20" width="175" height="590" fill="#4743dd" />
-        <Eye cx={205} cy={125} r={30} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
-        <Eye cx={292} cy={122} r={30} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh">
-            <path d="M 226 190 Q 253 234 280 190 Z" fill="#141414" />
-            <path d="M 236 215 Q 253 205 270 215 Q 253 228 236 215 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <>
-            <path d="M 222 212 Q 253 178 284 212" stroke="#141414" strokeWidth="6.5" fill="none" strokeLinecap="round" />
-            {/* Sad teardrop */}
-            <path d="M 205 160 C 205 160 199 172 199 177 C 199 181 202 184 205 184 C 208 184 211 181 211 177 C 211 172 205 160 205 160 Z" fill="#60a5fa" />
-          </>
-        ) : (
-          <rect x="230" y="195" width="46" height="7" rx="3.5" fill="#141414" />
-        )}
-      </g>
-      {/* 2. Black character */}
-      <g className={isCelebrating ? 'hero-celebrate-1' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}>
-        <rect x="310" y="105" width="105" height="505" fill="#191919" />
-        <Eye cx={340} cy={180} r={26} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
-        <Eye cx={392} cy={180} r={26} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.12s' }}>
-            <path d="M 346 220 Q 366 256 386 220 Z" fill="#ffffff" />
-            <path d="M 354 240 Q 366 232 378 240 Q 366 250 354 240 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 344 246 Q 366 220 388 246" stroke="#ffffff" strokeWidth="4.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <rect x="352" y="226" width="28" height="5" rx="2.5" fill="#333333" />
-        )}
-      </g>
-      {/* 3. Yellow pill character */}
-      <g className={isCelebrating ? 'hero-celebrate-2' : isSad ? 'hero-sad-slump' : 'hero-float-fast'}>
-        <rect x="405" y="230" width="135" height="380" rx="67" fill="#f4c400" />
-        <Eye cx={472} cy={300} r={27} cursor={cursor} isBlinking={!isCelebrating && blinkState[2]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.24s' }}>
-            <path d="M 444 347 Q 473 393 502 347 Z" fill="#141414" />
-            <path d="M 456 375 Q 473 363 490 375 Q 473 388 456 375 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 440 376 Q 473 340 506 376" stroke="#141414" strokeWidth="6.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <rect x="444" y="357" width="58" height="7" rx="3.5" fill="#141414" />
-        )}
-      </g>
-      {/* 4. Orange dome character (front) */}
-      <g
-        className={isCelebrating ? 'hero-celebrate-3' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}
-        style={!isCelebrating && !isSad ? { animationDelay: '-2.5s' } : undefined}
+    <div className="relative w-full h-full flex items-end justify-center select-none pb-1">
+      {/* Mobile Welcome Animation */}
+      <video
+        ref={mobileWelcomeRef}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        className={`max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-200 ease-in-out ${
+          isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
       >
-        <ellipse cx="235" cy="600" rx="175" ry="165" fill="#ef6b17" />
-        <Eye cx={180} cy={488} r={28} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
-        <Eye cx={290} cy={488} r={28} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.18s' }}>
-            <path d="M 198 528 Q 235 578 272 528 Z" fill="#141414" />
-            <path d="M 212 558 Q 235 544 258 558 Q 235 572 212 558 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 196 550 Q 235 512 274 550" stroke="#141414" strokeWidth="7.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <path d="M 205 532 A 30 30 0 0 0 265 532 Z" fill="#141414" />
-        )}
-      </g>
-    </svg>
-  );
-}
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
+        <source src="/icons/Welcome.webm" type="video/webm" />
+        <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
+      </video>
 
-function MobileHeroShapes({
-  isCelebrating = false,
-  isSad = false,
-}: {
-  isCelebrating?: boolean;
-  isSad?: boolean;
-}) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const cursor = useSvgCursor(svgRef, MOBILE_HERO_VIEWBOX);
-  const blinkState = useSequentialBlink();
-
-  return (
-    <svg
-      ref={svgRef}
-      viewBox="0 0 380 130"
-      aria-hidden="true"
-      className="w-full h-full max-h-[145px] drop-shadow-md select-none block mx-auto overflow-hidden"
-    >
-      {/* 1. Tall indigo character (Blue) - Far Left */}
-      <g className={isCelebrating ? 'hero-celebrate-0' : isSad ? 'hero-sad-slump' : 'hero-float-slow'}>
-        <rect x="18" y="16" width="76" height="160" rx="18" fill="#4743dd" />
-        <Eye cx={42} cy={48} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
-        <Eye cx={70} cy={48} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[0]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh">
-            <path d="M 44 72 Q 56 90 68 72 Z" fill="#141414" />
-            <path d="M 48 80 Q 56 75 64 80 Q 56 86 48 80 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <>
-            <path d="M 44 82 Q 56 68 68 82" stroke="#141414" strokeWidth="4" fill="none" strokeLinecap="round" />
-            <path d="M 42 58 C 42 58 39 65 39 68 C 39 70 41 72 42 72 C 44 72 46 70 46 68 C 46 65 42 58 42 58 Z" fill="#60a5fa" />
-          </>
-        ) : (
-          <rect x="44" y="76" width="24" height="4" rx="2" fill="#141414" />
-        )}
-      </g>
-
-      {/* 2. Black character - Center Left */}
-      <g className={isCelebrating ? 'hero-celebrate-1' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}>
-        <rect x="108" y="22" width="72" height="160" rx="16" fill="#191919" />
-        <Eye cx={128} cy={54} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
-        <Eye cx={160} cy={54} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[1]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.12s' }}>
-            <path d="M 132 78 Q 144 94 156 78 Z" fill="#ffffff" />
-            <path d="M 136 85 Q 144 81 152 85 Q 144 91 136 85 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 132 86 Q 144 74 156 86" stroke="#ffffff" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <rect x="132" y="80" width="24" height="4" rx="2" fill="#404040" />
-        )}
-      </g>
-
-      {/* 3. Orange dome character - Center Right */}
-      <g
-        className={isCelebrating ? 'hero-celebrate-3' : isSad ? 'hero-sad-slump' : 'hero-float-medium'}
-        style={!isCelebrating && !isSad ? { animationDelay: '-2.5s' } : undefined}
+      {/* Mobile Failed Login Animation */}
+      <video
+        ref={mobileSadRef}
+        loop
+        muted
+        playsInline
+        preload="auto"
+        className={`absolute bottom-1 max-h-[160px] w-auto object-contain rounded-xl drop-shadow-lg transition-opacity duration-200 ease-in-out ${
+          isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
       >
-        <ellipse cx="232" cy="130" rx="46" ry="66" fill="#ef6b17" />
-        <Eye cx={214} cy={90} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
-        <Eye cx={250} cy={90} r={13.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[3]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.18s' }}>
-            <path d="M 220 106 Q 232 124 244 106 Z" fill="#141414" />
-            <path d="M 224 114 Q 232 110 240 114 Q 232 120 224 114 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 220 116 Q 232 104 244 116" stroke="#141414" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <path d="M 220 106 Q 232 118 244 106 Z" fill="#141414" />
-        )}
-      </g>
-
-      {/* 4. Yellow pill character - Far Right */}
-      <g className={isCelebrating ? 'hero-celebrate-2' : isSad ? 'hero-sad-slump' : 'hero-float-fast'}>
-        <rect x="290" y="18" width="74" height="160" rx="37" fill="#f4c400" />
-        <Eye cx={327} cy={52} r={14.5} cursor={cursor} isBlinking={!isCelebrating && blinkState[2]} isSad={isSad} />
-        {isCelebrating ? (
-          <g className="hero-mouth-laugh" style={{ animationDelay: '0.24s' }}>
-            <path d="M 314 76 Q 327 94 340 76 Z" fill="#141414" />
-            <path d="M 318 84 Q 327 79 336 84 Q 327 90 318 84 Z" fill="#ff6b8b" />
-          </g>
-        ) : isSad ? (
-          <path d="M 314 86 Q 327 73 340 86" stroke="#141414" strokeWidth="4" fill="none" strokeLinecap="round" />
-        ) : (
-          <rect x="314" y="80" width="26" height="4" rx="2" fill="#141414" />
-        )}
-      </g>
-    </svg>
+        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
+        <source src="/icons/Failed_Login.webm" type="video/webm" />
+      </video>
+    </div>
   );
 }
 
@@ -428,6 +334,17 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<AuthErrorInfo | null>(null);
+  const [cachedCsrfToken, setCachedCsrfToken] = useState<string | null>(null);
+
+  // Pre-fetch NextAuth CSRF token on mount for 0ms popup opening
+  useEffect(() => {
+    fetch('/api/auth/csrf')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.csrfToken) setCachedCsrfToken(data.csrfToken);
+      })
+      .catch(() => {});
+  }, []);
 
   const visibleAuthError = localAuthError || (!isErrorDismissed ? authError : null);
 
@@ -489,9 +406,13 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
     }
 
     try {
-      // 1. Fetch CSRF token from NextAuth
-      const csrfRes = await fetch('/api/auth/csrf');
-      const { csrfToken } = await csrfRes.json();
+      // 1. Fetch CSRF token from NextAuth (instant from cache or parallel fallback)
+      let csrfToken = cachedCsrfToken;
+      if (!csrfToken) {
+        const csrfRes = await fetch('/api/auth/csrf');
+        const csrfData = await csrfRes.json();
+        csrfToken = csrfData?.csrfToken;
+      }
 
       // 2. Obtain Google authorization URL directly
       const signinRes = await fetch('/api/auth/signin/google', {
@@ -500,7 +421,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          csrfToken,
+          csrfToken: csrfToken || '',
           callbackUrl: `${window.location.origin}/login?popup=1`,
           json: 'true',
         }),
@@ -514,10 +435,34 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
         throw new Error('Failed to obtain Google authorization URL');
       }
 
+      // Check if user already closed the popup before Google URL was retrieved
+      if (popup && popup.closed) {
+        setIsSigningIn(false);
+        onMoodChange('sad');
+        setLocalAuthError({
+          title: 'Login Cancelled / Unauthorized Account',
+          description:
+            'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+        });
+        return;
+      }
+
       if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-        popup.focus();
-      } else {
+        try {
+          popup.location.href = authUrl;
+          popup.focus();
+        } catch {
+          setIsSigningIn(false);
+          onMoodChange('sad');
+          setLocalAuthError({
+            title: 'Login Cancelled / Unauthorized Account',
+            description:
+              'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+          });
+          return;
+        }
+      } else if (!popup) {
+        // Popup was completely blocked by browser popup blocker
         window.location.href = authUrl;
         return;
       }
@@ -529,17 +474,21 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
         if (bc) {
           try {
             bc.close();
-          } catch {}
+          } catch { }
         }
         window.removeEventListener('message', handleMessage);
         window.removeEventListener('storage', handleStorage);
         clearInterval(pollTimer);
+        clearInterval(sessionPollTimer);
+        clearTimeout(timeoutTimer);
       };
 
       const handleAuthResult = (data: { type: string; error?: string }) => {
         if (isFinished) return;
         cleanupListeners();
-        if (popup && !popup.closed) popup.close();
+        if (popup && !popup.closed) {
+          try { popup.close(); } catch { }
+        }
 
         if (data.type === 'OAUTH_SUCCESS') {
           setIsSigningIn(false);
@@ -561,7 +510,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
             handleAuthResult(event.data);
           }
         };
-      } catch {}
+      } catch { }
 
       // 2. LocalStorage storage event listener (Fallback)
       const handleStorage = (event: StorageEvent) => {
@@ -571,7 +520,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
             if (parsed?.msg) {
               handleAuthResult(parsed.msg);
             }
-          } catch {}
+          } catch { }
         }
       };
       window.addEventListener('storage', handleStorage);
@@ -585,28 +534,75 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
       };
       window.addEventListener('message', handleMessage);
 
-      // 4. Poll in case popup is closed manually by user
-      const pollTimer = setInterval(async () => {
-        if (popup.closed && !isFinished) {
-          cleanupListeners();
+      // 4. Active Session Polling Fallback: Detects when NextAuth cookie/session is set on server
+      let isCheckingSession = false;
+      const sessionPollTimer = setInterval(async () => {
+        if (isFinished || isCheckingSession) return;
+        isCheckingSession = true;
+        try {
           const session = await getSession();
           if (session?.user) {
-            setIsSigningIn(false);
-            onAuthSuccess();
-          } else {
-            setIsSigningIn(false);
-            onMoodChange('sad');
-            setLocalAuthError({
-              title: 'Access Restricted / Sign-In Cancelled',
-              description:
-                'The sign-in window was closed or access was blocked. Deals Portal is restricted to authorized @ics.com.ph accounts only. If your account is unregistered or you need access, please contact IT Support.',
-            });
+            handleAuthResult({ type: 'OAUTH_SUCCESS' });
           }
+        } catch { } finally {
+          isCheckingSession = false;
         }
-      }, 500);
+      }, 1000);
+
+      // 5. Poll in case popup is closed manually by user or closed after OAuth error
+      const pollTimer = setInterval(() => {
+        if (isFinished) return;
+        let isClosed = false;
+        try {
+          isClosed = Boolean(popup?.closed);
+        } catch {
+          // Cross-origin restriction
+        }
+        if (isClosed) {
+          cleanupListeners();
+          setIsSigningIn(false);
+          onMoodChange('sad');
+          setLocalAuthError({
+            title: 'Login Cancelled / Unauthorized Account',
+            description:
+              'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+          });
+          // Background non-blocking check in case session was set just before closing
+          getSession().then((session) => {
+            if (session?.user) {
+              setIsSigningIn(false);
+              onAuthSuccess();
+            }
+          }).catch(() => {});
+        }
+      }, 60);
+
+      // 6. Timeout Safety Net: Prevents infinite hanging spinner if network stalls
+      const timeoutTimer = setTimeout(async () => {
+        if (isFinished) return;
+        try {
+          const session = await getSession();
+          if (session?.user) {
+            handleAuthResult({ type: 'OAUTH_SUCCESS' });
+            return;
+          }
+        } catch { }
+        cleanupListeners();
+        if (popup && !popup.closed) {
+          try { popup.close(); } catch { }
+        }
+        setIsSigningIn(false);
+        onMoodChange('sad');
+        setLocalAuthError({
+          title: 'Sign-In Timed Out',
+          description: 'Authentication took longer than expected. Please click Sign in with Google to try again.',
+        });
+      }, 60000);
     } catch (err) {
       console.error('Sign-in error:', err);
-      if (popup && !popup.closed) popup.close();
+      if (popup && !popup.closed) {
+        try { popup.close(); } catch { }
+      }
       setIsSigningIn(false);
       onMoodChange('sad');
       setLocalAuthError({
@@ -617,14 +613,14 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
   };
 
   return (
-    <div className="flex flex-col w-full px-6 sm:px-12">
-      <div className="w-full max-w-sm mx-auto text-left login-scale-in">
+    <div className="flex flex-col w-full px-4 sm:px-6">
+      <div className="w-full max-w-[420px] mx-auto text-center login-scale-in">
         {/* Header */}
-        <div className="text-center sm:text-left mb-5">
-          <h1 className={`${outfit.className} text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight`}>
+        <div className="text-center mb-6">
+          <h1 className={`${outfit.className} text-[32px] sm:text-[34px] font-bold text-[#1e1b18] tracking-tight mb-2.5`}>
             Welcome back
           </h1>
-          <p className={`${inter.className} mt-1 text-xs text-zinc-500`}>
+          <p className={`${inter.className} text-sm md:text-base text-[#1e1b18]/65 font-medium`}>
             Sign in to manage deal registrations &amp; pipelines
           </p>
         </div>
@@ -659,11 +655,11 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
         )}
 
         {/* Login Action: Direct Google Sign In Button */}
-        <div className="space-y-4">
+        <div className="w-full flex flex-col items-center justify-center gap-4">
           <button
             onClick={handleGoogleSignIn}
             disabled={isBusy || isSigningIn}
-            className="group relative flex items-center justify-center w-full px-4 py-3.5 bg-white hover:bg-zinc-50/80 active:bg-zinc-100 text-zinc-700 hover:text-zinc-900 border border-zinc-300 hover:border-zinc-400 rounded-2xl font-medium text-sm transition-all duration-150 shadow-xs hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="group relative flex items-center justify-center w-full max-w-[380px] px-4 py-3.5 bg-white hover:bg-zinc-50/80 active:bg-zinc-100 text-zinc-700 hover:text-zinc-900 border border-zinc-300 hover:border-zinc-400 rounded-2xl font-medium text-sm transition-all duration-150 shadow-xs hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             <div className="absolute left-4 flex items-center justify-center">
               {isSigningIn ? (
@@ -694,7 +690,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy }: LoginFormProps) {
             </span>
           </button>
 
-          <p className="text-center text-[11px] text-zinc-400">
+          <p className="text-center text-[12px] text-zinc-400 font-medium">
             Sign in with your verified <span className="font-medium text-zinc-600">@ics.com.ph</span> corporate account
           </p>
         </div>
@@ -737,26 +733,41 @@ function LoginContent() {
         try {
           const bc = new BroadcastChannel('deals_google_auth');
           bc.postMessage(msg);
-          bc.close();
-        } catch {}
+          setTimeout(() => {
+            try {
+              bc.postMessage(msg);
+              bc.close();
+            } catch { }
+          }, 100);
+        } catch { }
 
         // 2. localStorage fallback
         try {
           localStorage.setItem('deals_oauth_result', JSON.stringify({ msg, t: Date.now() }));
-        } catch {}
+        } catch { }
 
         // 3. postMessage fallback
         try {
           if (window.opener && window.opener !== window) {
             window.opener.postMessage(msg, window.location.origin);
+            window.opener.postMessage(msg, '*');
           }
-        } catch {}
+        } catch { }
 
-        // Immediately close popup window
-        window.close();
-        setTimeout(() => {
+        // Attempt closing popup with graceful retries
+        try {
           window.close();
-        }, 50);
+        } catch { }
+        setTimeout(() => {
+          try {
+            window.close();
+          } catch { }
+        }, 150);
+        setTimeout(() => {
+          try {
+            window.close();
+          } catch { }
+        }, 500);
       }
     }
   }, [searchParams]);
@@ -769,97 +780,141 @@ function LoginContent() {
     router.prefetch('/deals/new');
   }, [router]);
 
-  // Trigger celebration animation and instant redirect to dashboard on successful authentication
-  const handleAuthSuccess = useCallback(() => {
-    setAnimationStep('celebrating');
+  const [hasLoggedIn, setHasLoggedIn] = useState(false);
 
-    // 1. Prefetch Next.js route chunks immediately
+  // Preload celebration and loading assets on login page mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const img = new Image();
+      img.src = '/api/icons/Success_Message.png';
+
+      const v = document.createElement('video');
+      v.preload = 'auto';
+      v.src = '/api/icons/Loading.webm';
+      v.load();
+    }
+  }, []);
+
+  // Trigger celebration animation and smooth loading screen handoff to dashboard
+  const handleAuthSuccess = useCallback(() => {
+    // 1. Immediately trigger layout animation: purple panel minimizes, left shows Loading.webm
+    setHasLoggedIn(true);
+    setAnimationStep('loading');
+    setLoadingStatus('Entering Deals Portal...');
+
+    // 2. Prefetch Next.js route chunks immediately
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
     router.prefetch('/deals/new');
 
-    // 2. Non-blocking background prefetch for TanStack query cache (fire-and-forget)
-    getSession().then((session) => {
-      const role = (session?.user as any)?.role || 'admin';
-      const accountName = (session?.user as any)?.AccountName || session?.user?.name;
-      const accountGroup = (session?.user as any)?.AccountGroup;
+    // 3. Start prewarming session and data non-blockingly in background
+    (async () => {
+      try {
+        const session = await getSession();
+        const role = (session?.user as any)?.role || 'admin';
+        const accountName = (session?.user as any)?.AccountName || session?.user?.name;
+        const accountGroup = (session?.user as any)?.AccountGroup;
 
-      const scopedFilter = {
-        userRole: role,
-        accountName: accountName || undefined,
-        accountGroup: accountGroup || undefined,
-      };
+        const scopedFilter = {
+          userRole: role,
+          accountName: accountName || undefined,
+          accountGroup: accountGroup || undefined,
+        };
 
-      queryClient.prefetchQuery({
-        queryKey: DEAL_QUERY_KEYS.dashboard(),
-        queryFn: async () => {
-          const res = await getDashboardSummary();
-          return res.data || null;
-        },
-        staleTime: 1000 * 60 * 5,
-      }).catch(() => {});
+        queryClient.prefetchQuery({
+          queryKey: DEAL_QUERY_KEYS.dashboard(),
+          queryFn: async () => {
+            const res = await getDashboardSummary();
+            return res.data || null;
+          },
+          staleTime: 1000 * 60 * 5,
+        });
+        queryClient.prefetchQuery({
+          queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
+          queryFn: async () => {
+            const res = await getScopedDeals(scopedFilter);
+            return res.data || [];
+          },
+          staleTime: 1000 * 60 * 5,
+        });
+      } catch (err) {
+        console.warn('[Login Prewarm] Notice:', err);
+      }
+    })();
 
-      queryClient.prefetchQuery({
-        queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
-        queryFn: async () => {
-          const res = await getScopedDeals(scopedFilter);
-          return res.data || [];
-        },
-        staleTime: 1000 * 60 * 5,
-      }).catch(() => {});
-    }).catch(() => {});
-
-    // 3. Fast, responsive handoff directly to dashboard (snappy 600ms celebration)
+    // 4. Transition to Dashboard after the smooth side-by-side animation completes
     setTimeout(() => {
       router.replace('/dashboard');
-    }, 600);
+    }, 1100);
   }, [router, queryClient]);
 
-  const isExpanded = animationStep === 'expanding' || animationStep === 'loading';
-  const isCelebrating = animationStep === 'celebrating';
+  const isExpanded = animationStep === 'loading';
+  const isCelebrating = hasLoggedIn || animationStep === 'celebrating' || animationStep === 'loading';
   const isSad = characterMood === 'sad' && !isCelebrating;
   const isLoading = animationStep === 'loading';
 
-  // If this window is the popup, render nothing (it will close instantly)
+  // If this window is the popup, display completion state & manual close button if browser blocks window.close()
   if (isInsidePopup) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white p-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <p className="text-xs font-semibold text-zinc-600">Completing sign in...</p>
+      <div className="flex min-h-screen flex-col items-center justify-center bg-white p-6 text-center">
+        <div className="flex flex-col items-center max-w-xs">
+          <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mb-3">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <h2 className={`${outfit.className} text-base font-bold text-zinc-900`}>
+            Authentication Successful
+          </h2>
+          <p className={`${inter.className} text-xs text-zinc-500 mt-1`}>
+            You may return to the Deals Portal tab.
+          </p>
+          <button
+            onClick={() => window.close()}
+            className="mt-4 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold shadow-xs transition"
+          >
+            Close Window
+          </button>
         </div>
       </div>
     );
   }
-
   return (
-    <div className="login-light-scope relative flex min-h-screen bg-[#f8f9fa] overflow-hidden selection:bg-pink-300/50">
+    <div className="login-light-scope relative flex min-h-screen bg-[#ffffff] overflow-hidden selection:bg-purple-300/50">
       {/* Left White Panel */}
       <div
-        className={`login-panel-expand relative flex flex-col min-h-screen bg-white z-20 ${
-          isExpanded
-            ? 'w-full absolute inset-0 z-40'
-            : 'w-full lg:w-[45%]'
-        }`}
+        className={cn(
+          "login-panel-expand relative flex flex-col justify-between p-8 sm:p-12 z-20 bg-white min-h-screen",
+          isExpanded ? "w-full md:w-[55%] lg:w-[56%]" : "w-full md:w-1/2 lg:w-[45%]"
+        )}
       >
-        {/* Polished Black-and-White Loading State */}
+        {/* Polished Loading State with Gary Running Video */}
         {isLoading ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white login-fade-in">
             <div className="flex flex-col items-center max-w-sm text-center">
-              <div className="relative flex items-center justify-center mb-6">
-                <div className="w-12 h-12 border-3 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
-                </div>
+              <div className="relative mb-3 w-60 h-60 flex items-center justify-center select-none">
+                <video
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  src="/api/icons/Loading.webm"
+                  className="w-full h-full object-contain drop-shadow-md"
+                >
+                  <source src="/api/icons/Loading.webm" type="video/webm" />
+                  <source src="/icons/Loading.webm" type="video/webm" />
+                  <source src="/api/icons/Loading.mp4" type="video/mp4" />
+                  <source src="/icons/Loading.mp4" type="video/mp4" />
+                </video>
               </div>
-              <h3 className={`${outfit.className} text-xl font-bold text-zinc-900 tracking-tight`}>
+
+              <h3 className={`${outfit.className} text-2xl font-bold text-zinc-900 tracking-tight`}>
                 Signing In
               </h3>
               <p className={`${inter.className} text-xs font-medium text-zinc-500 mt-1.5 transition-all duration-200`}>
                 {loadingStatus}
               </p>
-              <div className="w-48 h-1 bg-zinc-100 rounded-full overflow-hidden mt-5">
+              <div className="w-48 h-1.5 bg-zinc-100 rounded-full overflow-hidden mt-4">
                 <div className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full animate-pulse w-3/4" />
               </div>
             </div>
@@ -867,18 +922,28 @@ function LoginContent() {
         ) : (
           <>
             {/* Brand Header */}
-            <header className="flex items-center gap-2.5 px-8 sm:px-10 pt-7 pb-3">
-              <div className="p-1.5 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 shadow-sm">
-                <Fingerprint className="w-4 h-4 text-white" strokeWidth={2} />
-              </div>
-              <span className={`${outfit.className} text-lg font-bold text-zinc-900 tracking-tight`}>
-                Deals Portal
-              </span>
-            </header>
+            <div>
+              <header className="flex items-center gap-2.5 group w-max">
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="Deals Portal Logo"
+                  className="w-8 h-8 rounded-xl object-contain shadow-xs"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
+                  }}
+                />
+                <span className={`${outfit.className} text-lg md:text-xl font-bold text-[#1e1b18] tracking-tight`}>
+                  Deals Portal
+                </span>
+              </header>
+            </div>
 
-            {/* Mobile Character Hero Banner (Visible on mobile screens < lg) */}
+            {/* Mobile Gary Hero Banner (Visible on mobile screens < md) */}
             <div
-              className="lg:hidden relative w-full overflow-hidden flex flex-col items-center justify-between pt-6 sm:pt-8 pb-0 shrink-0 shadow-xs border-y border-purple-300/40"
+              className={cn(
+                "md:hidden relative w-full overflow-hidden flex flex-col items-center justify-between pt-6 sm:pt-8 pb-0 shrink-0 shadow-xs border-y border-purple-300/40 my-4 rounded-2xl login-panel-expand",
+                isExpanded ? "max-h-0 p-0 my-0 opacity-0 pointer-events-none -translate-y-4" : "max-h-[360px] opacity-100 translate-y-0"
+              )}
               style={{
                 background:
                   'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
@@ -894,32 +959,50 @@ function LoginContent() {
                 </p>
               </div>
 
-              {/* Peeking Characters Banner (Side-by-Side Zoomed In) */}
+              {/* Peeking Mascot Banner */}
               <div className="w-full max-w-[420px] sm:max-w-[460px] h-36 sm:h-44 flex items-end justify-center relative px-2">
-                <MobileHeroShapes isCelebrating={isCelebrating} isSad={isSad} />
+                <MobileGaryHeroMascot isCelebrating={isCelebrating} isSad={isSad} />
               </div>
             </div>
 
-            <main className="flex-1 flex flex-col justify-start lg:justify-center pt-6 sm:pt-8 pb-8">
-              <Suspense
-                fallback={
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+            <main className="flex-1 flex flex-col justify-center items-center py-4">
+              {animationStep === 'celebrating' ? (
+                <div className="flex flex-col items-center text-center p-6 max-w-sm animate-in fade-in zoom-in-95 duration-300">
+                  <div className="w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-200 text-emerald-600 flex items-center justify-center mb-4 shadow-sm">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-500 animate-in zoom-in-50 duration-300" />
                   </div>
-                }
-              >
-                <LoginForm
-                  onMoodChange={setCharacterMood}
-                  onAuthSuccess={handleAuthSuccess}
-                  isBusy={animationStep !== 'idle'}
-                />
-              </Suspense>
+                  <h2 className={`${outfit.className} text-2xl font-bold text-zinc-900 tracking-tight`}>
+                    Login Successful!
+                  </h2>
+                  <p className={`${inter.className} text-sm text-zinc-600 font-medium mt-1.5`}>
+                    Welcome back. Preparing your Deals Workspace...
+                  </p>
+                  <div className="flex items-center gap-2 mt-4 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span>Entering portal shortly...</span>
+                  </div>
+                </div>
+              ) : (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+                    </div>
+                  }
+                >
+                  <LoginForm
+                    onMoodChange={setCharacterMood}
+                    onAuthSuccess={handleAuthSuccess}
+                    isBusy={animationStep !== 'idle'}
+                  />
+                </Suspense>
+              )}
             </main>
 
             {/* Footer */}
-            <footer className="flex items-center justify-between px-8 sm:px-10 pb-6 text-xs text-zinc-500">
-              <span>Copyright © 2026 ICS</span>
-              <a href="#" className="font-medium text-zinc-800 hover:underline">
+            <footer className="flex justify-between items-center text-[13px] text-[#1e1b18]/50 font-medium">
+              <span>Copyright © {new Date().getFullYear()} ICS</span>
+              <a href="#" className="text-[13px] text-[#1e1b18]/80 hover:text-[#1e1b18] font-semibold transition-colors">
                 Privacy Policy
               </a>
             </footer>
@@ -927,25 +1010,40 @@ function LoginContent() {
         )}
       </div>
 
-      {/* Right Gradient Hero Panel with 4 Animated Characters */}
+      {/* Right Gradient Hero Panel with Gary Hedges Mascot */}
       <div
-        className="relative hidden lg:flex flex-1 flex-col overflow-hidden transition-opacity duration-500"
+        className={cn(
+          "login-panel-expand relative hidden md:flex text-white overflow-hidden flex-col justify-between pt-12 lg:pt-16 pb-0 min-h-screen",
+          isExpanded
+            ? "w-full md:w-[45%] lg:w-[44%] px-8 lg:px-14"
+            : "w-1/2 lg:w-[55%] px-12 lg:px-24"
+        )}
         style={{
           background:
             'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 45%, transparent 100%), linear-gradient(60deg, #ab47bc, #8e24aa)',
         }}
       >
-        <div className="relative z-10 px-16 xl:px-24 pt-24">
-          <h2 className={`${outfit.className} max-w-xl text-4xl xl:text-5xl font-extrabold text-white leading-tight tracking-tight`}>
+        <div />
+
+        <div className="relative z-10 w-full max-w-xl select-none mb-auto">
+          <h2 className={`${outfit.className} mb-6 leading-[1.2] tracking-tight text-white text-[42px] lg:text-[48px] font-black`}>
             Your deal registrations, managed seamlessly.
           </h2>
-          <p className={`${inter.className} mt-6 max-w-lg text-base xl:text-lg text-white/85 leading-relaxed`}>
+          <p className={`${inter.className} text-white/80 leading-relaxed mb-6 text-[18px] lg:text-[20px] font-semibold`}>
             Log in to register deals, track pipeline status, and collaborate with your business
             units. We&apos;re excited to help you streamline your sales workflow!
           </p>
         </div>
 
-        <HeroShapes isCelebrating={isCelebrating} isSad={isSad} />
+        {/* Gary Mascot firmly anchored and adjusted upward */}
+        <div
+          className={cn(
+            "absolute inset-x-0 z-20 pointer-events-none flex items-end justify-center transition-all duration-500",
+            isExpanded ? "bottom-4 lg:bottom-6" : "bottom-0"
+          )}
+        >
+          <GaryHeroMascot isCelebrating={isCelebrating} isSad={isSad} isMinimized={isExpanded} />
+        </div>
       </div>
     </div>
   );
@@ -953,20 +1051,32 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <>
+      {/* Preload critical post-login media assets */}
+      <link rel="preload" as="image" href="/api/icons/Success_Message.png" />
+      <link rel="preload" as="video" href="/api/icons/Loading.webm" type="video/webm" />
       <script
         dangerouslySetInnerHTML={{
           __html: `
             if (typeof window !== 'undefined') {
-              var isPop = (window.name === 'google_oauth_popup') || (window.opener && window.opener !== window) || (window.location.search.indexOf('popup=1') !== -1) || (window.location.search.indexOf('error=') !== -1 && window.name === 'google_oauth_popup');
+              var isPop = (window.name === 'google_oauth_popup') || 
+                          (window.opener && window.opener !== window) || 
+                          (window.location.search.indexOf('popup=1') !== -1) || 
+                          (window.location.search.indexOf('error=') !== -1 && window.name === 'google_oauth_popup');
               if (isPop) {
-                document.documentElement.style.display = 'none';
                 var p = new URLSearchParams(window.location.search);
                 var err = p.get('error');
                 var m = err ? { type: 'OAUTH_ERROR', error: err } : { type: 'OAUTH_SUCCESS' };
-                try { var b = new BroadcastChannel('deals_google_auth'); b.postMessage(m); b.close(); } catch(e){}
+                try { var b = new BroadcastChannel('deals_google_auth'); b.postMessage(m); } catch(e){}
                 try { localStorage.setItem('deals_oauth_result', JSON.stringify({ msg: m, t: Date.now() })); } catch(e){}
-                try { if (window.opener && window.opener !== window) window.opener.postMessage(m, window.location.origin); } catch(e){}
-                window.close();
+                try { 
+                  if (window.opener && window.opener !== window) { 
+                    window.opener.postMessage(m, window.location.origin);
+                    window.opener.postMessage(m, '*');
+                  } 
+                } catch(e){}
+                try { window.close(); } catch(e){}
+                setTimeout(function() { try { window.close(); } catch(e){} }, 200);
+                setTimeout(function() { try { window.close(); } catch(e){} }, 600);
               }
             }
           `,
@@ -987,3 +1097,4 @@ export default function LoginPage() {
     </>
   );
 }
+

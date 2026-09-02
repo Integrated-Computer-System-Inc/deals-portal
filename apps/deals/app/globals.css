@@ -149,29 +149,74 @@ input[type=number] {
   }
 }
 
-.hero-mouth-laugh {
-  transform-box: fill-box !important;
-  transform-origin: center top !important;
-  animation: hero-mouth-laugh 0.36s ease-in-out infinite alternate !important;
+/* Proport Character Interactive & Reaction Keyframes */
+@keyframes character-extend-blue {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(1.12) scaleX(0.97); }
 }
 
-/* Sad / Disappointed / Long Face Slump Animation */
-@keyframes hero-sad-slump {
-  0%, 100% {
-    transform: translateY(8px) rotate(0deg);
+@keyframes character-extend-black {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(1.14) scaleX(0.96); }
+}
+
+@keyframes character-extend-orange {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(1.10) scaleX(1.02); }
+}
+
+@keyframes character-extend-yellow {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(1.13) scaleX(0.97); }
+}
+
+.react-blue { animation: character-extend-blue 0.8s ease-in-out infinite; }
+.react-black { animation: character-extend-black 0.8s ease-in-out infinite 0.1s; }
+.react-orange { animation: character-extend-orange 0.8s ease-in-out infinite 0.2s; }
+.react-yellow { animation: character-extend-yellow 0.8s ease-in-out infinite 0.3s; }
+
+@keyframes click-wobble {
+  0% { transform: rotate(0deg); }
+  20% { transform: rotate(-8deg); }
+  40% { transform: rotate(6deg); }
+  60% { transform: rotate(-4deg); }
+  80% { transform: rotate(2deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes click-squish {
+  0% { transform: scaleY(1) scaleX(1); }
+  30% { transform: scaleY(0.7) scaleX(1.2); }
+  50% { transform: scaleY(1.15) scaleX(0.9); }
+  70% { transform: scaleY(0.95) scaleX(1.05); }
+  100% { transform: scaleY(1) scaleX(1); }
+}
+
+@keyframes click-jelly {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.15, 0.85); }
+  50% { transform: scale(0.9, 1.1); }
+  75% { transform: scale(1.05, 0.95); }
+  100% { transform: scale(1); }
+}
+
+.clicked-blue { animation: click-wobble 0.5s ease-in-out !important; cursor: pointer; }
+.clicked-black { animation: click-squish 0.5s ease-in-out !important; cursor: pointer; }
+.clicked-orange { animation: click-jelly 0.5s ease-in-out !important; cursor: pointer; }
+.clicked-yellow { animation: click-squish 0.5s ease-in-out !important; cursor: pointer; }
+
+@keyframes eye-blink {
+  0%, 90%, 100% {
+    transform: scaleY(1);
   }
-  30% {
-    transform: translateY(12px) rotate(-1.5deg);
-  }
-  70% {
-    transform: translateY(12px) rotate(1.5deg);
+  95% {
+    transform: scaleY(0.08);
   }
 }
 
-.hero-sad-slump {
-  transform-box: fill-box !important;
-  transform-origin: bottom center !important;
-  animation: hero-sad-slump 4s ease-in-out infinite !important;
+.eye-blink {
+  transform-origin: center;
+  animation: eye-blink 5s ease-in-out infinite;
 }
 
 .login-panel-expand {
@@ -497,6 +542,84 @@ input[data-autocaps="true"] {
   background-size: 1200px 100%;
   animation: shimmer 1.6s infinite linear;
 }
+/* Universal Sleek Custom Scrollbar Styles (Prevents white scrollbars in dark mode) */
+html.dark,
+body.dark,
+[data-theme='dark'] {
+  color-scheme: dark !important;
+}
 
+html.light,
+body.light,
+[data-theme='light'] {
+  color-scheme: light !important;
+}
 
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
 
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.55);
+}
+
+.dark ::-webkit-scrollbar,
+.dark::-webkit-scrollbar,
+[data-theme='dark'] ::-webkit-scrollbar,
+[data-theme='dark']::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark ::-webkit-scrollbar-track,
+.dark::-webkit-scrollbar-track,
+[data-theme='dark'] ::-webkit-scrollbar-track,
+[data-theme='dark']::-webkit-scrollbar-track,
+.dark .ant-table-body::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.dark ::-webkit-scrollbar-thumb,
+.dark::-webkit-scrollbar-thumb,
+[data-theme='dark'] ::-webkit-scrollbar-thumb,
+[data-theme='dark']::-webkit-scrollbar-thumb,
+.dark .ant-table-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-radius: 9999px !important;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+.dark::-webkit-scrollbar-thumb:hover,
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover,
+[data-theme='dark']::-webkit-scrollbar-thumb:hover,
+.dark .ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4) !important;
+}
+
+.dark ::-webkit-scrollbar-corner,
+[data-theme='dark'] ::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+.dark,
+.dark *,
+[data-theme='dark'],
+[data-theme='dark'] * {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent !important;
+}

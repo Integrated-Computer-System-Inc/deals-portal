@@ -5,20 +5,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
 import { AppSidebarProvider } from './ui/sidebar';
-import { useSession } from 'next-auth/react';
-import { useDealsQuery, useDashboardQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
-
 import { ImpersonationBanner } from './ImpersonationBanner';
-
-function DealsCachePrewarmer() {
-  const { status } = useSession();
-  const scopedFilter = useCurrentUserFilter();
-
-  useDealsQuery(scopedFilter, { enabled: status === 'authenticated' });
-  useDashboardQuery({ enabled: status === 'authenticated' });
-
-  return null;
-}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -35,7 +22,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AppSidebarProvider>
-      <DealsCachePrewarmer />
       <div className="h-screen w-screen flex bg-background text-foreground transition-colors duration-200 overflow-hidden">
         {/* Sidebar - Spans full height on the left without header overlay */}
         <React.Suspense fallback={null}>

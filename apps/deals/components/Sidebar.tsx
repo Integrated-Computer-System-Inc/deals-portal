@@ -14,6 +14,8 @@ import {
   FileSpreadsheet,
   PlusCircle,
   BarChart2,
+  Users,
+  Mail,
   LogOut,
   PanelLeftClose,
   PanelLeft,
@@ -28,14 +30,14 @@ import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 
 const DEAL_STATUS_FILTERS = [
-  { id: '1', label: 'Registered', color: 'bg-emerald-500' },
-  { id: '4', label: 'Pending', color: 'bg-amber-500' },
-  { id: '3', label: 'Waiting', color: 'bg-sky-500' },
-  { id: '6', label: 'Won', color: 'bg-indigo-500' },
-  { id: '7', label: 'Lost', color: 'bg-rose-600' },
-  { id: '5', label: 'Expired', color: 'bg-zinc-400' },
-  { id: '2', label: 'Declined', color: 'bg-rose-500' },
-  { id: '8', label: 'Cancelled', color: 'bg-zinc-500' },
+  { id: '1', label: 'Registered', color: 'bg-emerald-500', href: '/deals?status=1' },
+  { id: 'expiring', label: 'Expiring', color: 'bg-amber-500', href: '/deals?expiry=expiring', isExpiry: true },
+  { id: '4', label: 'Pending', color: 'bg-amber-500', href: '/deals?status=4' },
+  { id: '3', label: 'Waiting', color: 'bg-sky-500', href: '/deals?status=3' },
+  { id: '6', label: 'Won', color: 'bg-indigo-500', href: '/deals?status=6' },
+  { id: '7', label: 'Lost', color: 'bg-rose-600', href: '/deals?status=7' },
+  { id: '5', label: 'Expired', color: 'bg-zinc-400', href: '/deals?status=5' },
+  { id: '2', label: 'Declined', color: 'bg-rose-500', href: '/deals?status=2' },
 ];
 
 export default function Sidebar() {
@@ -43,18 +45,19 @@ export default function Sidebar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentStatusParam = searchParams?.get('status') || '';
+  const currentExpiryParam = searchParams?.get('expiry') || searchParams?.get('expiryFilter') || '';
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();
   const [showSignOutConfirm, setShowSignOutConfirm] = React.useState(false);
   const { collapsed, toggleCollapsed, setMobileOpen, isMobile } = useSidebar();
 
-  const isDealsPage = pathname === '/deals' || pathname.startsWith('/deals/');
-  const [isDealsSubmenuOpen, setIsDealsSubmenuOpen] = React.useState(isDealsPage);
+  const isDealsRegistryPage = pathname === '/deals' || (pathname.startsWith('/deals/') && pathname !== '/deals/new');
+  const [isDealsSubmenuOpen, setIsDealsSubmenuOpen] = React.useState(isDealsRegistryPage);
 
   // Sync open state when navigating across routes: auto-open on Deals page, auto-close on other pages
   React.useEffect(() => {
-    setIsDealsSubmenuOpen(isDealsPage);
-  }, [isDealsPage]);
+    setIsDealsSubmenuOpen(isDealsRegistryPage);
+  }, [isDealsRegistryPage]);
 
   const userRole: UserRole = (session?.user as any)?.role || 'admin';
   const accountName = (session?.user as any)?.AccountName || (session?.user as any)?.name || '';
@@ -62,39 +65,10 @@ export default function Sidebar() {
   const accountImage = (session?.user as any)?.GAvatar || session?.user?.image || undefined;
   const userBU = (session?.user as any)?.AccountGroup || 'HQ';
 
-  const scopedFilter = React.useMemo(
-    () => ({
-      userRole,
-      accountName,
-      accountGroup: userBU,
-    }),
-    [userRole, accountName, userBU]
-  );
-
-  const handlePrefetchData = (href: string) => {
-    if (href === '/dashboard') {
-      queryClient.prefetchQuery({
-        queryKey: DEAL_QUERY_KEYS.dashboard(),
-        queryFn: async () => {
-          const res = await getDashboardSummary();
-          return res.data;
-        },
-        staleTime: 1000 * 60 * 5,
-      });
-    } else if (href === '/deals' || href === '/reports') {
-      queryClient.prefetchQuery({
-        queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
-        queryFn: async () => {
-          const res = await getScopedDeals(scopedFilter);
-          return res.data || [];
-        },
-        staleTime: 1000 * 60 * 5,
-      });
-    }
-  };
-
   const getRoleLabel = () => {
-    if (userRole === 'admin') return 'Administrator';
+    if (userRole === 'ITadmin') return 'IT Administrator';
+    if (userRole === 'admin') return 'Sales Administrator';
+    if (userRole === 'pm') return 'Product Manager';
     if (userRole === 'aa') return 'Admin Assistant';
     if (userRole === 'bu' || userRole === 'bu_admin') {
       return userBU && userBU !== 'HQ' ? `BU Head (${userBU})` : 'BU Head';
@@ -102,17 +76,21 @@ export default function Sidebar() {
     return 'Account Officer';
   };
 
-  const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao');
+  const isViewOnly = status === 'authenticated' && (userRole === 'bu' || userRole === 'bu_admin' || userRole === 'ao' || userRole === 'pm');
 
   // Pre-load all main navigation route chunks in background on mount
   React.useEffect(() => {
     router.prefetch('/dashboard');
     router.prefetch('/deals');
     router.prefetch('/reports');
+    if (userRole === 'ITadmin') {
+      router.prefetch('/admin/users');
+      router.prefetch('/admin/emails');
+    }
     if (!isViewOnly) {
       router.prefetch('/deals/new');
     }
-  }, [router, isViewOnly]);
+  }, [router, isViewOnly, userRole]);
 
   return (
     <>
@@ -120,12 +98,17 @@ export default function Sidebar() {
         {/* Brand Header */}
         <AppSidebar.Header className={collapsed ? "p-3 border-b border-border/50 shrink-0" : "p-3.5 border-b border-border/50 shrink-0"}>
           {collapsed ? (
-            /* Collapsed Header: Centered ICS Logo & Centered Expand Button */
+            /* Collapsed Header: Centered Gary Mascot Logo & Centered Expand Button */
             <div className="flex flex-col items-center justify-center gap-2.5 w-full">
               <Tooltip title="ICS Deal Registration" placement="right">
-                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 cursor-default select-none mx-auto">
-                  ICS
-                </div>
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="ICS Deal Registration"
+                  className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 cursor-default select-none mx-auto"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
+                  }}
+                />
               </Tooltip>
 
               <Tooltip title="Expand Sidebar" placement="right">
@@ -145,9 +128,14 @@ export default function Sidebar() {
             /* Expanded Header: Full Brand Title & Collapse Button */
             <div className="flex items-center justify-between gap-2.5 w-full">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-700 flex items-center justify-center text-white font-black text-sm shadow-sm tracking-wider shrink-0 select-none">
-                  ICS
-                </div>
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="ICS Deal Registration"
+                  className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 select-none"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
+                  }}
+                />
                 <div className="flex flex-col min-w-0">
                   <span className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
                     Deal Registration
@@ -198,16 +186,18 @@ export default function Sidebar() {
             )}
 
             {/* 1. Home */}
-            <div
-              className="w-full flex justify-center"
-              onMouseEnter={() => handlePrefetchData('/dashboard')}
-              onFocus={() => handlePrefetchData('/dashboard')}
-            >
+            <div className="w-full flex justify-center">
               <AppSidebar.Item
                 href="/dashboard"
                 icon={<Home size={18} />}
                 active={pathname === '/dashboard'}
-                onClick={() => setMobileOpen(false)}
+                onClick={() => {
+                  setMobileOpen(false);
+                  setIsDealsSubmenuOpen(false);
+                  try {
+                    sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                  } catch {}
+                }}
                 tooltipPlacement="right"
               >
                 Home
@@ -216,18 +206,18 @@ export default function Sidebar() {
 
             {/* 2. Deals Registry & Nested Status Filtering */}
             <div className="w-full flex flex-col items-center">
-              <div
-                className="w-full flex justify-center"
-                onMouseEnter={() => handlePrefetchData('/deals')}
-                onFocus={() => handlePrefetchData('/deals')}
-              >
+              <div className="w-full flex justify-center">
                 <AppSidebar.Item
                   href="/deals"
                   icon={<FileSpreadsheet size={18} />}
-                  active={pathname === '/deals' && !currentStatusParam}
+                  active={pathname === '/deals' && !currentStatusParam && !currentExpiryParam}
                   onClick={() => {
                     setMobileOpen(false);
                     setIsDealsSubmenuOpen(true);
+                    try {
+                      sessionStorage.removeItem('DEALS_REGISTRY_VIEW_STATE');
+                      sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                    } catch {}
                   }}
                   tooltipPlacement="right"
                   actions={
@@ -257,12 +247,21 @@ export default function Sidebar() {
                 <div className="w-full pl-5 pr-2 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="border-l-2 border-border/60 pl-2.5 space-y-0.5">
                     {DEAL_STATUS_FILTERS.map((st) => {
-                      const isStatusActive = pathname === '/deals' && currentStatusParam === st.id;
+                      const isStatusActive =
+                        st.id === 'expiring'
+                          ? pathname === '/deals' && (currentStatusParam === 'expiring' || currentExpiryParam === 'expiring' || currentExpiryParam.includes('CRITICAL_3'))
+                          : pathname === '/deals' && currentStatusParam === st.id && !currentExpiryParam;
+
                       return (
                         <Link
                           key={st.id}
-                          href={`/deals?status=${st.id}`}
-                          onClick={() => setMobileOpen(false)}
+                          href={st.href}
+                          onClick={() => {
+                            setMobileOpen(false);
+                            try {
+                              sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                            } catch {}
+                          }}
                           className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition ${
                             isStatusActive
                               ? 'bg-primary/10 text-primary font-bold shadow-xs'
@@ -282,16 +281,18 @@ export default function Sidebar() {
             </div>
 
             {/* 3. Reports */}
-            <div
-              className="w-full flex justify-center"
-              onMouseEnter={() => handlePrefetchData('/reports')}
-              onFocus={() => handlePrefetchData('/reports')}
-            >
+            <div className="w-full flex justify-center">
               <AppSidebar.Item
                 href="/reports"
                 icon={<BarChart2 size={18} />}
                 active={pathname === '/reports'}
-                onClick={() => setMobileOpen(false)}
+                onClick={() => {
+                  setMobileOpen(false);
+                  setIsDealsSubmenuOpen(false);
+                  try {
+                    sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                  } catch {}
+                }}
                 tooltipPlacement="right"
               >
                 Reports
@@ -300,14 +301,18 @@ export default function Sidebar() {
 
             {/* 4. Register Deal */}
             {!isViewOnly && (
-              <div
-                className="w-full flex justify-center"
-              >
+              <div className="w-full flex justify-center">
                 <AppSidebar.Item
                   href="/deals/new"
                   icon={<PlusCircle size={18} />}
                   active={pathname === '/deals/new'}
-                  onClick={() => setMobileOpen(false)}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setIsDealsSubmenuOpen(false);
+                    try {
+                      sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                    } catch {}
+                  }}
                   tooltipPlacement="right"
                 >
                   Register Deal
@@ -315,6 +320,54 @@ export default function Sidebar() {
               </div>
             )}
           </AppSidebar.Group>
+
+          {/* Admin Group (IT Admin Only) */}
+          {userRole === 'ITadmin' && (
+            <div className="w-full mt-3 pt-3 border-t border-border/50">
+              <AppSidebar.Group className="w-full flex flex-col items-center space-y-1">
+                {!collapsed && (
+                  <div className="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
+                    Admin
+                  </div>
+                )}
+                <div className="w-full flex justify-center">
+                  <AppSidebar.Item
+                    href="/admin/users"
+                    icon={<Users size={18} />}
+                    active={pathname === '/admin/users' || pathname.startsWith('/admin/users/')}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      setIsDealsSubmenuOpen(false);
+                      try {
+                        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                      } catch {}
+                    }}
+                    tooltipPlacement="right"
+                  >
+                    User Management
+                  </AppSidebar.Item>
+                </div>
+
+                <div className="w-full flex justify-center">
+                  <AppSidebar.Item
+                    href="/admin/emails"
+                    icon={<Mail size={18} />}
+                    active={pathname === '/admin/emails' || pathname.startsWith('/admin/emails/')}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      setIsDealsSubmenuOpen(false);
+                      try {
+                        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                      } catch {}
+                    }}
+                    tooltipPlacement="right"
+                  >
+                    Email Configuration
+                  </AppSidebar.Item>
+                </div>
+              </AppSidebar.Group>
+            </div>
+          )}
         </AppSidebar.Content>
 
         {/* Sticky User Footer */}
@@ -371,8 +424,8 @@ export default function Sidebar() {
                     className="shrink-0"
                   />
                   <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-semibold text-foreground truncate" title={accountName}>
-                      {accountName || 'Administrator'}
+                    <span className="text-xs font-semibold text-foreground truncate" title={accountName || getRoleLabel()}>
+                      {accountName || getRoleLabel()}
                     </span>
                     <span className="text-[10px] text-muted truncate">
                       {getRoleLabel()}

@@ -1,17 +1,6 @@
 import nodemailer from 'nodemailer';
 
 /**
- * Standard IT AppsDev department email distribution list for BCC
- */
-export const DEFAULT_APPSDEV_BCC_EMAILS = [
-  'dramos@ics.com.ph',
-  'bcandelaria@ics.com.ph',
-  'jdoremon@ics.com.ph',
-  'jesurena@ics.com.ph',
-  'mescario@ics.com.ph',
-];
-
-/**
  * Helper to get the resolved AppsDev BCC list with optional environment variable override
  */
 export function getAppsDevBccEmails(): string[] {
@@ -22,7 +11,7 @@ export function getAppsDevBccEmails(): string[] {
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean);
   }
-  return DEFAULT_APPSDEV_BCC_EMAILS;
+  return [];
 }
 
 /**

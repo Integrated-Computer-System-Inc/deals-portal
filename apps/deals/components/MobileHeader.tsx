@@ -12,7 +12,7 @@ export default function MobileHeader() {
   const { data: session } = useSession();
 
   const accountName = (session?.user as any)?.AccountName || session?.user?.name || 'User';
-  const accountImage = session?.user?.image || undefined;
+  const accountImage = (session?.user as any)?.GAvatar || session?.user?.image || undefined;
 
   return (
     <header className="lg:hidden sticky top-0 z-30 w-full h-14 px-4 bg-sidebar/95 backdrop-blur-md border-b border-border flex items-center justify-between shadow-xs">

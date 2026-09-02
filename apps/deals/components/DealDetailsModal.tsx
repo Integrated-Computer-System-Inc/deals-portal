@@ -49,7 +49,7 @@ export default function DealDetailsModal({
 }: DealDetailsModalProps) {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role || 'admin';
-  const canEdit = role === 'admin' || role === 'aa';
+  const canEdit = role === 'ITadmin' || role === 'admin' || role === 'aa';
 
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<any>(null);

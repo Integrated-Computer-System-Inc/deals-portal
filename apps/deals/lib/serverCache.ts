@@ -101,6 +101,13 @@ class ServerCache {
   }
 
   /**
+   * Deletes a specific key from the cache
+   */
+  public delete(key: string): boolean {
+    return this.store.delete(key);
+  }
+
+  /**
    * Clears the entire cache store
    */
   public clear(): void {
