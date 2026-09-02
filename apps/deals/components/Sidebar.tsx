@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
+import DevModeToggle from './DevModeToggle';
 import { useQueryClient } from '@tanstack/react-query';
 import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
@@ -387,6 +388,11 @@ export default function Sidebar() {
               </Tooltip>
 
               <div className="flex flex-col items-center justify-center gap-1.5 mt-1 w-full">
+                {userRole === 'ITadmin' && (
+                  <div className="flex items-center justify-center">
+                    <DevModeToggle placement="right" />
+                  </div>
+                )}
                 <div className="flex items-center justify-center">
                   <ThemeSwitcher />
                 </div>
@@ -435,6 +441,7 @@ export default function Sidebar() {
               )}
 
               <div className="flex items-center gap-1 shrink-0">
+                {userRole === 'ITadmin' && <DevModeToggle placement="top" />}
                 <ThemeSwitcher />
                 <Tooltip title="Sign Out" placement="top">
                   <div>
