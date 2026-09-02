@@ -1,7 +1,7 @@
 /**
  * Email Templates for Deals Registration Portal
  * Provides responsive, branded HTML templates and standardized subjects
- * for all 5 lifecycle events: Create, Update, Lost, Renew, and Expiring warnings.
+ * for all lifecycle events: Create, Update, Lost, Renew, and Expiring warnings.
  */
 
 function getPortalBaseUrl(): string {
@@ -15,7 +15,7 @@ function getPortalBaseUrl(): string {
 /**
  * Base email layout wrapper with modern ICS branding
  */
-function wrapEmailHtml(content: string, previewText: string = ''): string {
+export function wrapEmailHtml(content: string, previewText: string = ''): string {
   const nonce = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -130,7 +130,7 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
   const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `TEST ONLY!!! Deal Registration: Created Deal Notification (${dealRef} - ${data.custName})`;
+  const subject = `[Deal Registration] Created: ${dealRef} - ${data.custName}`;
 
   const content = `
     <div style="margin-bottom: 16px;">
@@ -241,7 +241,7 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
   const expFormatted = formatTemplateDate(data.expDate);
   const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `TEST ONLY!!! Deal Registration: Update Notification (${dealRef} - ${data.custName})`;
+  const subject = `[Deal Registration] Updated: ${dealRef} - ${data.custName}`;
 
   // Index changes by field label
   const changesMap = new Map<string, DealFieldChange>();
@@ -344,7 +344,7 @@ export function generateLostDealEmail(data: LostDealEmailData): {
   const dealRef = data.dealRegID || `ID-${data.dealID}`;
   const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `TEST ONLY!!! Deal Closed as Lost: ${dealRef} - ${data.custName}`;
+  const subject = `[Deal Registration] Closed as Lost: ${dealRef} - ${data.custName}`;
 
   const content = `
     <div style="margin-bottom: 16px;">
@@ -441,7 +441,7 @@ export function generateRenewDealEmail(data: RenewDealEmailData): {
   const expFormatted = new Date(data.newExpirationDate).toLocaleDateString();
   const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  const subject = `TEST ONLY!!!Deal Registration: Renewal Notification (${dealRef} - ${data.custName})`;
+  const subject = `[Deal Registration] Renewed: ${dealRef} - ${data.custName}`;
 
   const content = `
     <div style="margin-bottom: 16px;">
@@ -535,35 +535,29 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
 
   switch (data.warningLevel) {
     case '30d':
-      if (data.daysRemaining > 30) {
-        badgeHtml = `<span class="status-badge badge-amber">Expiration Reminder - ${data.daysRemaining} Days Left</span>`;
-        warningTitle = `Deal Expiration Reminder (${data.daysRemaining} Days Left)`;
-        subjectPrefix = `Deal Registration: Expiration Reminder`;
-      } else {
-        badgeHtml = `<span class="status-badge badge-amber">1st Warning - 30 Days Left</span>`;
-        warningTitle = `Deal Expiring in 30 Days (1st Warning)`;
-        subjectPrefix = `Deal Registration: 30-Day Expiration Warning`;
-      }
+      badgeHtml = `<span class="status-badge badge-amber">1st Warning - ${data.daysRemaining} Days Left</span>`;
+      warningTitle = `Deal Expiring in ${data.daysRemaining} Days (1st Warning)`;
+      subjectPrefix = `[Deal Registration] Expiring in ${data.daysRemaining} Days:`;
       break;
     case '15d':
       badgeHtml = `<span class="status-badge badge-amber">2nd Warning - 15 Days Left</span>`;
       warningTitle = `Deal Expiring in 15 Days (2nd Warning)`;
-      subjectPrefix = `Deal Registration: 15-Day Expiration Warning`;
+      subjectPrefix = `[Deal Registration] Expiring in 15 Days:`;
       break;
     case '7d':
       badgeHtml = `<span class="status-badge badge-red">Critical Warning - 7 Days Left</span>`;
       warningTitle = `CRITICAL: Deal Expiring in 7 Days`;
-      subjectPrefix = `Deal Registration: CRITICAL 7-Day Expiration Warning`;
+      subjectPrefix = `[Deal Registration] CRITICAL 7-Day Warning:`;
       break;
     case 'daily':
     default:
-      badgeHtml = `<span class="status-badge badge-red">Urgent Daily Warning - ${data.daysRemaining} Day(s) Left</span>`;
+      badgeHtml = `<span class="status-badge badge-red">Urgent Daily Alert - ${data.daysRemaining} Day(s) Left</span>`;
       warningTitle = `URGENT: Deal Expiring in ${data.daysRemaining} Day(s)`;
-      subjectPrefix = `Deal Registration: URGENT Deal Expiring in ${data.daysRemaining} Day(s)`;
+      subjectPrefix = `[Deal Registration] URGENT - Expiring in ${data.daysRemaining} Day(s):`;
       break;
   }
 
-  const subject = `${subjectPrefix} (${dealRef} - ${data.custName})`;
+  const subject = `${subjectPrefix} ${dealRef} - ${data.custName}`;
 
   const content = `
     <div style="margin-bottom: 16px;">
@@ -614,4 +608,246 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
     subject,
     message: wrapEmailHtml(content, `${warningTitle}: ${dealRef} - ${data.custName}`),
   };
+}
+
+// --------------------------------------------------------------------------------
+// 6. System SMTP Diagnostic Check Email
+// --------------------------------------------------------------------------------
+
+export function generateSystemDiagnosticEmail(data: {
+  mode: 'DEV' | 'LIVE';
+  triggeredBy: string;
+  formattedDate: string;
+  toEmails: string[];
+  ccEmails: string[];
+  bccEmails: string[];
+}): {
+  subject: string;
+  message: string;
+} {
+  const subject = `[Deal Registration] System Connection & Delivery Test (${data.formattedDate})`;
+
+  const content = `
+    <div style="margin-bottom: 16px;">
+      <span class="status-badge ${data.mode === 'DEV' ? 'badge-amber' : 'badge-green'}">
+        ${data.mode} Mode Active
+      </span>
+    </div>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">SMTP Delivery & Routing Test</h2>
+    <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
+      This email verifies that your SMTP transport configuration, recipient resolution engine, and mode rules are operational.
+    </p>
+
+    <table class="data-table">
+      <tr>
+        <td class="label">Execution Mode</td>
+        <td class="value"><strong>${data.mode} MODE</strong></td>
+      </tr>
+      <tr>
+        <td class="label">Triggered By</td>
+        <td class="value">${data.triggeredBy}</td>
+      </tr>
+      <tr>
+        <td class="label">Timestamp</td>
+        <td class="value">${data.formattedDate}</td>
+      </tr>
+      <tr>
+        <td class="label">Delivered TO</td>
+        <td class="value" style="font-family: monospace; color: #0284c7;">${data.toEmails.join(', ') || '(None)'}</td>
+      </tr>
+      ${
+        data.ccEmails.length > 0
+          ? `
+      <tr>
+        <td class="label">Delivered CC</td>
+        <td class="value" style="font-family: monospace; color: #0284c7;">${data.ccEmails.join(', ')}</td>
+      </tr>`
+          : ''
+      }
+      ${
+        data.bccEmails.length > 0
+          ? `
+      <tr>
+        <td class="label">Delivered BCC</td>
+        <td class="value" style="font-family: monospace; color: #0284c7;">${data.bccEmails.join(', ')}</td>
+      </tr>`
+          : ''
+      }
+    </table>
+  `;
+
+  return {
+    subject,
+    message: wrapEmailHtml(content, `System Connection & Delivery Test (${data.formattedDate})`),
+  };
+}
+
+// --------------------------------------------------------------------------------
+// 7. Scenario Test Template Resolver
+// --------------------------------------------------------------------------------
+
+export const TEST_SCENARIO_OPTIONS = [
+  { value: 'CREATE', label: '🆕 Deal Registration: Created Notification', group: 'Lifecycle' },
+  { value: 'UPDATE', label: '🔄 Deal Registration: Updated Notification', group: 'Lifecycle' },
+  { value: 'EXPIRING_30D', label: '⏰ Deal Registration: 30-Day Warning', group: 'Expirations' },
+  { value: 'EXPIRING_7D', label: '⚠️ Deal Registration: 7-Day Critical Alert', group: 'Expirations' },
+  { value: 'EXPIRING_URGENT', label: '🚨 Deal Registration: Urgent Daily Alert (3 Days)', group: 'Expirations' },
+  { value: 'LOST', label: '❌ Deal Registration: Closed as Lost', group: 'Lifecycle' },
+  { value: 'RENEW', label: '🔁 Deal Registration: Renewal Notification', group: 'Lifecycle' },
+  { value: 'SYSTEM_CHECK', label: '🛠️ SMTP Diagnostic & Health Check', group: 'System' },
+] as const;
+
+export function getScenarioEmailTemplate(
+  scenario: string,
+  options?: {
+    aoNickName?: string;
+    mode?: 'DEV' | 'LIVE';
+    triggeredBy?: string;
+    toEmails?: string[];
+    ccEmails?: string[];
+    bccEmails?: string[];
+  }
+): { subject: string; message: string } {
+  const sampleNow = new Date();
+  const sampleFormattedDate = sampleNow.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const sampleAO = options?.aoNickName || 'John';
+
+  switch (scenario) {
+    case 'CREATE':
+      return generateCreateDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        currency: 'PHP',
+        regDate: sampleNow,
+        expDate: new Date(sampleNow.getTime() + 90 * 24 * 60 * 60 * 1000),
+        totalAmount: 1850000,
+        creatorName: 'Sales Admin',
+      });
+
+    case 'UPDATE':
+      return generateUpdateDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        currency: 'PHP',
+        regDate: sampleNow,
+        expDate: new Date(sampleNow.getTime() + 90 * 24 * 60 * 60 * 1000),
+        totalAmount: 2200000,
+        creatorName: 'Sales Admin',
+        changes: [
+          { label: 'Deal Amount', from: 'PHP 1,850,000.00', to: 'PHP 2,200,000.00' },
+          { label: 'Remarks', from: '(empty)', to: 'Customer added 48-port PoE switches to BOM.' },
+        ],
+      });
+
+    case 'EXPIRING_30D':
+      return generateExpiringDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        expirationDate: new Date(sampleNow.getTime() + 30 * 24 * 60 * 60 * 1000),
+        daysRemaining: 30,
+        warningLevel: '30d',
+      });
+
+    case 'EXPIRING_7D':
+      return generateExpiringDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        expirationDate: new Date(sampleNow.getTime() + 7 * 24 * 60 * 60 * 1000),
+        daysRemaining: 7,
+        warningLevel: '7d',
+      });
+
+    case 'EXPIRING_URGENT':
+      return generateExpiringDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        expirationDate: new Date(sampleNow.getTime() + 3 * 24 * 60 * 60 * 1000),
+        daysRemaining: 3,
+        warningLevel: 'daily',
+      });
+
+    case 'LOST':
+      return generateLostDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        competitorVendor: 'Trends & Technologies Inc.',
+        competitorBrand: 'Huawei Enterprise',
+        icsOffer: 'Cisco Catalyst 9300 Switches (PHP 2.2M)',
+        competitorOffer: 'Huawei CloudEngine S5735 (PHP 1.8M)',
+        reason: 'Competitor provided lower pricing and shorter hardware delivery lead time.',
+        otherInformation: 'Customer promised next phase expansion bidding in Q4.',
+        creatorName: 'Sales Admin',
+      });
+
+    case 'RENEW':
+      return generateRenewDealEmail({
+        dealID: 9942,
+        dealRegID: 'DR-2026-9942',
+        custName: 'Ayala Land Inc.',
+        projectName: 'Enterprise Core Network Refresh',
+        brand: 'Cisco',
+        bu: 'BU5',
+        assignedAO: 'John Doe',
+        aoNickName: sampleAO,
+        renewalDate: sampleNow,
+        newExpirationDate: new Date(sampleNow.getTime() + 60 * 24 * 60 * 60 * 1000),
+        validityDays: 60,
+        remarks: 'Approved deal registration extension granted by Cisco PAM.',
+        creatorName: 'Sales Admin',
+      });
+
+    case 'SYSTEM_CHECK':
+    default:
+      return generateSystemDiagnosticEmail({
+        mode: options?.mode || 'DEV',
+        triggeredBy: options?.triggeredBy || 'IT Administrator',
+        formattedDate: sampleFormattedDate,
+        toEmails: options?.toEmails || ['itadmin@ics.com.ph'],
+        ccEmails: options?.ccEmails || [],
+        bccEmails: options?.bccEmails || [],
+      });
+  }
 }

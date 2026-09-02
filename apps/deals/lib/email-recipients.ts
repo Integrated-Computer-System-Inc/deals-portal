@@ -1,5 +1,6 @@
 import { prisma } from '@my-app/database';
 import { getAppsDevBccEmails } from './email-config';
+import { normalizeBrandName, getBrandVariations } from './brandUtils';
 
 export interface DealEmailRecipients {
   sendTo: string;
@@ -9,42 +10,277 @@ export interface DealEmailRecipients {
   ccEmailList: string[];
   bccEmailList: string[];
   aoNickName?: string;
+  isDevMode?: boolean;
+  subjectPrefix?: string;
+}
+
+interface CachedEmailConfig {
+  mode: 'DEV' | 'LIVE';
+  devRecipients: string[];
+  devCCRecipients: string[];
+  devBCCRecipients: string[];
+  liveCCRecipients: string[];
+  liveBCCRecipients: string[];
+  includeBuHead: boolean;
+  includeAdminAndAA: boolean;
+  includeBrandPm: boolean;
+  timestamp: number;
+}
+
+let cachedConfig: CachedEmailConfig | null = null;
+const CACHE_TTL_MS = 15000; // 15 seconds
+
+export function invalidateEmailConfigCache() {
+  cachedConfig = null;
 }
 
 /**
- * Resolves the designated BU Head email for a given Business Unit name/code.
- * NOTE: ACCOUNT_ROLE_REGISTRY was removed in favour of dynamic DB roles.
- * This function now always returns null; BU Head emails should be resolved
- * via a live cdbAccounts query when the feature is re-enabled.
+ * Loads the active email configuration from dbo.app_email_config (cached)
  */
-export function resolveBuHeadEmail(_buName: string = ''): string | null {
-  // BU head lookup via registry removed — use DB query when re-enabling CC logic.
+async function loadActiveEmailConfig(): Promise<CachedEmailConfig> {
+  const now = Date.now();
+  if (cachedConfig && now - cachedConfig.timestamp < CACHE_TTL_MS) {
+    return cachedConfig;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT TOP 1 [mode], [devRecipients], [devCCRecipients], [devBCCRecipients], 
+                   [liveCCRecipients], [liveBCCRecipients], [includeBuHead], [includeAdminAndAA],
+                   [includeBrandPm]
+      FROM [dbo].[app_email_config]
+      WHERE [id] = 1;
+    `);
+
+    if (rows && rows.length > 0) {
+      const row = rows[0];
+      const extractEmails = (jsonStr?: string | null): string[] => {
+        if (!jsonStr || !jsonStr.trim()) return [];
+        try {
+          const parsed = JSON.parse(jsonStr);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .map((item) => (typeof item === 'string' ? item : item.email))
+              .filter((e) => Boolean(e) && typeof e === 'string' && e.includes('@'))
+              .map((e) => e.trim().toLowerCase());
+          }
+        } catch {}
+        return [];
+      };
+
+      const devList = extractEmails(row.devRecipients);
+      const devCCList = extractEmails(row.devCCRecipients);
+      const devBCCList = extractEmails(row.devBCCRecipients);
+      const ccList = extractEmails(row.liveCCRecipients);
+      const bccList = extractEmails(row.liveBCCRecipients);
+
+      cachedConfig = {
+        mode: (String(row.mode || 'DEV').toUpperCase() === 'LIVE' ? 'LIVE' : 'DEV') as 'DEV' | 'LIVE',
+        devRecipients: devList.length > 0 ? devList : getAppsDevBccEmails(),
+        devCCRecipients: devCCList,
+        devBCCRecipients: devBCCList,
+        liveCCRecipients: ccList,
+        liveBCCRecipients: bccList.length > 0 ? bccList : getAppsDevBccEmails(),
+        includeBuHead: row.includeBuHead !== false && row.includeBuHead !== 0,
+        includeAdminAndAA: row.includeAdminAndAA !== false && row.includeAdminAndAA !== 0,
+        includeBrandPm: row.includeBrandPm !== false && row.includeBrandPm !== 0,
+        timestamp: now,
+      };
+
+      return cachedConfig;
+    }
+  } catch (err) {
+    console.warn('[email-recipients] Could not query dbo.app_email_config, using fallback defaults:', err);
+  }
+
+  // Fallback defaults if table is not yet created or unreachable
+  cachedConfig = {
+    mode: 'DEV',
+    devRecipients: getAppsDevBccEmails(),
+    devCCRecipients: [],
+    devBCCRecipients: [],
+    liveCCRecipients: [],
+    liveBCCRecipients: getAppsDevBccEmails(),
+    includeBuHead: true,
+    includeAdminAndAA: true,
+    includeBrandPm: true,
+    timestamp: now,
+  };
+
+  return cachedConfig;
+}
+
+/**
+ * Resolves the designated BU Head email for a given Business Unit name/code from cdbAccounts.
+ */
+export async function resolveBuHeadEmail(buName: string = ''): Promise<string | null> {
+  const cleanBU = (buName || '').trim();
+  if (!cleanBU) return null;
+
+  try {
+    const buUser = await prisma.cdbAccounts.findFirst({
+      where: {
+        AccountGroup: cleanBU,
+        AccountType: { not: 'CUSTOMER' },
+        Email: { not: '' },
+      },
+      select: { Email: true },
+    });
+    if (buUser?.Email && buUser.Email.trim()) {
+      return buUser.Email.trim().toLowerCase();
+    }
+  } catch (err) {
+    console.warn('[resolveBuHeadEmail] Error querying BU Head email from cdbAccounts:', err);
+  }
+
   return null;
 }
 
 /**
- * Returns the default Admin and Admin Assistant emails.
- * NOTE: ACCOUNT_ROLE_REGISTRY was removed; these are hardcoded production defaults.
+ * Resolves the assigned Product Manager (PM) email(s) for a given deal brand.
+ * Checks BOTH sources:
+ * 1. dbo.DealBrands table (matching brand -> assignedPM, resolved to email via cdbAccounts or Users)
+ * 2. dbo.Users table (users with UserRole='pm' and AssignedBrand matching the brand)
  */
-export function resolveAdminAndAssistantEmails(): { adminEmail: string; aaEmail: string } {
-  return {
-    adminEmail: 'asy-lu@ics.com.ph',
-    aaEmail: 'afrancisco@ics.com.ph',
-  };
+export async function resolveBrandPmEmails(dealBrand: string = ''): Promise<string[]> {
+  const cleanBrand = (dealBrand || '').trim();
+  if (!cleanBrand) return [];
+
+  const canonicalBrand = normalizeBrandName(cleanBrand).toUpperCase();
+  const variations = getBrandVariations(cleanBrand).map((b) => b.toUpperCase());
+  const brandKeywords = Array.from(new Set([cleanBrand.toUpperCase(), canonicalBrand, ...variations]));
+
+  const matchedEmails = new Set<string>();
+
+  // Source 1: Check dbo.DealBrands table
+  try {
+    const dealBrandRows = await prisma.dealBrands.findMany({
+      select: { brand: true, assignedPM: true },
+    });
+
+    for (const row of dealBrandRows) {
+      if (!row.brand || !row.assignedPM) continue;
+      const rowBrandUpper = row.brand.trim().toUpperCase();
+      const rowCanonical = normalizeBrandName(row.brand).toUpperCase();
+
+      const isBrandMatch = brandKeywords.some(
+        (kw) => kw === rowBrandUpper || kw === rowCanonical || rowBrandUpper.includes(kw) || kw.includes(rowBrandUpper)
+      );
+
+      if (isBrandMatch) {
+        // assignedPM might be a comma-separated list of names, domain accounts, or emails
+        const pmIdentifiers = row.assignedPM.split(',').map((s) => s.trim()).filter(Boolean);
+        for (const pmIdent of pmIdentifiers) {
+          if (pmIdent.includes('@')) {
+            matchedEmails.add(pmIdent.toLowerCase().trim());
+          } else {
+            // Lookup in cdbAccounts or Users (by name, domain, nickname, email, AccountID, AccountIDNo, or AONumber)
+            try {
+              const isNumeric = /^\d+$/.test(pmIdent);
+              const numVal = isNumeric ? parseInt(pmIdent, 10) : undefined;
+
+              const cdbConditions: any[] = [
+                { AccountName: pmIdent },
+                { DomainAccount: pmIdent },
+                { NickName: pmIdent },
+                { AccountIDNo: pmIdent },
+                { Email: pmIdent },
+              ];
+              if (numVal !== undefined) {
+                cdbConditions.push({ AccountID: numVal });
+                cdbConditions.push({ AONumber: numVal });
+              }
+
+              const account = await prisma.cdbAccounts.findFirst({
+                where: { OR: cdbConditions },
+                select: { Email: true },
+              });
+
+              if (account?.Email && account.Email.includes('@')) {
+                matchedEmails.add(account.Email.toLowerCase().trim());
+              } else {
+                const userConditions: any[] = [
+                  { AccountName: pmIdent },
+                  { Email: pmIdent },
+                ];
+                if (numVal !== undefined) {
+                  userConditions.push({ AccountID: numVal });
+                }
+
+                const user = await prisma.users.findFirst({
+                  where: { OR: userConditions },
+                  select: { Email: true },
+                });
+                if (user?.Email && user.Email.includes('@')) {
+                  matchedEmails.add(user.Email.toLowerCase().trim());
+                }
+              }
+            } catch (err) {
+              console.warn(`[resolveBrandPmEmails] Error looking up PM identifier "${pmIdent}":`, err);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveBrandPmEmails] Error querying dbo.DealBrands:', err);
+  }
+
+  // Source 2: Check dbo.Users table with UserRole='pm' and AssignedBrand
+  try {
+    const pmUsers = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT [AccountID], [AccountName], [Email], [UserRole], [AssignedBrand]
+      FROM [dbo].[Users]
+      WHERE [UserRole] LIKE 'pm%'
+        AND [Email] IS NOT NULL
+        AND LEN(LTRIM(RTRIM([Email]))) > 3
+        AND [Email] LIKE '%@%';
+    `);
+
+    for (const pm of pmUsers) {
+      const explicitBrandStr = (pm.AssignedBrand || '').toUpperCase();
+      const roleStr = (pm.UserRole || '').toUpperCase();
+      
+      const assignedTokens = [
+        ...explicitBrandStr.split(',').map((s: string) => s.trim()).filter(Boolean),
+        ...(roleStr.includes(':') ? roleStr.split(':')[1].split(',').map((s: string) => s.trim()).filter(Boolean) : []),
+      ];
+
+      const hasMatch = assignedTokens.some((assigned) =>
+        brandKeywords.some((keyword) => assigned === keyword || assigned.includes(keyword) || keyword.includes(assigned))
+      );
+
+      if (hasMatch && pm.Email) {
+        matchedEmails.add(String(pm.Email).trim().toLowerCase());
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveBrandPmEmails] Error querying PM users from dbo.Users:', err);
+  }
+
+  return Array.from(matchedEmails).filter((e) => e && e.includes('@'));
 }
 
 /**
  * Comprehensive Recipient Routing Engine:
- * - TO: Assigned Account Officer (AO)
- * - CC: Deal BU Head + Admin (Adeliana Sy-Lu) + Admin Assistant (Athena Francisco)
- * - BCC: AppsDev IT Team (dramos, bcandelaria, jdoremon, jesurena, mescario)
+ * - DEV MODE:
+ *   - TO: Configured Dev TO recipients (devRecipients)
+ *   - CC: Configured Dev CC recipients (devCCRecipients)
+ *   - BCC: Configured Dev BCC recipients (devBCCRecipients)
+ *   - Subject tagged with [DEV MODE - Intended for: AO Name].
+ * - LIVE MODE:
+ *   - TO: Assigned Account Officer (AO)
+ *   - CC: BU Head (if enabled) + Admin & AA (if enabled) + Brand PM (if enabled) + Custom Live CCs
+ *   - BCC: Global BCC list (IT Team)
  *
  * @param assignedAO Name or domain account of assigned AO (DealHeader.AssignedAO)
  * @param bu Business Unit code/name (DealHeader.BU)
+ * @param brand Brand name (DealHeader.brand)
  */
 export async function resolveDealEmailRecipients(
   assignedAO: string = '',
-  bu: string = ''
+  bu: string = '',
+  brand: string = ''
 ): Promise<DealEmailRecipients> {
   let aoEmail = '';
   let aoNickName = '';
@@ -86,39 +322,72 @@ export async function resolveDealEmailRecipients(
     aoNickName = assignedAO.split(' ')[0];
   }
 
-  // 2. Resolve BU Head email (Commented out for QA testing)
-  // let buHeadEmail = resolveBuHeadEmail(bu);
-  // if (!buHeadEmail && bu) {
-  //   try {
-  //     const buUser = await prisma.cdbAccounts.findFirst({
-  //       where: {
-  //         AccountGroup: bu,
-  //         AccountType: { not: 'CUSTOMER' },
-  //         Email: { not: '' },
-  //       },
-  //       select: { Email: true },
-  //     });
-  //     if (buUser?.Email && buUser.Email.trim()) {
-  //       buHeadEmail = buUser.Email.trim().toLowerCase();
-  //     }
-  //   } catch (err) {
-  //     console.warn('[resolveDealEmailRecipients] Error querying BU Head email from cdbAccounts:', err);
-  //   }
-  // }
+  const activeConfig = await loadActiveEmailConfig();
 
-  // 3. Resolve Admin and AA emails (Commented out for QA testing)
-  // const { adminEmail, aaEmail } = resolveAdminAndAssistantEmails();
+  // ==========================================
+  // CASE A: DEV MODE (Testing / QA Safeguard)
+  // ==========================================
+  if (activeConfig.mode === 'DEV') {
+    const devToList = activeConfig.devRecipients.length > 0
+      ? activeConfig.devRecipients
+      : getAppsDevBccEmails();
+    const devCCList = activeConfig.devCCRecipients || [];
+    const devBCCList = activeConfig.devBCCRecipients || [];
 
-  // 4. Construct CC List (Hardcoded for manual QA testing)
+    const intendedName = aoNickName || assignedAO || 'Unknown AO';
+
+    return {
+      sendTo: devToList.join(', '),
+      sendCC: devCCList.join(', '),
+      sendBCC: devBCCList.join(', '),
+      toEmailList: devToList,
+      ccEmailList: devCCList,
+      bccEmailList: devBCCList,
+      aoNickName: intendedName,
+      isDevMode: true,
+      subjectPrefix: `[DEV MODE - Intended for: ${intendedName}] `,
+    };
+  }
+
+  // ==========================================
+  // CASE B: LIVE MODE (Production Execution)
+  // ==========================================
   const ccSet = new Set<string>();
-  // if (buHeadEmail) ccSet.add(buHeadEmail);
-  // if (adminEmail) ccSet.add(adminEmail);
-  // if (aaEmail) ccSet.add(aaEmail);
 
-  // Hardcoded QA CC email(s) - modify as needed
-  ccSet.add('bcandelaria@ics.com.ph');
+  // 1. Resolve BU Head if enabled
+  if (activeConfig.includeBuHead && bu) {
+    const buHeadEmail = await resolveBuHeadEmail(bu);
+    if (buHeadEmail) {
+      ccSet.add(buHeadEmail);
+    }
+  }
 
-  // Optional management CC override from environment
+  // 2. Include default Admin & Admin Assistant if enabled
+  if (activeConfig.includeAdminAndAA) {
+    ccSet.add('asy-lu@ics.com.ph');
+    ccSet.add('afrancisco@ics.com.ph');
+  }
+
+  // 3. Resolve Assigned Brand PM(s) if enabled
+  if (activeConfig.includeBrandPm && brand) {
+    const pmEmails = await resolveBrandPmEmails(brand);
+    pmEmails.forEach((pmEmail) => {
+      if (pmEmail && pmEmail.includes('@')) {
+        ccSet.add(pmEmail.toLowerCase().trim());
+      }
+    });
+  }
+
+  // 4. Add configured Live CC recipients
+  if (activeConfig.liveCCRecipients && activeConfig.liveCCRecipients.length > 0) {
+    activeConfig.liveCCRecipients.forEach((email) => {
+      if (email && email.includes('@')) {
+        ccSet.add(email.toLowerCase().trim());
+      }
+    });
+  }
+
+  // 5. Optional management CC override from environment
   if (process.env.MANAGEMENT_CC_EMAILS) {
     process.env.MANAGEMENT_CC_EMAILS.split(',')
       .map((e) => e.trim().toLowerCase())
@@ -131,11 +400,10 @@ export async function resolveDealEmailRecipients(
     ccSet.delete(aoEmail);
   }
 
-  // 5. Construct BCC List (Hardcoded for manual QA testing)
-  // const bccList = getAppsDevBccEmails();
-  const bccList = [
-    'jdoremon@ics.com.ph', // Hardcoded QA BCC email(s) - modify as needed
-  ];
+  // 6. Construct BCC List (IT Team / configured Live BCC)
+  const bccList = activeConfig.liveBCCRecipients.length > 0
+    ? activeConfig.liveBCCRecipients
+    : getAppsDevBccEmails();
 
   const toList = aoEmail ? [aoEmail] : [];
   const ccList = Array.from(ccSet);
@@ -148,5 +416,7 @@ export async function resolveDealEmailRecipients(
     ccEmailList: ccList,
     bccEmailList: bccList,
     aoNickName: aoNickName || assignedAO,
+    isDevMode: false,
+    subjectPrefix: '',
   };
 }

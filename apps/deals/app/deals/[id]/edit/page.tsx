@@ -146,7 +146,7 @@ export default function EditDealPage() {
           itemDesc: '',
           qty: 1,
           currency: 'PHP',
-          totalAmt: 0,
+          totalAmt: '' as any,
         },
       ],
     },
@@ -442,34 +442,35 @@ export default function EditDealPage() {
       <form onSubmit={handleSubmit(handlePreSubmit)} className="space-y-6">
         {/* Section 1: Customer Account */}
         <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-border/50 pb-3">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-sky-600" />
-              <h2 className="font-bold text-sm text-foreground">1. Customer Information</h2>
-            </div>
-            {!isViewOnly && (
-              <button
-                type="button"
-                onClick={() => setIsCustomerModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/10 text-sky-600 hover:bg-sky-500/20 text-xs font-semibold rounded-lg border border-sky-500/30 transition"
-              >
-                <Search className="w-3.5 h-3.5" />
-                <span>Lookup in liveSearch</span>
-              </button>
-            )}
+          <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+            <Building2 className="w-4 h-4 text-sky-600" />
+            <h2 className="font-bold text-sm text-foreground">1. Customer Information</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-foreground mb-1">Customer / Account Name *</label>
-              <input
-                {...register('custName')}
-                disabled={isViewOnly}
-                placeholder=""
-                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
-                  errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
-                }`}
-              />
+              <div className="relative flex items-center">
+                <input
+                  {...register('custName')}
+                  disabled={isViewOnly}
+                  placeholder=""
+                  className={`w-full ${!isViewOnly ? 'pr-28' : ''} px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+                    errors.custName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                  }`}
+                />
+                {!isViewOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerModalOpen(true)}
+                    className="absolute right-1.5 px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/20 hover:border-sky-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer"
+                    title="Search CRM for customer name"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>liveSearch</span>
+                  </button>
+                )}
+              </div>
               {errors.custName && <p className="text-[11px] text-rose-500 mt-1">{errors.custName.message}</p>}
             </div>
 
@@ -608,7 +609,7 @@ export default function EditDealPage() {
               {...register('projectName')}
               disabled={isViewOnly}
               placeholder=""
-              className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 input-autocaps ${
+              className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 disabled:opacity-75 ${
                 errors.projectName ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
               }`}
             />
@@ -795,7 +796,7 @@ export default function EditDealPage() {
                     itemDesc: '',
                     qty: 1,
                     currency: 'PHP',
-                    totalAmt: 0,
+                    totalAmt: '' as any,
                   })
                 }
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 transition shadow-xs"
@@ -859,9 +860,6 @@ export default function EditDealPage() {
                     >
                       <option value="PHP">PHP</option>
                       <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="SGD">SGD</option>
-                      <option value="JPY">JPY</option>
                     </select>
                   </div>
                 </div>
@@ -1014,6 +1012,7 @@ export default function EditDealPage() {
         isOpen={isCustomerModalOpen}
         onClose={() => setIsCustomerModalOpen(false)}
         onSelectCustomer={handleSelectCustomer}
+        initialSearchTerm={watch('custName')}
       />
 
       {/* WTN Modal */}

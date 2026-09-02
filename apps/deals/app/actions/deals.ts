@@ -832,8 +832,9 @@ export async function createDeal(
       // 4. Target Table: deals_reg_notification (Skip if BU == 'BU6')
       const buVal = payload.BU || payload.bu;
       const aoVal = payload.AssignedAO || payload.assignedAO;
+      const brandVal = payload.brand || '';
       if (buVal !== 'BU6') {
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const currencyVal = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
         const { subject, message } = generateCreateDealEmail({
           dealID: nextDealID,
@@ -852,6 +853,8 @@ export async function createDeal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -863,7 +866,7 @@ export async function createDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1165,7 +1168,11 @@ export async function updateDeal(
           });
         }
 
-        const recipients = await resolveDealEmailRecipients(payload.AssignedAO, payload.BU);
+        const recipients = await resolveDealEmailRecipients(
+          payload.AssignedAO,
+          payload.BU,
+          normalizedBrand || payload.brand || ''
+        );
         const { subject, message } = generateUpdateDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1185,6 +1192,8 @@ export async function updateDeal(
           changes: changes,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1196,7 +1205,7 @@ export async function updateDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1333,7 +1342,8 @@ export async function saveLostDeal(
       const buVal = currentDeal.BU || '';
       if (buVal !== 'BU6') {
         const aoVal = currentDeal.AssignedAO || '';
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const brandVal = currentDeal.brand || '';
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const { subject, message } = generateLostDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1353,6 +1363,8 @@ export async function saveLostDeal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1364,7 +1376,7 @@ export async function saveLostDeal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,
@@ -1499,8 +1511,9 @@ export async function saveDealRenewal(
       // 4. Send Email Notification if requested and BU != 'BU6'
       const buVal = currentDeal.BU || 'BU5';
       const aoVal = currentDeal.AssignedAO || 'Unassigned';
+      const brandVal = currentDeal.brand || '';
       if (payload.toEmail !== false && buVal !== 'BU6') {
-        const recipients = await resolveDealEmailRecipients(aoVal, buVal);
+        const recipients = await resolveDealEmailRecipients(aoVal, buVal, brandVal);
         const { subject, message } = generateRenewDealEmail({
           dealID: dealID,
           dealRegID: currentDeal.dealRegID,
@@ -1518,6 +1531,8 @@ export async function saveDealRenewal(
           creatorAccount: domainAccount,
         });
 
+        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
         );
@@ -1529,7 +1544,7 @@ export async function saveDealRenewal(
           ) VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8, @P9)`,
           nextNotifId,
           domainAccount,
-          subject,
+          finalSubject,
           message,
           recipients.sendTo,
           recipients.sendCC,

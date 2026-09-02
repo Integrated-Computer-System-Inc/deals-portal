@@ -30,11 +30,9 @@ export default function FormattedAmountInput({
   ...props
 }: FormattedAmountInputProps) {
   const [displayValue, setDisplayValue] = useState<string>(() => {
-    if (value === undefined || value === null || value === '') return '';
+    if (value === undefined || value === null || value === '' || Number(value) === 0) return '';
     return formatNumberWithCommas(value);
   });
-
-  const isControlledRef = useRef(false);
 
   useEffect(() => {
     // Sync external value changes (e.g. form reset or pre-fill)
@@ -42,10 +40,15 @@ export default function FormattedAmountInput({
       setDisplayValue('');
       return;
     }
-    const currentNum = parseFloat(displayValue.replace(/,/g, ''));
     const propNum = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+    if (isNaN(propNum) || propNum === 0) {
+      if (displayValue === '') {
+        return;
+      }
+    }
+    const currentNum = parseFloat(displayValue.replace(/,/g, ''));
     if (isNaN(currentNum) || currentNum !== propNum) {
-      setDisplayValue(formatNumberWithCommas(value));
+      setDisplayValue(propNum === 0 ? '' : formatNumberWithCommas(value));
     }
   }, [value]);
 

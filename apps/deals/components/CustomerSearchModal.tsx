@@ -20,12 +20,14 @@ interface CustomerSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectCustomer: (customer: CustomerLookupResult) => void;
+  initialSearchTerm?: string;
 }
 
 export default function CustomerSearchModal({
   isOpen,
   onClose,
   onSelectCustomer,
+  initialSearchTerm,
 }: CustomerSearchModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,6 +45,24 @@ export default function CustomerSearchModal({
 
   // Race condition counter: guarantees only the latest query updates state
   const queryIdRef = useRef(0);
+
+  // Initialize / reset state when modal opens or closes
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchTerm('');
+      setSelectedCustomer(null);
+      setAttachCustomerID(true);
+      setIsManualEntry(false);
+      setResults([]);
+      setLoading(false);
+      queryIdRef.current++;
+      return;
+    }
+
+    if (initialSearchTerm) {
+      setSearchTerm(initialSearchTerm);
+    }
+  }, [isOpen, initialSearchTerm]);
 
   // Dedicated execute search function
   const executeSearch = async (term: string) => {
@@ -99,16 +119,7 @@ export default function CustomerSearchModal({
 
   // Debounced auto-search when typing
   useEffect(() => {
-    if (!isOpen) {
-      setSearchTerm('');
-      setSelectedCustomer(null);
-      setAttachCustomerID(true);
-      setIsManualEntry(false);
-      setResults([]);
-      setLoading(false);
-      queryIdRef.current++;
-      return;
-    }
+    if (!isOpen) return;
 
     const trimmed = searchTerm.trim();
     if (trimmed.length < 2) {

@@ -15,6 +15,7 @@ import {
   PlusCircle,
   BarChart2,
   Users,
+  Mail,
   LogOut,
   PanelLeftClose,
   PanelLeft,
@@ -84,6 +85,7 @@ export default function Sidebar() {
     router.prefetch('/reports');
     if (userRole === 'ITadmin') {
       router.prefetch('/admin/users');
+      router.prefetch('/admin/emails');
     }
     if (!isViewOnly) {
       router.prefetch('/deals/new');
@@ -297,28 +299,7 @@ export default function Sidebar() {
               </AppSidebar.Item>
             </div>
 
-            {/* 4. User Management (IT Admin Only) */}
-            {userRole === 'ITadmin' && (
-              <div className="w-full flex justify-center">
-                <AppSidebar.Item
-                  href="/admin/users"
-                  icon={<Users size={18} />}
-                  active={pathname === '/admin/users' || pathname.startsWith('/admin/users/')}
-                  onClick={() => {
-                    setMobileOpen(false);
-                    setIsDealsSubmenuOpen(false);
-                    try {
-                      sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
-                    } catch {}
-                  }}
-                  tooltipPlacement="right"
-                >
-                  User Management
-                </AppSidebar.Item>
-              </div>
-            )}
-
-            {/* 5. Register Deal */}
+            {/* 4. Register Deal */}
             {!isViewOnly && (
               <div className="w-full flex justify-center">
                 <AppSidebar.Item
@@ -339,6 +320,54 @@ export default function Sidebar() {
               </div>
             )}
           </AppSidebar.Group>
+
+          {/* Admin Group (IT Admin Only) */}
+          {userRole === 'ITadmin' && (
+            <div className="w-full mt-3 pt-3 border-t border-border/50">
+              <AppSidebar.Group className="w-full flex flex-col items-center space-y-1">
+                {!collapsed && (
+                  <div className="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
+                    Admin
+                  </div>
+                )}
+                <div className="w-full flex justify-center">
+                  <AppSidebar.Item
+                    href="/admin/users"
+                    icon={<Users size={18} />}
+                    active={pathname === '/admin/users' || pathname.startsWith('/admin/users/')}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      setIsDealsSubmenuOpen(false);
+                      try {
+                        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                      } catch {}
+                    }}
+                    tooltipPlacement="right"
+                  >
+                    User Management
+                  </AppSidebar.Item>
+                </div>
+
+                <div className="w-full flex justify-center">
+                  <AppSidebar.Item
+                    href="/admin/emails"
+                    icon={<Mail size={18} />}
+                    active={pathname === '/admin/emails' || pathname.startsWith('/admin/emails/')}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      setIsDealsSubmenuOpen(false);
+                      try {
+                        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                      } catch {}
+                    }}
+                    tooltipPlacement="right"
+                  >
+                    Email Configuration
+                  </AppSidebar.Item>
+                </div>
+              </AppSidebar.Group>
+            </div>
+          )}
         </AppSidebar.Content>
 
         {/* Sticky User Footer */}

@@ -88,7 +88,92 @@ export async function runUserTableMigration(): Promise<void> {
 
     console.log('[DB Migration] Users table migration completed (AssignedBU + AssignedBrand).');
   } catch (err) {
-    // Non-fatal — app still runs, but log prominently
     console.error('[DB Migration] Failed to run Users table migration:', err);
   }
 }
+
+let emailConfigMigrationRan = false;
+
+/**
+ * Idempotent migration: creates dbo.app_email_config if it doesn't exist yet
+ * and seeds initial default configuration.
+ */
+export async function runEmailConfigMigration(): Promise<void> {
+  if (emailConfigMigrationRan) return;
+  emailConfigMigrationRan = true;
+
+  try {
+    // 1. Create app_email_config table if not existing
+    await prisma.$executeRawUnsafe(`
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'app_email_config'
+      )
+      BEGIN
+        CREATE TABLE [dbo].[app_email_config] (
+          [id] INT NOT NULL PRIMARY KEY,
+          [mode] NVARCHAR(20) NOT NULL DEFAULT 'DEV',
+          [devRecipients] NVARCHAR(MAX) NULL,
+          [devCCRecipients] NVARCHAR(MAX) NULL,
+          [devBCCRecipients] NVARCHAR(MAX) NULL,
+          [liveCCRecipients] NVARCHAR(MAX) NULL,
+          [liveBCCRecipients] NVARCHAR(MAX) NULL,
+          [includeBuHead] BIT NOT NULL DEFAULT 1,
+          [includeAdminAndAA] BIT NOT NULL DEFAULT 1,
+          [includeBrandPm] BIT NOT NULL DEFAULT 1,
+          [updatedBy] NVARCHAR(200) NULL,
+          [updatedAt] DATETIME NULL
+        );
+      END
+    `);
+
+    // 2. Add devCCRecipients, devBCCRecipients, and includeBrandPm columns if table already existed
+    await prisma.$executeRawUnsafe(`
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'app_email_config' AND COLUMN_NAME = 'devCCRecipients'
+      )
+      ALTER TABLE [dbo].[app_email_config] ADD [devCCRecipients] NVARCHAR(MAX) NULL;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'app_email_config' AND COLUMN_NAME = 'devBCCRecipients'
+      )
+      ALTER TABLE [dbo].[app_email_config] ADD [devBCCRecipients] NVARCHAR(MAX) NULL;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'app_email_config' AND COLUMN_NAME = 'includeBrandPm'
+      )
+      ALTER TABLE [dbo].[app_email_config] ADD [includeBrandPm] BIT NOT NULL DEFAULT 1;
+    `);
+
+    // 3. Seed initial default row if table is empty
+    await prisma.$executeRawUnsafe(`
+      IF NOT EXISTS (SELECT 1 FROM [dbo].[app_email_config] WHERE [id] = 1)
+      BEGIN
+        INSERT INTO [dbo].[app_email_config] (
+          [id], [mode], [devRecipients], [devCCRecipients], [devBCCRecipients], [liveCCRecipients], [liveBCCRecipients], [includeBuHead], [includeAdminAndAA], [includeBrandPm], [updatedBy], [updatedAt]
+        ) VALUES (
+          1,
+          'DEV',
+          '[]',
+          '[]',
+          '[]',
+          '[]',
+          '[]',
+          1,
+          1,
+          1,
+          'SYSTEM',
+          GETDATE()
+        );
+      END
+    `);
+
+    console.log('[DB Migration] Email config table migration and seed completed.');
+  } catch (err) {
+    console.error('[DB Migration] Failed to run Email Config table migration:', err);
+  }
+}
+

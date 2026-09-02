@@ -72,8 +72,16 @@ jobs:
           Push-Location $targetDir
 
           try {
-              # 4. Install Dependencies
-              Write-Host "`n[3/5] Installing dependencies..." -ForegroundColor Yellow
+              # 4. Stop PM2 process before build to release file locks on Windows (.dll.node and .next)
+              Write-Host "`n[Pre-Deploy] Stopping PM2 deals-portal to release file locks..." -ForegroundColor Yellow
+              try {
+                  pm2 stop deals-portal 2>$null
+              } catch {
+                  Write-Host "  PM2 was not running."
+              }
+
+              # 5. Install Dependencies
+              Write-Host "`n[1/4] Installing dependencies..." -ForegroundColor Yellow
               npm install --no-audit --no-fund
               if ($LASTEXITCODE -ne 0) {
                   Write-Error "npm install failed."
@@ -81,8 +89,8 @@ jobs:
               }
               Write-Host "  [OK] Dependencies installed." -ForegroundColor Green
 
-              # 5. Generate Prisma Client
-              Write-Host "`n[4/5] Generating Prisma Database Client..." -ForegroundColor Yellow
+              # 6. Generate Prisma Client
+              Write-Host "`n[2/4] Generating Prisma Database Client..." -ForegroundColor Yellow
               npm run db:generate
               if ($LASTEXITCODE -ne 0) {
                   Write-Error "Prisma client generation failed."
@@ -90,8 +98,8 @@ jobs:
               }
               Write-Host "  [OK] Prisma Client generated." -ForegroundColor Green
 
-              # 6. Build Next.js Monorepo
-              Write-Host "`n[5/5] Building Next.js production bundle..." -ForegroundColor Yellow
+              # 7. Build Next.js Monorepo
+              Write-Host "`n[3/4] Building Next.js production bundle..." -ForegroundColor Yellow
               $env:NODE_ENV = "production"
               npm run build
               if ($LASTEXITCODE -ne 0) {
@@ -100,25 +108,25 @@ jobs:
               }
               Write-Host "  [OK] Next.js build completed." -ForegroundColor Green
 
-              # 7. Start or Reload PM2
-              Write-Host "`n[PM2] Reloading PM2 process..." -ForegroundColor Yellow
+              # 8. Start / Restart PM2
+              Write-Host "`n[4/4] Starting PM2 process..." -ForegroundColor Yellow
               $ecosystem = Join-Path $targetDir "ecosystem.config.js"
               
-              # Check if PM2 is running deals-portal
+              # Check if PM2 is already configured for deals-portal
               $pm2List = pm2 jlist | ConvertFrom-Json 2>$null
-              $isRunning = $false
+              $isRegistered = $false
               if ($pm2List) {
                   foreach ($app in $pm2List) {
                       if ($app.name -eq "deals-portal") {
-                          $isRunning = $true
+                          $isRegistered = $true
                           break
                       }
                   }
               }
 
-              if ($isRunning) {
-                  Write-Host "  Performing zero-downtime PM2 reload..." -ForegroundColor Cyan
-                  pm2 reload $ecosystem --env production
+              if ($isRegistered) {
+                  Write-Host "  Restarting PM2 process for deals-portal..." -ForegroundColor Cyan
+                  pm2 restart deals-portal --update-env
               } else {
                   Write-Host "  Starting PM2 process for deals-portal..." -ForegroundColor Cyan
                   pm2 start $ecosystem --env production
