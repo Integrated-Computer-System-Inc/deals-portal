@@ -224,9 +224,11 @@ export async function getScopedDeals(
     // Status filter (single or multi-select array)
     if (statusFilter) {
       if (Array.isArray(statusFilter) && statusFilter.length > 0 && !statusFilter.includes('ALL')) {
-        andConditions.push({ dealStatus: { in: statusFilter.map(String) } });
+        const statuses = statusFilter.map(String).flatMap((st) => (st === '4' || st === '3' ? ['4', '3'] : [st]));
+        andConditions.push({ dealStatus: { in: statuses } });
       } else if (typeof statusFilter === 'string' && statusFilter !== 'ALL' && statusFilter !== '') {
-        andConditions.push({ dealStatus: String(statusFilter) });
+        const statuses = statusFilter === '4' || statusFilter === '3' ? ['4', '3'] : [statusFilter];
+        andConditions.push({ dealStatus: { in: statuses } });
       }
     }
 
@@ -1013,8 +1015,8 @@ export async function updateDeal(
       );
 
       // 4. Target Table: DealResponse (SLA Tracking)
-      // If old status was 4 (Pending) and new status is 1 (Registered), calculate diffInDays(dtCreated, now()) and insert/update record
-      if (oldStatus === '4' && newStatus === '1') {
+      // If old status was 3 (Waiting) or 4 (legacy Pending) and new status is 1 (Registered), calculate diffInDays(dtCreated, now()) and insert/update record
+      if ((oldStatus === '3' || oldStatus === '4') && newStatus === '1') {
         const dtCreated = currentDeal.dtCreated || new Date();
         const diffInMs = Math.abs(now.getTime() - dtCreated.getTime());
         const diffInDays = Math.ceil(diffInMs / (1000 * 60 * 60 * 24));

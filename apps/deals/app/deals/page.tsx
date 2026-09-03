@@ -371,7 +371,7 @@ function DealsContent() {
   const metrics = useMemo(() => {
     const totalCount = deals.length;
     const registeredCount = deals.filter((d) => String(d.dealStatus) === '1' || d.dealStatus === 1).length;
-    const pendingCount = deals.filter((d) => String(d.dealStatus) === '4' || String(d.dealStatus) === '3' || d.dealStatus === 4).length;
+    const waitingCount = deals.filter((d) => String(d.dealStatus) === '3' || String(d.dealStatus) === '4' || d.dealStatus === 3 || d.dealStatus === 4).length;
     const lostCount = deals.filter((d) => String(d.dealStatus) === '7' || d.dealStatus === 7).length;
 
     const now = new Date().getTime();
@@ -383,7 +383,7 @@ function DealsContent() {
       return diffDays > 0 && diffDays <= 90;
     }).length;
 
-    return { totalCount, registeredCount, pendingCount, lostCount, expiringSoon };
+    return { totalCount, registeredCount, waitingCount, lostCount, expiringSoon };
   }, [deals]);
 
   const formatAmounts = (deal: DealHeaderRecord) => {

@@ -33,8 +33,7 @@ import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 const DEAL_STATUS_FILTERS = [
   { id: '1', label: 'Registered', color: 'bg-emerald-500', href: '/deals?status=1' },
   { id: 'expiring', label: 'Expiring', color: 'bg-amber-500', href: '/deals?expiry=expiring', isExpiry: true },
-  { id: '4', label: 'Pending', color: 'bg-amber-500', href: '/deals?status=4' },
-  { id: '3', label: 'Waiting', color: 'bg-sky-500', href: '/deals?status=3' },
+  { id: '4', label: 'Waiting', color: 'bg-sky-500', href: '/deals?status=4' },
   { id: '6', label: 'Won', color: 'bg-indigo-500', href: '/deals?status=6' },
   { id: '7', label: 'Lost', color: 'bg-rose-600', href: '/deals?status=7' },
   { id: '5', label: 'Expired', color: 'bg-zinc-400', href: '/deals?status=5' },

@@ -199,12 +199,24 @@ export type BusinessUnitCode = (typeof ACTIVE_BUSINESS_UNITS)[number];
 export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'muted' | 'accent' }> = {
   1: { label: 'Registered', variant: 'success' },
   2: { label: 'Declined', variant: 'danger' },
-  3: { label: 'Waiting', variant: 'info' },
-  4: { label: 'Pending', variant: 'warning' },
+  4: { label: 'Waiting', variant: 'info' },
   5: { label: 'Expired', variant: 'muted' },
   6: { label: 'Won', variant: 'accent' },
   7: { label: 'Lost', variant: 'danger' },
 };
+
+// Fallback for status 3 to Waiting (status 4)
+Object.defineProperty(DEAL_STATUS_MAP, 3, {
+  get: () => DEAL_STATUS_MAP[4],
+  enumerable: false,
+  configurable: true,
+});
+
+export function getDealStatusMeta(status: string | number | undefined | null) {
+  const num = typeof status === 'number' ? status : parseInt(String(status || '1'), 10) || 1;
+  const normalizedNum = num === 3 ? 4 : num;
+  return DEAL_STATUS_MAP[normalizedNum] || { label: `Status ${status}`, variant: 'default' as const };
+}
 
 export interface LiveSearchCustomerItem {
   is_active: string | null;

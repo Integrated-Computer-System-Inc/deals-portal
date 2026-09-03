@@ -116,7 +116,7 @@ export default function NewDealPage() {
       projectName: '',
       assignedAO: '',
       bu: '',
-      dealStatus: 4, // Pending
+      dealStatus: 4, // Waiting
       remarks: '',
       items: [
         {

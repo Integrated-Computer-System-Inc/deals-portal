@@ -354,6 +354,13 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
     setIsSigningIn(true);
     onMoodChange('idle');
 
+    // Clear any prior OAuth messages from local storage to prevent stale triggers
+    try {
+      localStorage.removeItem('deals_oauth_result');
+    } catch { }
+
+    const startAuthTime = Date.now();
+
     const width = 500;
     const height = 650;
     const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
@@ -443,12 +450,14 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
         window.removeEventListener('message', handleMessage);
         window.removeEventListener('storage', handleStorage);
         clearInterval(pollTimer);
-        clearInterval(sessionPollTimer);
         clearTimeout(timeoutTimer);
       };
 
-      const handleAuthResult = (data: { type: string; error?: string }) => {
+      const handleAuthResult = (data: { type: string; error?: string; t?: number }) => {
         if (isFinished) return;
+        // Ignore stale messages from previous attempts
+        if (data.t && data.t < startAuthTime) return;
+
         cleanupListeners();
         if (popup && !popup.closed) { try { popup.close(); } catch { } }
 
@@ -463,19 +472,21 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
         }
       };
 
-      // BroadcastChannel (most reliable cross-tab sync)
+      // BroadcastChannel (primary cross-tab sync)
       let bc: BroadcastChannel | null = null;
       try {
         bc = new BroadcastChannel('deals_google_auth');
         bc.onmessage = (event) => { if (event.data) handleAuthResult(event.data); };
       } catch { }
 
-      // localStorage fallback
+      // localStorage fallback (strictly validated against startAuthTime)
       const handleStorage = (event: StorageEvent) => {
         if (event.key === 'deals_oauth_result' && event.newValue) {
           try {
             const parsed = JSON.parse(event.newValue);
-            if (parsed?.msg) handleAuthResult(parsed.msg);
+            if (parsed?.msg && parsed?.t && parsed.t >= startAuthTime) {
+              handleAuthResult({ ...parsed.msg, t: parsed.t });
+            }
           } catch { }
         }
       };
@@ -490,18 +501,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
       };
       window.addEventListener('message', handleMessage);
 
-      // Session polling fallback
-      let isCheckingSession = false;
-      const sessionPollTimer = setInterval(async () => {
-        if (isFinished || isCheckingSession) return;
-        isCheckingSession = true;
-        try {
-          const session = await getSession();
-          if (session?.user) handleAuthResult({ type: 'OAUTH_SUCCESS' });
-        } catch { } finally { isCheckingSession = false; }
-      }, 1000);
-
-      // Popup-closed detection
+      // Popup-closed detection (user cancelled or closed popup before completing auth)
       const pollTimer = setInterval(() => {
         if (isFinished) return;
         let isClosed = false;
@@ -511,22 +511,15 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
           setIsSigningIn(false);
           onMoodChange('sad');
           setLocalAuthError({
-            title: 'Login Cancelled / Unauthorized Account',
-            description: 'Sign-in was cancelled or access was restricted. Deals Portal requires an authorized corporate @ics.com.ph account. If your account is unregistered, please contact IT Support.',
+            title: 'Login Cancelled / Interrupted',
+            description: 'Sign-in popup was closed before completing authentication. Please click Sign in with Google to try again.',
           });
-          getSession().then((session) => {
-            if (session?.user) { setIsSigningIn(false); onAuthSuccess(); }
-          }).catch(() => {});
         }
-      }, 60);
+      }, 100);
 
       // Timeout safety net
-      const timeoutTimer = setTimeout(async () => {
+      const timeoutTimer = setTimeout(() => {
         if (isFinished) return;
-        try {
-          const session = await getSession();
-          if (session?.user) { handleAuthResult({ type: 'OAUTH_SUCCESS' }); return; }
-        } catch { }
         cleanupListeners();
         if (popup && !popup.closed) { try { popup.close(); } catch { } }
         setIsSigningIn(false);
@@ -659,7 +652,9 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
       if (isPopup) {
         setIsInsidePopup(true);
         const error = searchParams?.get('error');
-        const msg = error ? { type: 'OAUTH_ERROR', error } : { type: 'OAUTH_SUCCESS' };
+        const msg = error
+          ? { type: 'OAUTH_ERROR', error, t: Date.now() }
+          : { type: 'OAUTH_SUCCESS', t: Date.now() };
 
         try {
           const bc = new BroadcastChannel('deals_google_auth');
@@ -688,7 +683,16 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
     router.prefetch('/deals');
     router.prefetch('/reports');
     router.prefetch('/deals/new');
-  }, [router]);
+
+    // If user is already authenticated when visiting /login directly, redirect to dashboard
+    if (typeof window !== 'undefined' && !isInsidePopup) {
+      getSession().then((session) => {
+        if (session?.user) {
+          router.replace('/dashboard');
+        }
+      }).catch(() => {});
+    }
+  }, [router, isInsidePopup]);
 
   const [hasLoggedIn, setHasLoggedIn] = useState(false);
 

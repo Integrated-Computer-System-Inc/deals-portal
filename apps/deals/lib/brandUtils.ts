@@ -289,9 +289,9 @@ export interface BrandDistributionItem {
 /**
  * Categorizes a deal into Approved, Waiting, Lost, and Active status buckets:
  * - Approved: Status 1 (Registered) & Status 6 (Won)
- * - Waiting: Status 3 (Waiting) & Status 4 (Pending)
+ * - Waiting: Status 3 (Waiting) & legacy Status 4
  * - Lost: Status 7 (Lost), Status 8 (Cancelled), or deals with lostInfo.reason
- * - Active: Total unexpired operational pipeline deals across statuses 1, 3, 4, 6
+ * - Active: Total unexpired operational pipeline deals across statuses 1, 3, 6 (and legacy 4)
  */
 export function categorizeDealStatus(deal: DealHeaderRecord) {
   const statusStr = String(deal.dealStatus ?? '1').trim();
@@ -317,7 +317,7 @@ export function categorizeDealStatus(deal: DealHeaderRecord) {
     statusStr === '7' ||
     statusStr === '8' ||
     Boolean(deal.lostInfo && deal.lostInfo.reason);
-  // Active is any non-expired operational deal in Registered, Waiting, Pending, or Won
+  // Active is any non-expired operational deal in Registered, Waiting, or Won
   const isActive = (isApproved || isWaiting) && !isExpired;
 
   return { isApproved, isWaiting, isLost, isActive, isExpired };
