@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,7 +9,7 @@ import { z } from 'zod';
 import Link from 'next/link';
 import { message } from 'antd';
 import { createDeal } from '../../actions/deals';
-import { useCreateDealMutation } from '@/hooks/useDealsQuery';
+import { useCreateDealMutation, useDealQuery } from '@/hooks/useDealsQuery';
 import { normalizeBusinessUnit } from '@/lib/searchUtils';
 import {
   ACTIVE_BUSINESS_UNITS,
@@ -49,6 +49,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Calendar,
+  Link2,
+  ArrowRight,
 } from 'lucide-react';
 
 const dealItemSchema = z.object({
@@ -76,8 +78,15 @@ const createDealSchema = z.object({
 
 type CreateDealFormData = z.infer<typeof createDealSchema>;
 
-export default function NewDealPage() {
+function NewDealContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const copyFromParam = searchParams?.get('copyFrom');
+  const copyFromId = copyFromParam ? Number(copyFromParam) : null;
+  const { data: sourceDeal } = useDealQuery(copyFromId, Boolean(copyFromId));
+  const [hasPrefilled, setHasPrefilled] = useState(false);
+  const dealRegInputRef = useRef<HTMLInputElement | null>(null);
+
   const { data: session } = useSession();
   const createMutation = useCreateDealMutation();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -139,6 +148,49 @@ export default function NewDealPage() {
   const watchStatus = watch('dealStatus');
   const watchItems = watch('items') || [];
   const watchBu = watch('bu');
+
+  // Pre-fill fields if cloned from an existing deal (e.g., reached 3 renewals)
+  useEffect(() => {
+    if (sourceDeal && !hasPrefilled) {
+      const itemsPrefill = (sourceDeal.items && sourceDeal.items.length > 0)
+        ? sourceDeal.items.map((it: any) => ({
+            itemDesc: it.itemDesc || '',
+            qty: Number(it.qty) || 1,
+            currency: it.currency || 'PHP',
+            totalAmt: Number(it.totalAmt) || 0,
+          }))
+        : [
+            {
+              itemDesc: '',
+              qty: 1,
+              currency: 'PHP',
+              totalAmt: '' as any,
+            },
+          ];
+
+      setValue('brand', sourceDeal.brand || '', { shouldValidate: true });
+      setValue('customerID', sourceDeal.customerID ? String(sourceDeal.customerID) : '');
+      setValue('custName', sourceDeal.custName || '', { shouldValidate: true });
+      setValue('projectName', sourceDeal.ProjectName || sourceDeal.projectName || '', { shouldValidate: true });
+      setValue('assignedAO', sourceDeal.AssignedAO || sourceDeal.assignedAO || '', { shouldValidate: true });
+      setValue('bu', sourceDeal.BU || sourceDeal.bu || '', { shouldValidate: true });
+      setValue(
+        'remarks',
+        sourceDeal.remarks
+          ? `Renewal replacement from Deal #${sourceDeal.dealRegID || sourceDeal.dealID}. Previous remarks: ${sourceDeal.remarks}`
+          : `Renewal replacement from Deal #${sourceDeal.dealRegID || sourceDeal.dealID}`,
+        { shouldValidate: true }
+      );
+      setValue('dealStatus', 4); // Default status 4 (Waiting)
+      setValue('items', itemsPrefill);
+      setHasPrefilled(true);
+
+      // Auto-focus the Deal Registration ID input
+      setTimeout(() => {
+        dealRegInputRef.current?.focus();
+      }, 150);
+    }
+  }, [sourceDeal, hasPrefilled, setValue]);
 
   const dynamicBuOptions = useMemo(() => {
     const set = new Set<string>([...ALL_BUSINESS_UNITS]);
@@ -260,6 +312,7 @@ export default function NewDealPage() {
           dealStatus: data.dealStatus,
           remarks: data.remarks,
           items: data.items,
+          previousDealID: copyFromId || undefined,
         }
       );
 
@@ -292,14 +345,38 @@ export default function NewDealPage() {
           </Link>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
-              Register New Deal
+              {copyFromId ? 'Register New Deal (Renewal Replacement)' : 'Register New Deal'}
             </h1>
             <p className="text-xs text-muted">
-              Fill in customer account, project scope, validity timeline, and line items.
+              {copyFromId
+                ? 'Pre-populated from previous deal. Enter the new Deal Registration ID to proceed.'
+                : 'Fill in customer account, project scope, validity timeline, and line items.'}
             </p>
           </div>
         </div>
       </div>
+
+      {/* Linked Deal Succession Banner */}
+      {copyFromId && (
+        <div className="p-4 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-start gap-3.5 shadow-xs text-xs">
+          <div className="p-2 rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0">
+            <Link2 className="w-4 h-4" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-foreground">
+                Creating New Deal (Renewal Replacement)
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-700 dark:text-sky-300 font-mono font-bold text-[11px]">
+                Predecessor: #{sourceDeal?.dealRegID || copyFromId}
+              </span>
+            </div>
+            <p className="text-muted leading-relaxed">
+              Customer info, brand, business unit, assigned AE, and product line items have been copied from the previous deal. Provide a new <strong>Deal Registration ID</strong> to finalize registration.
+            </p>
+          </div>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-600 rounded-xl text-xs font-medium flex items-center gap-2">
@@ -308,7 +385,40 @@ export default function NewDealPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* If predecessor deal already has a successor deal, block duplicate creation */}
+      {sourceDeal?.nextDeal ? (
+        <AppCard className="p-8 bg-card-bg border border-amber-500/30 rounded-2xl shadow-xs space-y-5 text-center max-w-2xl mx-auto my-8">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-foreground">
+              New Deal Already Registered
+            </h2>
+            <p className="text-xs sm:text-sm text-muted max-w-lg mx-auto leading-relaxed">
+              Deal #{sourceDeal.dealRegID || copyFromId} has already been renewed into successor deal{' '}
+              <strong className="text-foreground font-mono">#{sourceDeal.nextDeal.dealRegID || sourceDeal.nextDeal.dealID}</strong>.
+              A predecessor deal can only be linked to a single new deal.
+            </p>
+          </div>
+          <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+            <Link
+              href={`/deals/${sourceDeal.nextDeal.dealID}`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
+            >
+              <span>View New Deal (#{sourceDeal.nextDeal.dealRegID || sourceDeal.nextDeal.dealID})</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href={`/deals/${copyFromId}`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral hover:bg-neutral/80 text-foreground border border-border text-xs font-semibold rounded-xl shadow-xs transition"
+            >
+              <span>Back to Previous Deal</span>
+            </Link>
+          </div>
+        </AppCard>
+      ) : (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Section 1: Customer Account */}
         <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center gap-2 border-b border-border/50 pb-3">
@@ -436,13 +546,23 @@ export default function NewDealPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Deal Registration ID *</label>
-              <input
-                {...register('dealRegID')}
-                placeholder=""
-                className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
-                  errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
-                }`}
-              />
+              {(() => {
+                const { ref: formRef, ...rest } = register('dealRegID');
+                return (
+                  <input
+                    {...rest}
+                    ref={(e) => {
+                      formRef(e);
+                      dealRegInputRef.current = e;
+                    }}
+                    autoFocus={Boolean(copyFromId)}
+                    placeholder={copyFromId ? 'Enter new Deal Registration ID...' : ''}
+                    className={`w-full px-3.5 py-2.5 bg-background border rounded-xl text-sm font-mono font-medium text-foreground focus:outline-none focus:ring-2 input-autocaps ${
+                      errors.dealRegID ? '!border-rose-500 !ring-2 !ring-rose-500/30 !bg-rose-500/5' : 'border-border focus:ring-primary/20'
+                    }`}
+                  />
+                );
+              })()}
               {errors.dealRegID && <p className="text-[11px] text-rose-500 mt-1">{errors.dealRegID.message}</p>}
             </div>
 
@@ -696,6 +816,7 @@ export default function NewDealPage() {
           </button>
         </div>
       </form>
+      )}
 
       {/* Customer LiveSearch Modal */}
       <CustomerSearchModal
@@ -784,5 +905,19 @@ export default function NewDealPage() {
         </AppModalFooter>
       </AppModal>
     </div>
+  );
+}
+
+export default function NewDealPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <NewDealContent />
+    </Suspense>
   );
 }

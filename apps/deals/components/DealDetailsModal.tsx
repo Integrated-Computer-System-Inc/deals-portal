@@ -18,10 +18,15 @@ import {
   History,
   Clock,
   DollarSign,
+  AlertTriangle,
+  Plus,
+  ArrowRight,
 } from 'lucide-react';
 import { useDealQuery } from '@/hooks/useDealsQuery';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
 import RenewalModal from './RenewalModal';
+import RenewalCapModal from './RenewalCapModal';
+import LinkedDealSection from './LinkedDealSection';
 import DealLoadingScreen from './DealLoadingScreen';
 import {
   AppModal,
@@ -52,6 +57,7 @@ export default function DealDetailsModal({
   const canEdit = role === 'ITadmin' || role === 'admin' || role === 'aa';
 
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [isRenewalCapModalOpen, setIsRenewalCapModalOpen] = useState(false);
   const [selectedRenewalForEdit, setSelectedRenewalForEdit] = useState<any>(null);
   const [showAllRenewals, setShowAllRenewals] = useState(false);
   const { data: deal = null, isLoading: loading } = useDealQuery(dealID, isOpen);
@@ -79,6 +85,8 @@ export default function DealDetailsModal({
     : 0;
 
   const hasRenewals = Boolean(sortedRenewals.length > 0);
+  const renewalCount = sortedRenewals.length;
+  const isCapReached = renewalCount >= 3;
   const latestRenewal = sortedRenewals.length > 0 ? sortedRenewals[0] : null;
   const canRenew = (daysRemaining <= 90 || daysRemaining < 0) && statusNum !== 2 && statusNum !== 7 && statusNum !== 8;
 
@@ -271,13 +279,35 @@ export default function DealDetailsModal({
                     <span>Renewal History & Extension Log ({deal.renewals!.length})</span>
                   </div>
                   {canRenew && (
-                    <button
-                      type="button"
-                      onClick={() => setIsRenewalModalOpen(true)}
-                      className="text-[11px] font-bold text-emerald-600 hover:underline"
-                    >
-                      + Extend Validity
-                    </button>
+                    isCapReached ? (
+                      deal.nextDeal ? (
+                        <Link
+                          href={`/deals/${deal.nextDeal.dealID}`}
+                          onClick={onClose}
+                          className="text-[11px] font-bold text-sky-600 hover:text-sky-700 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>View New Deal (#{deal.nextDeal.dealRegID || deal.nextDeal.dealID})</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsRenewalCapModalOpen(true)}
+                          className="text-[11px] font-bold text-amber-600 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>Cap Reached (3/3) - Create New Deal</span>
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsRenewalModalOpen(true)}
+                        className="text-[11px] font-bold text-emerald-600 hover:underline"
+                      >
+                        + Extend Validity
+                      </button>
+                    )
                   )}
                 </div>
 
@@ -391,6 +421,9 @@ export default function DealDetailsModal({
                 </div>
               </div>
             )}
+
+            {/* Linked Previous Deal & Historical Extensions */}
+            <LinkedDealSection deal={deal} />
 
             {/* Remarks if present */}
             {deal.remarks && (
@@ -512,14 +545,49 @@ export default function DealDetailsModal({
 
         <div className="flex items-center gap-2">
           {canEdit && deal && canRenew && (
-            <button
-              type="button"
-              onClick={() => setIsRenewalModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition shadow-xs cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Renew Deal</span>
-            </button>
+            isCapReached ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsRenewalCapModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-xl border border-amber-500/30 transition shadow-xs cursor-pointer"
+                  title="3-renewal limit reached"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Max Renewals (3/3)</span>
+                </button>
+                {deal.nextDeal ? (
+                  <Link
+                    href={`/deals/${deal.nextDeal.dealID}`}
+                    onClick={onClose}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
+                    title="View existing linked successor deal"
+                  >
+                    <span>View New Deal (#{deal.nextDeal.dealRegID || deal.nextDeal.dealID})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/deals/new?copyFrom=${deal.dealID}`}
+                    onClick={onClose}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-xs transition"
+                    title="Create new linked deal"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create New Deal</span>
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsRenewalModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition shadow-xs cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Renew Deal</span>
+              </button>
+            )
           )}
 
           {canEdit && deal && (
@@ -533,23 +601,38 @@ export default function DealDetailsModal({
       </AppModalFooter>
 
       {deal && (
-        <RenewalModal
-          dealID={deal.dealID}
-          dealRegID={deal.dealRegID || String(deal.dealID)}
-          custName={deal.custName}
-          brand={deal.brand}
-          currentExpDate={expDate}
-          isOpen={isRenewalModalOpen}
-          editingRenewal={selectedRenewalForEdit}
-          onClose={() => {
-            setIsRenewalModalOpen(false);
-            setSelectedRenewalForEdit(null);
-          }}
-          onSuccess={() => {
-            setIsRenewalModalOpen(false);
-            setSelectedRenewalForEdit(null);
-          }}
-        />
+        <>
+          <RenewalModal
+            dealID={deal.dealID}
+            dealRegID={deal.dealRegID || String(deal.dealID)}
+            custName={deal.custName}
+            brand={deal.brand}
+            currentExpDate={expDate}
+            isOpen={isRenewalModalOpen}
+            editingRenewal={selectedRenewalForEdit}
+            onClose={() => {
+              setIsRenewalModalOpen(false);
+              setSelectedRenewalForEdit(null);
+            }}
+            onSuccess={() => {
+              setIsRenewalModalOpen(false);
+              setSelectedRenewalForEdit(null);
+            }}
+          />
+
+          <RenewalCapModal
+            dealID={deal.dealID}
+            dealRegID={deal.dealRegID || String(deal.dealID)}
+            custName={deal.custName}
+            brand={deal.brand}
+            bu={deal.bu || deal.BU}
+            assignedAO={deal.assignedAO || deal.AssignedAO}
+            currentExpDate={expDate}
+            renewalsCount={renewalCount}
+            isOpen={isRenewalCapModalOpen}
+            onClose={() => setIsRenewalCapModalOpen(false)}
+          />
+        </>
       )}
     </AppModal>
   );

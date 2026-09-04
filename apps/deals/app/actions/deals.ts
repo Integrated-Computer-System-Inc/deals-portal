@@ -14,6 +14,7 @@ import {
   DealRenewalRecord,
   CurrencyTotals,
   getDealStatusMeta,
+  LinkedDealSummary,
 } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveDealEmailRecipients, processNotifications } from '@/lib/notifications';
@@ -698,6 +699,82 @@ export async function getDealById(
         return timeB - timeA;
       });
 
+    // Check if this deal has a predecessor (previous deal) or successor (next deal)
+    let previousDeal: LinkedDealSummary | null = null;
+    let nextDeal: LinkedDealSummary | null = null;
+
+    try {
+      // 1. Predecessor (This deal was created as a renewal succession from an older deal)
+      const prevLinkResult = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT [previousDealID] FROM [dbo].[DealLinks] WHERE [dealID] = @P1`,
+        id
+      );
+      if (prevLinkResult && prevLinkResult.length > 0) {
+        const prevId = Number(prevLinkResult[0].previousDealID);
+        const prevDealRaw = await prisma.dealHeader.findUnique({
+          where: { dealID: prevId },
+          include: {
+            Renewals: {
+              orderBy: { dtCreated: 'desc' },
+            },
+          },
+        });
+        if (prevDealRaw) {
+          const prevRenewals: DealRenewalRecord[] = (prevDealRaw.Renewals || []).map((r: any) => ({
+            renewalID: r.renewalID,
+            dealID: r.dealID,
+            dtRenewal: r.dtRenewal,
+            rexpDt: r.rexpDt,
+            remarks: r.remarks,
+            dtCreated: r.dtCreated,
+            dtUpdated: r.dtUpdated || null,
+          }));
+          previousDeal = {
+            dealID: prevDealRaw.dealID,
+            dealRegID: prevDealRaw.dealRegID,
+            custName: prevDealRaw.custName,
+            ProjectName: prevDealRaw.ProjectName,
+            brand: prevDealRaw.brand,
+            bu: prevDealRaw.BU,
+            dealStatus: prevDealRaw.dealStatus,
+            expDt: prevDealRaw.expDt,
+            dtRegistered: prevDealRaw.dtRegistered,
+            renewalsCount: prevRenewals.length,
+            renewals: prevRenewals,
+          };
+        }
+      }
+
+      // 2. Successor (An older deal was replaced by a newer deal)
+      const nextLinkResult = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT [dealID] FROM [dbo].[DealLinks] WHERE [previousDealID] = @P1`,
+        id
+      );
+      if (nextLinkResult && nextLinkResult.length > 0) {
+        const nextId = Number(nextLinkResult[0].dealID);
+        const nextDealRaw = await prisma.dealHeader.findUnique({
+          where: { dealID: nextId },
+        });
+        if (nextDealRaw) {
+          nextDeal = {
+            dealID: nextDealRaw.dealID,
+            dealRegID: nextDealRaw.dealRegID,
+            custName: nextDealRaw.custName,
+            ProjectName: nextDealRaw.ProjectName,
+            brand: nextDealRaw.brand,
+            bu: nextDealRaw.BU,
+            dealStatus: nextDealRaw.dealStatus,
+            expDt: nextDealRaw.expDt,
+            dtRegistered: nextDealRaw.dtRegistered,
+            renewalsCount: 0,
+          };
+        }
+      }
+    } catch (linkErr: any) {
+      // Non-blocking catch if DealLinks table does not exist yet
+      console.warn('[getDealById] DealLinks query warning:', linkErr?.message || linkErr);
+    }
+
     const formatted: DealHeaderRecord = {
       dealID: deal.dealID,
       dtRegistered: deal.dtRegistered || new Date(),
@@ -753,6 +830,8 @@ export async function getDealById(
       latestRenewal: sortedRenewals.length > 0 ? sortedRenewals[0] : null,
       aggregatedTotals: totalsByCurrency,
       aoAvatar: resolveAOAvatar(deal.AssignedAO, await getAOAvatarMap()),
+      previousDeal,
+      nextDeal,
     };
 
     const cacheKey = `deal_detail:${id}`;
@@ -876,7 +955,68 @@ export async function createDeal(
         whenToNotify
       );
 
-      // 4. Target Table: deals_reg_notification (Skip if BU == 'BU6')
+      // 4. Handle previous deal linkage if provided
+      const previousDealID = Number(payload.previousDealID);
+      let previousDealRecord: any = null;
+      if (previousDealID && !isNaN(previousDealID) && previousDealID > 0) {
+        previousDealRecord = await tx.dealHeader.findUnique({
+          where: { dealID: previousDealID },
+        });
+
+        if (previousDealRecord) {
+          // Check if previous deal has already been succeeded by an existing new deal
+          try {
+            const existingSuccessor = await tx.$queryRawUnsafe<any[]>(
+              `SELECT [dealID] FROM [dbo].[DealLinks] WHERE [previousDealID] = @P1`,
+              previousDealID
+            );
+            if (existingSuccessor && existingSuccessor.length > 0) {
+              throw new Error(
+                `Deal #${previousDealRecord.dealRegID || previousDealID} has already been renewed into Deal #${existingSuccessor[0].dealID}. Duplicate renewals are not permitted.`
+              );
+            }
+          } catch (checkErr: any) {
+            if (checkErr.message?.includes('Duplicate renewals')) {
+              throw checkErr;
+            }
+          }
+
+          try {
+            const maxLinkIdResult = await tx.$queryRawUnsafe<any[]>(
+              `SELECT ISNULL(MAX(id), 0) AS maxId FROM [dbo].[DealLinks]`
+            );
+            const nextLinkId = Number(maxLinkIdResult?.[0]?.maxId || 0) + 1;
+            await tx.$executeRawUnsafe(
+              `INSERT INTO [dbo].[DealLinks] ([id], [dealID], [previousDealID], [dtCreated]) VALUES (@P1, @P2, @P3, @P4)`,
+              nextLinkId,
+              nextDealID,
+              previousDealID,
+              now
+            );
+          } catch (linkErr: any) {
+            console.warn('[createDeal] DealLinks insert warning:', linkErr?.message || linkErr);
+          }
+
+          // Audit log on prior deal: recorded as replaced by the new deal
+          await logActivity({
+            dealID: previousDealID,
+            dealRegID: previousDealRecord.dealRegID,
+            custName: previousDealRecord.custName,
+            projectName: previousDealRecord.ProjectName,
+            action: 'RENEWAL_LINK',
+            fieldName: 'Deal Succession',
+            oldValue: null,
+            newValue: `Succeeded by new Deal #${dealRegID || nextDealID}`,
+            remarks: `Expired deal renewed into new registration #${dealRegID || nextDealID}`,
+            performedBy: domainAccount,
+            performedByName: userName,
+            performedByRole: userRole,
+            impersonatedBy: (session?.user as any)?.isImpersonating ? (session?.user as any)?.originalAdminEmail : null,
+          }, tx);
+        }
+      }
+
+      // 5. Target Table: deals_reg_notification (Skip if BU == 'BU6')
       const buVal = payload.BU || payload.bu;
       const aoVal = payload.AssignedAO || payload.assignedAO;
       const brandVal = payload.brand || '';
@@ -900,7 +1040,10 @@ export async function createDeal(
           creatorAccount: domainAccount,
         });
 
-        const finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+        let finalSubject = recipients.subjectPrefix ? `${recipients.subjectPrefix}${subject}` : subject;
+        if (previousDealRecord) {
+          finalSubject = `${finalSubject} (Renewal Succession of #${previousDealRecord.dealRegID || previousDealID})`;
+        }
 
         const maxNotifResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(email_id), 0) AS maxId FROM [dbo].[deals_reg_notification]`
@@ -923,7 +1066,7 @@ export async function createDeal(
         );
       }
 
-      // 5. Target Table: activity_logs (Audit Trail)
+      // 6. Target Table: activity_logs (Audit Trail)
       await logActivity({
         dealID: nextDealID,
         dealRegID: dealRegID,
@@ -933,7 +1076,9 @@ export async function createDeal(
         fieldName: 'Deal',
         oldValue: null,
         newValue: `Registered deal for ${payload.custName} (${normalizedBrand || payload.brand})`,
-        remarks: payload.remarks || 'New Deal Registration',
+        remarks: previousDealRecord
+          ? `New deal created as renewal replacement for Deal #${previousDealRecord.dealRegID || previousDealID}`
+          : payload.remarks || 'New Deal Registration',
         performedBy: domainAccount,
         performedByName: userName,
         performedByRole: userRole,
@@ -1616,6 +1761,14 @@ export async function saveDealRenewal(
           },
         });
       } else {
+        // Enforce 3-Renewal Limit Cap
+        const currentRenewalsCount = await tx.dealRenewal.count({
+          where: { dealID: dealID },
+        });
+        if (currentRenewalsCount >= 3) {
+          throw new Error('Renewal limit reached: A deal can be renewed a maximum of 3 times. Please create a new linked deal instead.');
+        }
+
         const maxRenewalResult = await tx.$queryRawUnsafe<any[]>(
           `SELECT ISNULL(MAX(renewalID), 0) AS maxId FROM [dbo].[DealRenewal]`
         );

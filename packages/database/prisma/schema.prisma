@@ -30,6 +30,8 @@ model DealHeader {
   DealResponse DealResponse?
   DealLost     DealLost?
   Renewals     DealRenewal[]
+  PreviousLink DealLinks?    @relation("DealLinks_Current")
+  NextLinks    DealLinks[]   @relation("DealLinks_Previous")
 
   @@index([AssignedAO, dtCreated])
   @@index([BU, dtCreated])
@@ -183,5 +185,19 @@ model ActivityLogs {
   @@index([action])
   @@index([performedBy])
   @@map("activity_logs")
+}
+
+model DealLinks {
+  id             Int       @id
+  dealID         Int       @unique
+  previousDealID Int
+  dtCreated      DateTime? @default(now()) @db.DateTime
+
+  CurrentDeal    DealHeader @relation("DealLinks_Current", fields: [dealID], references: [dealID], onDelete: Cascade)
+  PreviousDeal   DealHeader @relation("DealLinks_Previous", fields: [previousDealID], references: [dealID], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([dealID])
+  @@index([previousDealID])
+  @@map("DealLinks")
 }
 

@@ -25,6 +25,7 @@ export interface CreateDealPayload {
   custName: string;
   remarks?: string;
   toEmail?: boolean;
+  previousDealID?: number | null;
   items: DealItemInput[];
 }
 
@@ -148,6 +149,20 @@ export interface DealLostRecord {
   otherInformation?: string;
 }
 
+export interface LinkedDealSummary {
+  dealID: number;
+  dealRegID?: string | null;
+  custName?: string | null;
+  ProjectName?: string | null;
+  brand?: string | null;
+  bu?: string | null;
+  dealStatus?: string | number | null;
+  expDt?: Date | string | null;
+  dtRegistered?: Date | string | null;
+  renewalsCount: number;
+  renewals?: DealRenewalRecord[];
+}
+
 export interface DealHeaderRecord {
   dealID: number;
   dtRegistered: Date;
@@ -176,6 +191,8 @@ export interface DealHeaderRecord {
   latestRenewal?: DealRenewalRecord | null;
   aggregatedTotals?: CurrencyTotals;
   aoAvatar?: string | null;
+  previousDeal?: LinkedDealSummary | null;
+  nextDeal?: LinkedDealSummary | null;
 }
 
 export const ACTIVE_BUSINESS_UNITS = [
