@@ -13,6 +13,7 @@ import {
   X,
   Info,
   CheckCircle2,
+  ChevronDown,
 } from 'lucide-react';
 import { Inter, Outfit } from 'next/font/google';
 import { cn } from '@/components/utils/cn';
@@ -630,6 +631,16 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
 
 type AnimationStep = 'idle' | 'celebrating' | 'expanding' | 'loading';
 
+const DROMMAR_ACRONYM = [
+  { letter: 'D', word: 'Deal' },
+  { letter: 'R', word: 'Registration,' },
+  { letter: 'O', word: 'Operations,' },
+  { letter: 'M', word: 'Management &' },
+  { letter: 'M', word: 'Monitoring' },
+  { letter: 'A', word: 'Automation' },
+  { letter: 'R', word: 'Resource' },
+];
+
 function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -637,6 +648,7 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
   const [characterMood, setCharacterMood] = useState<'idle' | 'sad'>('idle');
   const [loadingStatus, setLoadingStatus] = useState<string>('Preparing your Deals Workspace...');
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
+  const [isAcronymOpen, setIsAcronymOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const [isInsidePopup, setIsInsidePopup] = useState(false);
@@ -811,16 +823,54 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
         ) : (
           <>
             {/* Brand header */}
-            <header className="flex items-center gap-2.5 w-max shrink-0">
-              <img
-                src="/api/icons/Sidebar_Logo.png"
-                alt="Deals Portal Logo"
-                className="w-8 h-8 rounded-xl object-contain shadow-xs"
-                onError={(e) => { (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png'; }}
-              />
-              <span className={`${outfit.className} text-lg md:text-xl font-bold text-[#1e1b18] tracking-tight`}>
-                Deals Portal
-              </span>
+            <header className="relative z-30 flex items-center w-max shrink-0">
+              <div
+                className="group relative flex items-center gap-2.5 cursor-pointer select-none"
+                onMouseEnter={() => setIsAcronymOpen(true)}
+                onMouseLeave={() => setIsAcronymOpen(false)}
+                onClick={() => setIsAcronymOpen((prev) => !prev)}
+                role="button"
+                tabIndex={0}
+                aria-label="DRÖMMAR System Acronym"
+              >
+                <img
+                  src="/api/icons/Sidebar_Logo.png"
+                  alt="DRÖMMAR Logo"
+                  className="w-8 h-8 rounded-xl object-contain shadow-xs transition-transform duration-200 group-hover:scale-105"
+                  onError={(e) => { (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png'; }}
+                />
+                <span className={`${outfit.className} text-xl md:text-2xl font-extrabold text-[#1e1b18] tracking-tight group-hover:text-purple-700 transition-colors duration-150`}>
+                  drömmar
+                </span>
+
+                {/* Floating Acronym Dropdown Popover on Hover */}
+                {isAcronymOpen && (
+                  <div
+                    className="absolute top-full left-0 mt-2 w-[240px] bg-white rounded-xl border border-zinc-200 shadow-lg p-3.5 text-left z-50 animate-in fade-in-0 zoom-in-95 duration-150"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="pb-2 mb-2.5 border-b border-zinc-100">
+                      <span className="text-xs font-bold tracking-wider text-zinc-900 uppercase">
+                        DRÖMMAR
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {DROMMAR_ACRONYM.map((item, idx) => (
+                        <div key={idx} className="flex items-baseline gap-2 text-xs">
+                          <span className="w-3.5 font-bold font-mono text-zinc-900 shrink-0">
+                            {item.letter}
+                          </span>
+                          <span className="text-zinc-300 select-none">–</span>
+                          <span className="text-zinc-700 font-medium">
+                            {item.word}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </header>
 
             {/* Mobile Gary Hero Banner — collapses on expanded/loading */}

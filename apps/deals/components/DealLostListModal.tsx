@@ -57,7 +57,6 @@ export default function DealLostListModal({
   const router = useRouter();
   const [searchInput, setSearchInput] = useState('');
   const [buFilters, setBuFilters] = useState<string[]>([]);
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     field: 'dtRegistered',
     order: 'desc',
@@ -147,9 +146,6 @@ export default function DealLostListModal({
       });
     }
 
-    if (statusFilters.length > 0) {
-      result = result.filter((d) => statusFilters.includes(String(d.dealStatus)));
-    }
 
     if (buFilters.length > 0) {
       result = result.filter((d) => {
@@ -188,12 +184,12 @@ export default function DealLostListModal({
       }
       return sortConfig.order === 'asc' ? comp : -comp;
     });
-  }, [lostDeals, searchInput, statusFilters, buFilters, sortConfig]);
+  }, [lostDeals, searchInput, buFilters, sortConfig]);
 
   // Reset pagination on filter/search change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchInput, statusFilters, buFilters, sortConfig, pageSize]);
+  }, [searchInput, buFilters, sortConfig, pageSize]);
 
   const totalRecords = filteredDeals.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
@@ -323,9 +319,11 @@ export default function DealLostListModal({
             onBuFiltersChange={setBuFilters}
             expiryFilters={[]}
             onExpiryFiltersChange={() => {}}
-            statusFilters={statusFilters}
-            onStatusFiltersChange={setStatusFilters}
+            statusFilters={[]}
+            onStatusFiltersChange={() => {}}
             officialBUs={OFFICIAL_REGISTERED_BUS}
+            hideStatusFilter={true}
+            hideExpiryFilter={true}
           />
           <DealsSortPopover
             value={sortConfig}

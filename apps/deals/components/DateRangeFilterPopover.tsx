@@ -155,10 +155,11 @@ export function filterDealByDateRange(
   dealDateStr: string | Date | null | undefined,
   range: DateRangeValue
 ): boolean {
-  if (range.preset === 'ALL' || !dealDateStr) return true;
+  if (range.preset === 'ALL') return true;
+  if (!dealDateStr) return false;
 
   const date = new Date(dealDateStr);
-  if (isNaN(date.getTime())) return true;
+  if (isNaN(date.getTime())) return false;
 
   const now = new Date();
   const currentYear = now.getFullYear();

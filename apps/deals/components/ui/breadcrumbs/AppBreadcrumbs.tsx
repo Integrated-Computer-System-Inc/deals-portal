@@ -10,6 +10,7 @@ export interface BreadcrumbItem {
   href?: string;
   icon?: React.ReactNode;
   active?: boolean;
+  onClick?: () => void;
 }
 
 export interface AppBreadcrumbsProps extends React.HTMLAttributes<HTMLElement> {
@@ -48,6 +49,7 @@ export const AppBreadcrumbs: React.FC<AppBreadcrumbsProps> = ({
               {item.href && !isActive ? (
                 <Link
                   href={item.href}
+                  onClick={item.onClick}
                   prefetch={true}
                   className="flex items-center gap-1.5 text-muted hover:text-foreground hover:underline transition-colors px-1 py-0.5 rounded-md hover:bg-neutral/60"
                 >

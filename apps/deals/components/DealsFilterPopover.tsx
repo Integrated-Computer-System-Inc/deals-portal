@@ -22,6 +22,10 @@ export interface DealsFilterPopoverProps {
   onAoFiltersChange?: (aos: string[]) => void;
   availableAOs?: { name: string; count: number }[];
   hideAOFilter?: boolean;
+  brandFilters?: string[];
+  onBrandFiltersChange?: (brands: string[]) => void;
+  availableBrands?: { name: string; count: number }[];
+  hideBrandFilter?: boolean;
   currencyFilters?: string[];
   onCurrencyFiltersChange?: (currencies: string[]) => void;
   expiryFilters: string[];
@@ -34,6 +38,8 @@ export interface DealsFilterPopoverProps {
   dealsCountByStatus?: Record<string, number>;
   totalDealsCount?: number;
   hideBUFilter?: boolean;
+  hideStatusFilter?: boolean;
+  hideExpiryFilter?: boolean;
   className?: string;
 }
 
@@ -53,6 +59,10 @@ export function DealsFilterPopover({
   onAoFiltersChange,
   availableAOs = [],
   hideAOFilter = false,
+  brandFilters = [],
+  onBrandFiltersChange,
+  availableBrands = [],
+  hideBrandFilter = false,
   currencyFilters = [],
   onCurrencyFiltersChange,
   expiryFilters,
@@ -65,19 +75,31 @@ export function DealsFilterPopover({
   dealsCountByStatus = {},
   totalDealsCount = 0,
   hideBUFilter = false,
+  hideStatusFilter = false,
+  hideExpiryFilter = false,
   className,
 }: DealsFilterPopoverProps) {
   const [open, setOpen] = useState(false);
   const [isOthersExpanded, setIsOthersExpanded] = useState(false);
   const [aoSearchQuery, setAoSearchQuery] = useState('');
+  const [brandSearchQuery, setBrandSearchQuery] = useState('');
+
+  const isExpiringActive =
+    !hideExpiryFilter &&
+    ((expiryFilters.includes('CRITICAL_3') &&
+      expiryFilters.includes('URGENT_7') &&
+      expiryFilters.includes('WARNING_15') &&
+      expiryFilters.includes('NOTICE_30')) ||
+    expiryFilters.includes('expiring'));
 
   // Compute total active filters count
   const activeCount =
     (hideBUFilter ? 0 : buFilters.length) +
     (!hideAOFilter && onAoFiltersChange ? aoFilters.length : 0) +
+    (!hideBrandFilter && onBrandFiltersChange ? brandFilters.length : 0) +
     (onCurrencyFiltersChange ? currencyFilters.length : 0) +
-    statusFilters.length +
-    expiryFilters.length;
+    (hideStatusFilter ? 0 : statusFilters.length) +
+    (hideExpiryFilter ? 0 : expiryFilters.length);
 
   const handleToggleBU = (bu: string) => {
     if (buFilters.includes(bu)) {
@@ -121,14 +143,25 @@ export function DealsFilterPopover({
     }
   };
 
+  const handleToggleBrand = (brandName: string) => {
+    if (!onBrandFiltersChange) return;
+    if (brandFilters.includes(brandName)) {
+      onBrandFiltersChange(brandFilters.filter((b) => b !== brandName));
+    } else {
+      onBrandFiltersChange([...brandFilters, brandName]);
+    }
+  };
+
   const handleResetAll = () => {
     onBuFiltersChange([]);
     if (onAoFiltersChange) onAoFiltersChange([]);
+    if (onBrandFiltersChange) onBrandFiltersChange([]);
     if (onCurrencyFiltersChange) onCurrencyFiltersChange([]);
-    onExpiryFiltersChange([]);
-    onStatusFiltersChange([]);
+    if (!hideExpiryFilter) onExpiryFiltersChange([]);
+    if (!hideStatusFilter) onStatusFiltersChange([]);
     setIsOthersExpanded(false);
     setAoSearchQuery('');
+    setBrandSearchQuery('');
   };
 
   const otherBUsList = useMemo(() => {
@@ -149,6 +182,13 @@ export function DealsFilterPopover({
     const q = aoSearchQuery.toLowerCase().trim();
     return availableAOs.filter((ao) => ao.name.toLowerCase().includes(q));
   }, [availableAOs, aoSearchQuery]);
+
+  const filteredBrandsList = useMemo(() => {
+    if (!availableBrands || availableBrands.length === 0) return [];
+    if (!brandSearchQuery.trim()) return availableBrands;
+    const q = brandSearchQuery.toLowerCase().trim();
+    return availableBrands.filter((b) => b.name.toLowerCase().includes(q));
+  }, [availableBrands, brandSearchQuery]);
 
   return (
     <AppFilterPopover
@@ -278,42 +318,44 @@ export function DealsFilterPopover({
       )}
 
       {/* 2. Expiry Urgency Filter Group (Multi-Select) */}
-      <FilterGroup
-        title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
-        showReset={expiryFilters.length > 0}
-        onReset={() => onExpiryFiltersChange([])}
-      >
-        <div className="flex flex-wrap items-center gap-1 py-1.5">
-          <button
-            type="button"
-            onClick={() => onExpiryFiltersChange([])}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-              expiryFilters.length === 0
-                ? 'bg-primary text-white border-primary shadow-xs'
-                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-            }`}
-          >
-            All
-          </button>
-          {EXPIRY_OPTIONS.map((item) => {
-            const isSelected = expiryFilters.includes(item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleToggleExpiry(item.id)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-                  isSelected
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
-                    : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-                }`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      </FilterGroup>
+      {!hideExpiryFilter && (
+        <FilterGroup
+          title={`Expiration Urgency${expiryFilters.length > 0 ? ` • ${expiryFilters.length} selected` : ''}`}
+          showReset={expiryFilters.length > 0}
+          onReset={() => onExpiryFiltersChange([])}
+        >
+          <div className="flex flex-wrap items-center gap-1 py-1.5">
+            <button
+              type="button"
+              onClick={() => onExpiryFiltersChange([])}
+              className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                expiryFilters.length === 0
+                  ? 'bg-primary text-white border-primary shadow-xs'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+              }`}
+            >
+              All
+            </button>
+            {EXPIRY_OPTIONS.map((item) => {
+              const isSelected = expiryFilters.includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleToggleExpiry(item.id)}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                    isSelected
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                      : item.color || 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </FilterGroup>
+      )}
 
       {/* 3. AO Name Filter Group (Multi-Select) */}
       {!hideAOFilter && onAoFiltersChange && availableAOs.length > 0 && (
@@ -379,6 +421,70 @@ export function DealsFilterPopover({
         </FilterGroup>
       )}
 
+      {/* Brand Name Filter Group (Multi-Select) */}
+      {!hideBrandFilter && onBrandFiltersChange && availableBrands.length > 0 && (
+        <FilterGroup
+          title={`Brand${brandFilters.length > 0 ? ` • ${brandFilters.length} selected` : ''}`}
+          showReset={brandFilters.length > 0}
+          onReset={() => onBrandFiltersChange([])}
+        >
+          <div className="py-1.5 space-y-2">
+            {availableBrands.length > 6 && (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={brandSearchQuery}
+                  onChange={(e) => setBrandSearchQuery(e.target.value)}
+                  placeholder="Search brand..."
+                  className="w-full px-2.5 py-1 text-xs rounded-lg bg-card-bg border border-border/70 text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {brandSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setBrandSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-1 max-h-36 overflow-y-auto pr-1">
+              <button
+                type="button"
+                onClick={() => onBrandFiltersChange([])}
+                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                  brandFilters.length === 0
+                    ? 'bg-primary text-white border-primary shadow-xs'
+                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+                }`}
+              >
+                All
+              </button>
+              {filteredBrandsList.map((brand) => {
+                const isSelected = brandFilters.includes(brand.name);
+                return (
+                  <button
+                    key={brand.name}
+                    type="button"
+                    onClick={() => handleToggleBrand(brand.name)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-xs font-bold'
+                        : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                    }`}
+                  >
+                    <span className="truncate max-w-[150px]">{brand.name}</span>
+                    {brand.count > 0 && <span className="text-[10px] opacity-75 font-mono">({brand.count})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </FilterGroup>
+      )}
+
       {/* 4. Currency Filter Group (PHP / USD) */}
       {onCurrencyFiltersChange && (
         <FilterGroup
@@ -427,44 +533,126 @@ export function DealsFilterPopover({
       )}
 
       {/* 5. Deal Status Filter Group (Multi-Select) */}
-      <FilterGroup
-        title={`Deal Status${statusFilters.length > 0 ? ` • ${statusFilters.length} selected` : ''}`}
-        showReset={statusFilters.length > 0}
-        onReset={() => onStatusFiltersChange([])}
-      >
-        <div className="flex flex-wrap items-center gap-1.5 py-1.5">
-          <button
-            type="button"
-            onClick={() => onStatusFiltersChange([])}
-            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
-              statusFilters.length === 0
-                ? 'bg-primary text-white border-primary shadow-xs'
-                : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-            }`}
-          >
-            All {totalDealsCount > 0 ? `(${totalDealsCount})` : ''}
-          </button>
-          {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => {
-            const count = dealsCountByStatus[id] || 0;
-            const isSelected = statusFilters.includes(id);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => handleToggleStatus(id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-primary text-white border-primary shadow-xs font-bold'
-                    : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
-                }`}
-              >
-                <span>{meta.label}</span>
-                {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
-              </button>
-            );
-          })}
-        </div>
-      </FilterGroup>
+      {!hideStatusFilter && (
+        <FilterGroup
+          title={`Deal Status${(statusFilters.length > 0 || isExpiringActive) ? ` • ${statusFilters.length + (isExpiringActive ? 1 : 0)} selected` : ''}`}
+          showReset={statusFilters.length > 0 || isExpiringActive}
+          onReset={() => {
+            onStatusFiltersChange([]);
+            if (isExpiringActive) {
+              onExpiryFiltersChange(
+                expiryFilters.filter(
+                  (e) => !['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30', 'expiring'].includes(e)
+                )
+              );
+            }
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                onStatusFiltersChange([]);
+                if (isExpiringActive) {
+                  onExpiryFiltersChange(
+                    expiryFilters.filter(
+                      (e) => !['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30', 'expiring'].includes(e)
+                    )
+                  );
+                }
+              }}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer ${
+                statusFilters.length === 0 && !isExpiringActive
+                  ? 'bg-primary text-white border-primary shadow-xs'
+                  : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
+              }`}
+            >
+              All {totalDealsCount > 0 ? `(${totalDealsCount})` : ''}
+            </button>
+
+            {/* Registered (1) */}
+            {(() => {
+              const count = dealsCountByStatus['1'] || 0;
+              const isSelected = statusFilters.includes('1');
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleToggleStatus('1')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold'
+                      : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                  }`}
+                >
+                  <span>Registered</span>
+                  {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
+                </button>
+              );
+            })()}
+
+            {/* Expiring (matches style with others when unselected, colored when selected) */}
+            {(() => {
+              const expCount = dealsCountByStatus['expiring'] || dealsCountByStatus['EXPIRING'] || 0;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isExpiringActive) {
+                      onExpiryFiltersChange(
+                        expiryFilters.filter(
+                          (e) => !['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30', 'expiring'].includes(e)
+                        )
+                      );
+                    } else {
+                      onExpiryFiltersChange([
+                        ...expiryFilters.filter(
+                          (e) => !['CRITICAL_3', 'URGENT_7', 'WARNING_15', 'NOTICE_30', 'expiring'].includes(e)
+                        ),
+                        'CRITICAL_3',
+                        'URGENT_7',
+                        'WARNING_15',
+                        'NOTICE_30',
+                      ]);
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                    isExpiringActive
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-xs font-bold'
+                      : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                  }`}
+                  title="Deals expiring within 30 days"
+                >
+                  <span>Expiring</span>
+                  {expCount > 0 && <span className="text-[10px] opacity-75">({expCount})</span>}
+                </button>
+              );
+            })()}
+
+            {/* Waiting (4), Won (6), Lost (7), Expired (5), Declined (2) */}
+            {['4', '6', '7', '5', '2'].map((id) => {
+              const meta = DEAL_STATUS_MAP[Number(id)];
+              if (!meta) return null;
+              const count = dealsCountByStatus[id] || 0;
+              const isSelected = statusFilters.includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleToggleStatus(id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-primary text-white border-primary shadow-xs font-bold'
+                      : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                  }`}
+                >
+                  <span>{meta.label}</span>
+                  {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
+                </button>
+              );
+            })}
+          </div>
+        </FilterGroup>
+      )}
     </AppFilterPopover>
   );
 }

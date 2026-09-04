@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   BarChart3,
   Building2,
@@ -53,7 +54,7 @@ import dynamic from 'next/dynamic';
 import DealsFilterPopover from '@/components/DealsFilterPopover';
 import DealsSortPopover, { SortConfig } from '@/components/DealsSortPopover';
 import { useModalDealFilters } from '@/components/useModalDealFilters';
-import { formatDateLong } from '@/components/utils/time';
+import { formatDate, formatDateLong } from '@/components/utils/time';
 
 const DealLostListModal = dynamic(() => import('@/components/DealLostListModal'), { ssr: false });
 const ModalDealTable = dynamic(
@@ -64,6 +65,7 @@ const ModalDealTable = dynamic(
 type ActiveReportType = 'EXPIRY_RISK' | 'BRAND_ANALYTICS' | 'BU_MATRIX' | null;
 
 export default function ReportsPage() {
+  const router = useRouter();
   const scopedFilter = useCurrentUserFilter();
   const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
 
@@ -116,6 +118,10 @@ export default function ReportsPage() {
   const [modalDateRange, setModalDateRange] = useState<DateRangeValue>({
     preset: 'ALL',
     label: 'All Time',
+  });
+  const [modalSortConfig, setModalSortConfig] = useState<SortConfig>({
+    field: 'expDt',
+    order: 'asc',
   });
 
   // Debounce brand search in modal
@@ -207,13 +213,15 @@ export default function ReportsPage() {
 
   const expiredDealsList = useMemo(() => {
     const nowMs = Date.now();
-    return deals.filter((d: DealHeaderRecord) => {
-      const rawExp = d.expDt || d.expiration;
-      if (!rawExp) return false;
-      const exp = new Date(rawExp);
-      return !isNaN(exp.getTime()) && exp.getTime() < nowMs;
-    });
-  }, [deals]);
+    return allDeals
+      .filter((d: DealHeaderRecord) => isOfficialBU(d.BU || d.bu))
+      .filter((d: DealHeaderRecord) => {
+        const rawExp = d.expDt || d.expiration;
+        if (!rawExp) return false;
+        const exp = new Date(rawExp);
+        return !isNaN(exp.getTime()) && exp.getTime() < nowMs;
+      });
+  }, [allDeals]);
 
   const renewedDealsList = useMemo(() => {
     return deals
@@ -435,7 +443,7 @@ export default function ReportsPage() {
 
   // Hook-based Filter & Sort for Modal Deal Tables (evaluated only when modal is open)
   const registeredFilters = useModalDealFilters(registeredDealsList, isRegisteredModalOpen);
-  const expiredFilters = useModalDealFilters(expiredDealsList, isExpiredModalOpen);
+  const expiredFilters = useModalDealFilters(expiredDealsList, isExpiredModalOpen, { dateField: 'expDt' });
 
   // 2. Expiry Risk Analytics
   const expiryAnalytics = useMemo(() => {
@@ -564,23 +572,49 @@ export default function ReportsPage() {
   const modalFilteredDeals = useMemo(() => {
     if (!activeReport) return [];
 
-    return deals.filter((d) => {
-      if (!filterDealByDateRange(d.dtRegistered || d.dtCreated, modalDateRange)) {
-        return false;
-      }
-
-      if (activeReport === 'EXPIRY_RISK') {
-        const days = getDaysRemaining(d.expDt || d.expiration);
-        if (days === null || days > 30) return false;
-      } else if (activeReport === 'BU_MATRIX') {
-        if (modalStatusFilter === 'ALL') {
-          const statusStr = String(d.dealStatus);
-          if (!['1', '2', '3', '4'].includes(statusStr)) return false;
+    const baseDeals = allDeals
+      .filter((d: DealHeaderRecord) => isOfficialBU(d.BU || d.bu))
+      .map((d: DealHeaderRecord) => {
+        if ((d as any)._computedTotal === undefined) {
+          const total = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
+          (d as any)._computedTotal = total;
+          (d as any)._cachedTotal = total;
         }
-      }
+        return d;
+      });
 
-      if (modalStatusFilter !== 'ALL' && String(d.dealStatus) !== modalStatusFilter) {
-        return false;
+    const filtered = baseDeals.filter((d) => {
+      if (activeReport === 'EXPIRY_RISK') {
+        const expDate = d.expDt || d.expiration;
+        if (!expDate) return false;
+
+        const statusStr = String(d.dealStatus ?? '');
+        if (statusStr === '2' || statusStr === '7' || statusStr === '8') return false;
+
+        if (modalDateRange.preset !== 'ALL') {
+          if (!filterDealByDateRange(expDate, modalDateRange)) {
+            return false;
+          }
+        } else {
+          // When All Time is selected in Expiry Risk, show deals expiring within 30 days
+          const days = getDaysRemaining(expDate);
+          if (days === null || days < 0 || days > 30) return false;
+        }
+      } else {
+        if (!filterDealByDateRange(d.dtRegistered || d.dtCreated, modalDateRange)) {
+          return false;
+        }
+
+        if (activeReport === 'BU_MATRIX') {
+          if (modalStatusFilter === 'ALL') {
+            const statusStr = String(d.dealStatus);
+            if (!['1', '2', '3', '4'].includes(statusStr)) return false;
+          }
+        }
+
+        if (modalStatusFilter !== 'ALL' && String(d.dealStatus) !== modalStatusFilter) {
+          return false;
+        }
       }
 
       const rawBu = normalizeBU(d.BU || d.bu || '');
@@ -610,7 +644,46 @@ export default function ReportsPage() {
 
       return true;
     });
-  }, [deals, activeReport, modalDateRange, modalStatusFilter, modalBuFilter, modalSearchQuery]);
+
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (modalSortConfig.field) {
+        case 'expDt': {
+          const dateA = new Date(a.expDt || a.expiration || 0).getTime();
+          const dateB = new Date(b.expDt || b.expiration || 0).getTime();
+          comparison = dateA - dateB;
+          break;
+        }
+        case 'dtRegistered': {
+          const dateA = new Date(a.dtRegistered || a.dtCreated || 0).getTime();
+          const dateB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
+          comparison = dateA - dateB;
+          break;
+        }
+        case 'dealRegID':
+          comparison = (a.dealRegID || String(a.dealID)).localeCompare(b.dealRegID || String(b.dealID));
+          break;
+        case 'custName':
+          comparison = (a.custName || '').localeCompare(b.custName || '');
+          break;
+        case 'projectName':
+          comparison = (a.ProjectName || a.projectName || '').localeCompare(b.ProjectName || b.projectName || '');
+          break;
+        case 'brand':
+          comparison = (a.brand || '').localeCompare(b.brand || '');
+          break;
+        case 'totalAmt': {
+          const amtA = (a as any)._computedTotal || 0;
+          const amtB = (b as any)._computedTotal || 0;
+          comparison = amtA - amtB;
+          break;
+        }
+        default:
+          comparison = 0;
+      }
+      return modalSortConfig.order === 'asc' ? comparison : -comparison;
+    });
+  }, [allDeals, activeReport, modalDateRange, modalStatusFilter, modalBuFilter, modalSearchQuery, modalSortConfig]);
 
   // Studio Dynamic Brand Analytics computed from modalFilteredDeals
   const studioBrandAnalytics = useMemo(() => {
@@ -643,16 +716,17 @@ export default function ReportsPage() {
     let urgentCount = 0;
     let warningCount = 0;
     let noticeCount = 0;
-    let totalAtRisk = 0;
+    let scheduledCount = 0;
+    let totalAtRisk = modalFilteredDeals.length;
 
     modalFilteredDeals.forEach((d: any) => {
       const days = getDaysRemaining(d.expDt || d.expiration);
-      if (days !== null && days >= 0 && days <= 30) {
-        totalAtRisk++;
+      if (days !== null) {
         if (days <= 3) criticalCount++;
         else if (days <= 7) urgentCount++;
         else if (days <= 15) warningCount++;
-        else noticeCount++;
+        else if (days <= 30) noticeCount++;
+        else scheduledCount++;
       }
     });
 
@@ -661,6 +735,7 @@ export default function ReportsPage() {
       urgentCount,
       warningCount,
       noticeCount,
+      scheduledCount,
       totalAtRisk,
     };
   }, [modalFilteredDeals]);
@@ -695,8 +770,8 @@ export default function ReportsPage() {
     setModalViewMode('SUMMARY');
     setModalSearchQuery('');
     setModalBuFilter('ALL');
-    setModalStatusFilter('ALL');
-    setModalDateRange({ preset: 'ALL', label: 'All Time' });
+    setModalDateRange(type === 'EXPIRY_RISK' ? { preset: 'THIS_MONTH', label: 'This Month' } : globalDateRange);
+    setModalSortConfig(type === 'EXPIRY_RISK' ? { field: 'expDt', order: 'asc' } : { field: 'dtRegistered', order: 'desc' });
   };
 
   return (
@@ -869,7 +944,7 @@ export default function ReportsPage() {
 
           {/* KPI 4: Expiring Deals (Clickable) */}
           <AppCard
-            onClick={() => setActiveReport('EXPIRY_RISK')}
+            onClick={() => openReportModal('EXPIRY_RISK')}
             className="p-4 bg-card-bg border border-border/60 hover:border-amber-500/50 hover:shadow-md rounded-2xl transition cursor-pointer flex flex-col justify-between group space-y-3"
           >
             <div className="flex items-center justify-between">
@@ -956,19 +1031,18 @@ export default function ReportsPage() {
         </div>
 
         <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background">
-          <div className="max-h-[360px] overflow-y-auto">
-            <table className="w-full text-left text-xs border-collapse table-auto">
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full text-left text-xs border-collapse table-auto min-w-[900px]">
               <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
                 <tr>
                   <th className="py-2.5 px-2.5 w-[110px]">Deal Ref ID</th>
                   <th className="py-2.5 px-2.5 min-w-[140px]">Customer & Project</th>
                   <th className="py-2.5 px-2 w-[85px]">Brand</th>
-                  <th className="py-2.5 px-1.5 text-center w-[55px]">BU</th>
+                  <th className="py-2.5 px-1.5 text-center w-[80px]">BU</th>
                   <th className="py-2.5 px-2 w-[95px]">Assigned AO</th>
-                  <th className="py-2.5 px-2 w-[85px]">Expiry Date</th>
-                  <th className="py-2.5 px-1.5 text-center w-[85px]">Status</th>
+                  <th className="py-2.5 px-2 w-[140px]">Expiry Date</th>
+                  <th className="py-2.5 px-1.5 text-center w-[90px]">Status</th>
                   <th className="py-2.5 px-2.5 text-right w-[110px]">Amount</th>
-                  <th className="py-2.5 px-1.5 text-center w-[36px]"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -980,15 +1054,14 @@ export default function ReportsPage() {
                       <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
                       <td className="p-1.5 text-center"><div className="shimmer-skeleton h-4 w-10 mx-auto rounded" /></td>
                       <td className="p-2"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
-                      <td className="p-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                      <td className="p-2"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
                       <td className="p-1.5 text-center"><div className="shimmer-skeleton h-4 w-14 mx-auto rounded" /></td>
                       <td className="p-2.5 text-right"><div className="shimmer-skeleton h-4 w-20 ml-auto rounded" /></td>
-                      <td className="p-1.5"></td>
                     </tr>
                   ))
                 ) : recentDeals.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-6 text-center text-xs text-muted">
+                    <td colSpan={8} className="p-6 text-center text-xs text-muted">
                       No recent deal records found for the selected time range.
                     </td>
                   </tr>
@@ -998,13 +1071,22 @@ export default function ReportsPage() {
                     const statusMeta = (DEAL_STATUS_MAP as any)[statusNum] || { label: `Status ${deal.dealStatus}`, variant: 'default' };
 
                     return (
-                      <tr key={deal.dealID} className="hover:bg-neutral/40 transition">
-                        <td className="py-2.5 px-2.5 font-mono font-bold text-sky-600 dark:text-sky-400 truncate">
+                      <tr
+                        key={deal.dealID}
+                        onClick={() => router.push(`/deals/${deal.dealID}`)}
+                        className="hover:bg-neutral/60 transition cursor-pointer group"
+                        title="Click to view deal record"
+                      >
+                        <td className="py-2.5 px-2.5 font-mono font-bold text-sky-600 dark:text-sky-400 group-hover:underline truncate">
                           {deal.dealRegID || `#${deal.dealID}`}
                         </td>
                         <td className="py-2.5 px-2.5">
-                          <div className="font-bold text-foreground truncate max-w-[220px]">{deal.custName || 'Unknown Customer'}</div>
-                          <div className="text-[11px] text-muted truncate max-w-[220px]">{deal.ProjectName || deal.projectName || 'Project'}</div>
+                          <div className="font-bold text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate max-w-[220px]">
+                            {deal.custName || 'Unknown Customer'}
+                          </div>
+                          <div className="text-[11px] text-muted truncate max-w-[220px]">
+                            {deal.ProjectName || deal.projectName || 'Project'}
+                          </div>
                         </td>
                         <td className="py-2.5 px-2 font-medium text-foreground truncate">
                           <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[10px] font-bold">
@@ -1012,15 +1094,18 @@ export default function ReportsPage() {
                           </span>
                         </td>
                         <td className="py-2.5 px-1.5 text-center">
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-neutral border border-border/60">
+                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral border border-border/60 whitespace-nowrap shadow-2xs">
                             {deal.BU || deal.bu || 'BU5'}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 text-muted truncate">
                           {deal.AssignedAO || deal.assignedAO || '-'}
                         </td>
-                        <td className="py-2.5 px-2 font-mono text-[11px] text-foreground truncate">
-                          {formatDateLong(deal.expDt || deal.expiration)}
+                        <td className="py-2.5 px-2 overflow-hidden" title={formatDateLong(deal.expDt || deal.expiration)}>
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 whitespace-nowrap shadow-2xs max-w-full">
+                            <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span className="truncate">{formatDate(deal.expDt || deal.expiration)}</span>
+                          </span>
                         </td>
                         <td className="py-2.5 px-1.5 text-center">
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral border border-border/50 truncate inline-block">
@@ -1029,15 +1114,6 @@ export default function ReportsPage() {
                         </td>
                         <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
                           {formatAmounts(deal)}
-                        </td>
-                        <td className="py-2.5 px-1.5 text-center">
-                          <Link
-                            href={`/deals/${deal.dealID}`}
-                            className="p-1 text-muted hover:text-sky-600 rounded hover:bg-neutral transition inline-flex"
-                            title="View Deal Record"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </Link>
                         </td>
                       </tr>
                     );
@@ -1651,9 +1727,16 @@ export default function ReportsPage() {
                 size="md"
               />
             </div>
+            <DateRangeFilterPopover
+              value={registeredFilters.dateRange}
+              onChange={registeredFilters.setDateRange}
+            />
             <DealsFilterPopover
               buFilters={registeredFilters.buFilters}
               onBuFiltersChange={registeredFilters.setBuFilters}
+              brandFilters={registeredFilters.brandFilters}
+              onBrandFiltersChange={registeredFilters.setBrandFilters}
+              availableBrands={registeredFilters.availableBrands}
               expiryFilters={registeredFilters.expiryFilters}
               onExpiryFiltersChange={registeredFilters.setExpiryFilters}
               statusFilters={registeredFilters.statusFilters}
@@ -1722,9 +1805,16 @@ export default function ReportsPage() {
                 size="md"
               />
             </div>
+            <DateRangeFilterPopover
+              value={expiredFilters.dateRange}
+              onChange={expiredFilters.setDateRange}
+            />
             <DealsFilterPopover
               buFilters={expiredFilters.buFilters}
               onBuFiltersChange={expiredFilters.setBuFilters}
+              brandFilters={expiredFilters.brandFilters}
+              onBrandFiltersChange={expiredFilters.setBrandFilters}
+              availableBrands={expiredFilters.availableBrands}
               expiryFilters={expiredFilters.expiryFilters}
               onExpiryFiltersChange={expiredFilters.setExpiryFilters}
               statusFilters={expiredFilters.statusFilters}
@@ -1931,6 +2021,10 @@ export default function ReportsPage() {
                 size="md"
               />
             </div>
+            <DateRangeFilterPopover
+              value={brandDealsFilters.dateRange}
+              onChange={brandDealsFilters.setDateRange}
+            />
             <DealsFilterPopover
               buFilters={brandDealsFilters.buFilters}
               onBuFiltersChange={brandDealsFilters.setBuFilters}
@@ -2156,9 +2250,16 @@ export default function ReportsPage() {
                 size="md"
               />
             </div>
+            <DateRangeFilterPopover
+              value={buDealsFilters.dateRange}
+              onChange={buDealsFilters.setDateRange}
+            />
             <DealsFilterPopover
               buFilters={buDealsFilters.buFilters}
               onBuFiltersChange={buDealsFilters.setBuFilters}
+              brandFilters={buDealsFilters.brandFilters}
+              onBrandFiltersChange={buDealsFilters.setBrandFilters}
+              availableBrands={buDealsFilters.availableBrands}
               expiryFilters={buDealsFilters.expiryFilters}
               onExpiryFiltersChange={buDealsFilters.setExpiryFilters}
               statusFilters={buDealsFilters.statusFilters}
@@ -2233,9 +2334,16 @@ export default function ReportsPage() {
                 size="md"
               />
             </div>
+            <DateRangeFilterPopover
+              value={renewedFilters.dateRange}
+              onChange={renewedFilters.setDateRange}
+            />
             <DealsFilterPopover
               buFilters={renewedFilters.buFilters}
               onBuFiltersChange={renewedFilters.setBuFilters}
+              brandFilters={renewedFilters.brandFilters}
+              onBrandFiltersChange={renewedFilters.setBrandFilters}
+              availableBrands={renewedFilters.availableBrands}
               expiryFilters={renewedFilters.expiryFilters}
               onExpiryFiltersChange={renewedFilters.setExpiryFilters}
               statusFilters={renewedFilters.statusFilters}
@@ -2385,31 +2493,40 @@ export default function ReportsPage() {
                   </select>
                 </div>
 
-                {/* Status Filter in Modal */}
-                <div className="flex items-center gap-1">
-                  <span className="text-muted text-[11px] font-semibold">Status:</span>
-                  <select
-                    value={modalStatusFilter}
-                    onChange={(e) => setModalStatusFilter(e.target.value)}
-                    className="px-2 py-1 rounded-lg bg-card-bg border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-                  >
-                    <option value="ALL">All Statuses</option>
-                    {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
-                      <option key={id} value={id}>
-                        {meta.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Status Filter in Modal (hidden for EXPIRY_RISK) */}
+                {activeReport !== 'EXPIRY_RISK' && (
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted text-[11px] font-semibold">Status:</span>
+                    <select
+                      value={modalStatusFilter}
+                      onChange={(e) => setModalStatusFilter(e.target.value)}
+                      className="px-2 py-1 rounded-lg bg-card-bg border border-border/60 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    >
+                      <option value="ALL">All Statuses</option>
+                      {Object.entries(DEAL_STATUS_MAP).map(([id, meta]: [string, any]) => (
+                        <option key={id} value={id}>
+                          {meta.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                {(modalSearchQuery || modalBuFilter !== 'ALL' || modalStatusFilter !== 'ALL' || modalDateRange.preset !== 'ALL') && (
+                {/* Sort Popover in Modal */}
+                <DealsSortPopover
+                  value={modalSortConfig}
+                  onChange={setModalSortConfig}
+                />
+
+                {(modalSearchQuery || modalBuFilter !== 'ALL' || (activeReport !== 'EXPIRY_RISK' && modalStatusFilter !== 'ALL') || modalDateRange.preset !== (activeReport === 'EXPIRY_RISK' ? 'THIS_MONTH' : 'ALL') || modalSortConfig.field !== (activeReport === 'EXPIRY_RISK' ? 'expDt' : 'dtRegistered')) && (
                   <button
                     type="button"
                     onClick={() => {
                       setModalSearchQuery('');
                       setModalBuFilter('ALL');
                       setModalStatusFilter('ALL');
-                      setModalDateRange({ preset: 'ALL', label: 'All Time' });
+                      setModalDateRange(activeReport === 'EXPIRY_RISK' ? { preset: 'THIS_MONTH', label: 'This Month' } : { preset: 'ALL', label: 'All Time' });
+                      setModalSortConfig(activeReport === 'EXPIRY_RISK' ? { field: 'expDt', order: 'asc' } : { field: 'dtRegistered', order: 'desc' });
                     }}
                     className="text-[11px] font-bold text-rose-500 hover:underline ml-auto"
                   >
@@ -2423,7 +2540,7 @@ export default function ReportsPage() {
             {modalViewMode === 'SUMMARY' && (
               <div className="space-y-4">
                 {activeReport === 'EXPIRY_RISK' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className={`grid grid-cols-2 ${studioExpiryAnalytics.scheduledCount > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-3`}>
                     <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25">
                       <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block">Critical (≤3d)</span>
                       <span className="text-xl font-bold font-mono text-rose-600 mt-1 block">
@@ -2448,6 +2565,14 @@ export default function ReportsPage() {
                         {studioExpiryAnalytics.noticeCount}
                       </span>
                     </div>
+                    {studioExpiryAnalytics.scheduledCount > 0 && (
+                      <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
+                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">Scheduled (&gt;30d)</span>
+                        <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-1 block">
+                          {studioExpiryAnalytics.scheduledCount}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2546,6 +2671,9 @@ export default function ReportsPage() {
                         { label: 'Urgent (≤7d left)', count: studioExpiryAnalytics.urgentCount, color: 'from-orange-500 to-amber-600' },
                         { label: 'Warning (≤15d left)', count: studioExpiryAnalytics.warningCount, color: 'from-amber-500 to-yellow-600' },
                         { label: 'Notice (≤30d left)', count: studioExpiryAnalytics.noticeCount, color: 'from-yellow-400 to-emerald-500' },
+                        ...(studioExpiryAnalytics.scheduledCount > 0
+                          ? [{ label: 'Scheduled (>30d left)', count: studioExpiryAnalytics.scheduledCount, color: 'from-indigo-500 to-sky-600' }]
+                          : []),
                       ].map((item) => {
                         const total = studioExpiryAnalytics.totalAtRisk || 1;
                         const pct = (item.count / total) * 100;
@@ -2560,7 +2688,7 @@ export default function ReportsPage() {
                             <div className="w-full h-2 bg-neutral rounded-full overflow-hidden border border-border/40">
                               <div
                                 className={`h-full bg-gradient-to-r ${item.color} rounded-full`}
-                                style={{ width: `${Math.max(pct, 2)}%` }}
+                                style={{ width: `${Math.max(pct, item.count > 0 ? 2 : 0)}%` }}
                               />
                             </div>
                           </div>

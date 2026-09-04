@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import Link from 'next/link';
-import { ExternalLink, Layers, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Clock, Layers, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
-import { formatDateLong } from '@/components/utils/time';
+import { formatDate, formatDateLong } from '@/components/utils/time';
 
 interface ModalDealTableProps {
   deals: DealHeaderRecord[];
@@ -23,6 +23,7 @@ export function ModalDealTable({
   showRemarks = true,
   defaultPageSize = 50,
 }: ModalDealTableProps) {
+  const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultPageSize);
 
@@ -78,19 +79,18 @@ export function ModalDealTable({
 
   return (
     <div className="border border-border/70 rounded-xl overflow-hidden shadow-xs bg-background flex flex-col">
-      <div className="max-h-[440px] overflow-y-auto">
-        <table className="w-full text-left text-xs border-collapse table-fixed">
+      <div className="max-h-[440px] overflow-auto">
+        <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1020px]">
           <colgroup>
             <col className="w-[110px]" />
-            <col className="min-w-[150px]" />
-            <col className="w-[60px]" />
-            <col className="w-[85px]" />
-            <col className="w-[100px]" />
+            <col className="min-w-[160px]" />
             <col className="w-[90px]" />
             <col className="w-[85px]" />
-            {showRemarks && <col className="w-[120px]" />}
+            <col className="w-[95px]" />
+            <col className="w-[140px]" />
+            <col className="w-[95px]" />
+            {showRemarks && <col className="w-[130px]" />}
             <col className="w-[120px]" />
-            <col className="w-[40px]" />
           </colgroup>
           <thead className="sticky top-0 z-10 bg-neutral/95 backdrop-blur-xs border-b border-border/60 text-[11px] font-semibold text-muted uppercase tracking-wider">
             <tr>
@@ -103,13 +103,12 @@ export function ModalDealTable({
               <th className="py-2.5 px-1.5 text-center">Status</th>
               {showRemarks && <th className="py-2.5 px-2">Remarks</th>}
               <th className="py-2.5 px-2.5 text-right">Amount</th>
-              <th className="py-2.5 px-1.5 text-center"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
             {totalRecords === 0 ? (
               <tr>
-                <td colSpan={showRemarks ? 10 : 9} className="p-8 text-center text-muted text-xs">
+                <td colSpan={showRemarks ? 9 : 8} className="p-8 text-center text-muted text-xs">
                   <Layers className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
                   <p className="font-semibold text-foreground">{emptyMessage}</p>
                 </td>
@@ -122,17 +121,30 @@ export function ModalDealTable({
                 return (
                   <tr
                     key={deal.dealID}
-                    className="hover:bg-neutral/40 transition [content-visibility:auto] [contain-intrinsic-size:44px]"
+                    onClick={() => {
+                      if (onCloseModal) onCloseModal();
+                      if (onSelectDeal) {
+                        onSelectDeal(deal);
+                      } else {
+                        router.push(`/deals/${deal.dealID}`);
+                      }
+                    }}
+                    className="hover:bg-neutral/60 transition cursor-pointer group [content-visibility:auto] [contain-intrinsic-size:44px]"
+                    title="Click to view deal record"
                   >
-                    <td className="py-2.5 px-3 font-mono font-bold text-sky-600 dark:text-sky-400 truncate">
+                    <td className="py-2.5 px-3 font-mono font-bold text-sky-600 dark:text-sky-400 group-hover:underline truncate">
                       {deal.dealRegID || `#${deal.dealID}`}
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="font-bold text-foreground truncate max-w-[240px]">{deal.custName || 'Unknown Customer'}</div>
-                      <div className="text-[11px] text-muted truncate max-w-[240px]">{deal.ProjectName || deal.projectName || 'Standard Project'}</div>
+                      <div className="font-bold text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate max-w-[240px]">
+                        {deal.custName || 'Unknown Customer'}
+                      </div>
+                      <div className="text-[11px] text-muted truncate max-w-[240px]">
+                        {deal.ProjectName || deal.projectName || 'Standard Project'}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-2 text-center">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-neutral border border-border/60">
+                    <td className="py-2.5 px-2 text-center overflow-hidden">
+                      <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-neutral border border-border/60 whitespace-nowrap shadow-2xs">
                         {deal.BU || deal.bu || 'BU5'}
                       </span>
                     </td>
@@ -142,8 +154,11 @@ export function ModalDealTable({
                     <td className="py-2.5 px-2 text-muted truncate">
                       {deal.AssignedAO || deal.assignedAO || '-'}
                     </td>
-                    <td className="py-2.5 px-2 font-mono text-[11px] text-foreground truncate">
-                      {formatDateLong(deal.expDt || deal.expiration)}
+                    <td className="py-2.5 px-2 overflow-hidden" title={formatDateLong(deal.expDt || deal.expiration)}>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 whitespace-nowrap shadow-2xs max-w-full">
+                        <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                        <span className="truncate">{formatDate(deal.expDt || deal.expiration)}</span>
+                      </span>
                     </td>
                     <td className="py-2.5 px-2 text-center">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral border border-border/50 truncate inline-block">
@@ -157,31 +172,6 @@ export function ModalDealTable({
                     )}
                     <td className="py-2.5 px-3 text-right font-mono font-semibold text-foreground text-[11px] truncate">
                       {formatAmounts(deal)}
-                    </td>
-                    <td className="py-2.5 px-1.5 text-center">
-                      {onSelectDeal ? (
-                        <button
-                          onClick={() => {
-                            if (onCloseModal) onCloseModal();
-                            onSelectDeal(deal);
-                          }}
-                          className="p-1.5 hover:bg-neutral rounded text-muted hover:text-sky-600 transition"
-                          title="View Details"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      ) : (
-                        <Link
-                          href={`/deals/${deal.dealID}`}
-                          onClick={() => {
-                            if (onCloseModal) onCloseModal();
-                          }}
-                          className="p-1.5 hover:bg-neutral rounded text-muted hover:text-sky-600 transition inline-block"
-                          title="View Deal"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                      )}
                     </td>
                   </tr>
                 );

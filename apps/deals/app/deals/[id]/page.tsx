@@ -57,6 +57,9 @@ export default function DealDetailsPage() {
   const [showAllRenewals, setShowAllRenewals] = useState(false);
 
   const handleGoBack = () => {
+    try {
+      sessionStorage.setItem('DEALS_NAVIGATED_TO_DETAIL', 'true');
+    } catch {}
     if (typeof window !== 'undefined' && window.history.length > 1) {
       router.back();
     } else {

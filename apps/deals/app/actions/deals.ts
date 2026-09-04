@@ -308,25 +308,37 @@ export async function getScopedDeals(
         expiryArray.forEach((f) => {
           if (f === 'EXPIRED') {
             expConditions.push({ expDt: { lt: now } });
-          } else if (f === 'CRITICAL_3') {
+          } else if (f === 'CRITICAL_3' || f === '3' || f === 'DAYS_3') {
             expConditions.push({
               expDt: { gte: now, lte: new Date(now.getTime() + 3 * 86400000) },
             });
-          } else if (f === 'URGENT_7') {
+          } else if (f === '2' || f === 'DAYS_2') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 2 * 86400000) },
+            });
+          } else if (f === '1' || f === 'DAYS_1') {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + 1 * 86400000) },
+            });
+          } else if (f === 'URGENT_7' || f === '7' || f === 'DAYS_7') {
             expConditions.push({
               expDt: { gte: now, lte: new Date(now.getTime() + 7 * 86400000) },
             });
-          } else if (f === 'WARNING_15') {
+          } else if (f === 'WARNING_15' || f === '15' || f === 'DAYS_15') {
             expConditions.push({
               expDt: { gte: now, lte: new Date(now.getTime() + 15 * 86400000) },
             });
-          } else if (f === 'NOTICE_30') {
+          } else if (f === 'NOTICE_30' || f === '30' || f === 'DAYS_30' || f === 'expiring' || f === 'all_expiring') {
             expConditions.push({
               expDt: { gte: now, lte: new Date(now.getTime() + 30 * 86400000) },
             });
           } else if (f === 'ACTIVE') {
             expConditions.push({
               expDt: { gt: new Date(now.getTime() + 30 * 86400000) },
+            });
+          } else if (!isNaN(Number(f)) && Number(f) > 0) {
+            expConditions.push({
+              expDt: { gte: now, lte: new Date(now.getTime() + Number(f) * 86400000) },
             });
           }
         });
@@ -337,16 +349,43 @@ export async function getScopedDeals(
       }
     }
 
-    // Search query pushdown (checks dealRegID, ProjectName, custName, AssignedAO, brand)
+    // Multi-keyword comma-separated search query pushdown (e.g. "Shiela, Dell, Waiting")
     if (searchQuery) {
-      andConditions.push({
-        OR: [
-          { dealRegID: { contains: searchQuery } },
-          { ProjectName: { contains: searchQuery } },
-          { custName: { contains: searchQuery } },
-          { AssignedAO: { contains: searchQuery } },
-          { brand: { contains: searchQuery } },
-        ],
+      const terms = searchQuery.split(',').map((t) => t.trim()).filter(Boolean);
+      terms.forEach((term) => {
+        const lower = term.toLowerCase();
+        const termOrConditions: any[] = [
+          { dealRegID: { contains: term } },
+          { ProjectName: { contains: term } },
+          { custName: { contains: term } },
+          { AssignedAO: { contains: term } },
+          { brand: { contains: term } },
+          { BU: { contains: term } },
+          { remarks: { contains: term } },
+        ];
+
+        // Also match exact deal ID if term is numeric
+        const numId = parseInt(term, 10);
+        if (!isNaN(numId) && String(numId) === term) {
+          termOrConditions.push({ dealID: numId });
+        }
+
+        // Match status names (e.g. 'Waiting', 'Registered', 'Lost')
+        if (lower === 'waiting' || lower === 'wait' || lower === 'pending') {
+          termOrConditions.push({ dealStatus: { in: ['4', '3'] } });
+        } else if (lower === 'registered' || lower === 'approved' || lower === 'reg') {
+          termOrConditions.push({ dealStatus: '1' });
+        } else if (lower === 'declined' || lower === 'dec') {
+          termOrConditions.push({ dealStatus: '2' });
+        } else if (lower === 'expired' || lower === 'exp') {
+          termOrConditions.push({ dealStatus: '5' });
+        } else if (lower === 'won') {
+          termOrConditions.push({ dealStatus: '6' });
+        } else if (lower === 'lost') {
+          termOrConditions.push({ dealStatus: '7' });
+        }
+
+        andConditions.push({ OR: termOrConditions });
       });
     }
 
@@ -357,11 +396,15 @@ export async function getScopedDeals(
       where: whereClause,
     });
 
-    // 2. Determine SQL Server sorting
-    let orderByClause: any = { dtCreated: 'desc' };
+    // 2. Determine SQL Server sorting (default: dtCreated DESC, newest created deals first)
+    let orderByClause: any = [{ dtCreated: 'desc' }, { dealID: 'desc' }];
     if (sortBy) {
       const order = sortOrder === 'asc' ? 'asc' : 'desc';
       switch (sortBy) {
+        case 'dtCreated':
+        case 'createdAt':
+          orderByClause = [{ dtCreated: order }, { dealID: order }];
+          break;
         case 'dtRegistered':
           orderByClause = { dtRegistered: order };
           break;
@@ -390,7 +433,7 @@ export async function getScopedDeals(
           orderByClause = { BU: order };
           break;
         default:
-          orderByClause = { dtCreated: order };
+          orderByClause = [{ dtCreated: order }, { dealID: order }];
           break;
       }
     }

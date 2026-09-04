@@ -378,6 +378,9 @@ export default function EditDealPage() {
           <button
             type="button"
             onClick={() => {
+              try {
+                sessionStorage.setItem('DEALS_NAVIGATED_TO_DETAIL', 'true');
+              } catch {}
               if (typeof window !== 'undefined' && window.history.length > 1) {
                 router.back();
               } else {

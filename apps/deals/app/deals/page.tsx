@@ -92,14 +92,16 @@ function DealsContent() {
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [buFilters, setBuFilters] = useState<string[]>([]);
   const [aoFilters, setAoFilters] = useState<string[]>([]);
+  const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [currencyFilters, setCurrencyFilters] = useState<string[]>([]);
   const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
+  const [expiryDaysFilter, setExpiryDaysFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     preset: 'ALL',
     label: 'All Time',
   });
   const [sortConfig, setSortConfig] = useState<SortConfig>({
-    field: 'dtRegistered',
+    field: 'dtCreated',
     order: 'desc',
   });
 
@@ -123,14 +125,20 @@ function DealsContent() {
   const scopedFilter = useCurrentUserFilter();
 
   const queryFilter: ScopedDealsFilter = useMemo(() => {
+    const combinedExpiry = [
+      ...expiryFilters,
+      ...(expiryDaysFilter && expiryDaysFilter !== 'ALL' ? [expiryDaysFilter] : []),
+    ];
+
     return {
       ...scopedFilter,
       searchQuery: debouncedSearch,
       statusFilter: statusFilters.length > 0 ? statusFilters : undefined,
       buFilter: buFilters.length > 0 ? buFilters : undefined,
       aoFilter: aoFilters.length > 0 ? aoFilters : undefined,
+      brandFilter: brandFilters.length > 0 ? brandFilters : undefined,
       currencyFilter: currencyFilters.length > 0 ? currencyFilters : undefined,
-      expiryFilter: expiryFilters.length > 0 ? expiryFilters : undefined,
+      expiryFilter: combinedExpiry.length > 0 ? combinedExpiry : undefined,
       startDate: dateRange.preset !== 'ALL' && dateRange.startDate ? dateRange.startDate : undefined,
       endDate: dateRange.preset !== 'ALL' && dateRange.endDate ? dateRange.endDate : undefined,
       sortBy: sortConfig.field,
@@ -144,8 +152,10 @@ function DealsContent() {
     statusFilters,
     buFilters,
     aoFilters,
+    brandFilters,
     currencyFilters,
     expiryFilters,
+    expiryDaysFilter,
     dateRange,
     sortConfig,
     currentPage,
@@ -174,8 +184,10 @@ function DealsContent() {
         statusFilters,
         buFilters,
         aoFilters,
+        brandFilters,
         currencyFilters,
         expiryFilters,
+        expiryDaysFilter,
         dateRange,
         sortConfig,
         currentPage,
@@ -189,6 +201,34 @@ function DealsContent() {
 
   // Handle URL navigation parameters and restore view state
   useEffect(() => {
+    // Check if this page load is a browser refresh / reload
+    const isReload =
+      typeof window !== 'undefined' &&
+      ((window.performance?.getEntriesByType('navigation')?.[0] as PerformanceNavigationTiming)?.type === 'reload' ||
+        (window.performance as any)?.navigation?.type === 1);
+
+    if (isReload && !isInitializedRef.current) {
+      isInitializedRef.current = true;
+      try {
+        sessionStorage.removeItem('DEALS_REGISTRY_VIEW_STATE');
+        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+      } catch {}
+      setStatusFilters([]);
+      setExpiryFilters([]);
+      setExpiryDaysFilter(null);
+      setBuFilters([]);
+      setAoFilters([]);
+      setBrandFilters([]);
+      setCurrencyFilters([]);
+      setSearchQuery('');
+      setSortConfig({ field: 'dtCreated', order: 'desc' });
+      setCurrentPage(1);
+      if (typeof window !== 'undefined' && window.location.search) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      return;
+    }
+
     const hasSearchParams = Boolean(searchParams && Array.from(searchParams.keys()).length > 0);
 
     if (hasSearchParams && searchParams) {
@@ -222,6 +262,11 @@ function DealsContent() {
         }
       }
 
+      const expiryDaysParam = searchParams.get('expiryDays') || searchParams.get('threshold');
+      if (expiryDaysParam) {
+        setExpiryDaysFilter(expiryDaysParam);
+      }
+
       const currencyParam = searchParams.get('currency');
       if (currencyParam) {
         const currs = currencyParam.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
@@ -230,7 +275,8 @@ function DealsContent() {
 
       const brandParam = searchParams.get('brand');
       if (brandParam) {
-        setSearchQuery(brandParam);
+        const brands = brandParam.split(',').map((b) => b.trim()).filter(Boolean);
+        setBrandFilters(brands);
       }
 
       const buParam = searchParams.get('bu');
@@ -271,8 +317,10 @@ function DealsContent() {
             if (parsed.statusFilters) setStatusFilters(parsed.statusFilters);
             if (parsed.buFilters) setBuFilters(parsed.buFilters);
             if (parsed.aoFilters) setAoFilters(parsed.aoFilters);
+            if (parsed.brandFilters) setBrandFilters(parsed.brandFilters);
             if (parsed.currencyFilters) setCurrencyFilters(parsed.currencyFilters);
             if (parsed.expiryFilters) setExpiryFilters(parsed.expiryFilters);
+            if (parsed.expiryDaysFilter !== undefined) setExpiryDaysFilter(parsed.expiryDaysFilter);
             if (parsed.dateRange) setDateRange(parsed.dateRange);
             if (parsed.sortConfig) setSortConfig(parsed.sortConfig);
             if (parsed.currentPage) setCurrentPage(parsed.currentPage);
@@ -289,6 +337,8 @@ function DealsContent() {
       // User cleared search params or clicked Deals Registry menu
       setStatusFilters([]);
       setExpiryFilters([]);
+      setExpiryDaysFilter(null);
+      setBrandFilters([]);
     }
   }, [searchParams]);
 
@@ -312,10 +362,21 @@ function DealsContent() {
 
   const dealsCountByStatus = useMemo(() => {
     const map: Record<string, number> = {};
+    const now = Date.now();
+    let expiringCount = 0;
     deals.forEach((d) => {
       const st = String(d.dealStatus);
       map[st] = (map[st] || 0) + 1;
+
+      const expDate = d.expDt || d.expiration;
+      if (expDate) {
+        const days = Math.ceil((new Date(expDate).getTime() - now) / (1000 * 60 * 60 * 24));
+        if (days >= 0 && days <= 30) {
+          expiringCount++;
+        }
+      }
     });
+    map['expiring'] = expiringCount;
     return map;
   }, [deals]);
 
@@ -325,6 +386,19 @@ function DealsContent() {
       const ao = (d.AssignedAO || d.assignedAO || '').trim();
       if (ao) {
         countsMap[ao] = (countsMap[ao] || 0) + 1;
+      }
+    });
+    return Object.entries(countsMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [deals]);
+
+  const availableBrands = useMemo(() => {
+    const countsMap: Record<string, number> = {};
+    deals.forEach((d) => {
+      const brand = (d.brand || '').trim();
+      if (brand) {
+        countsMap[brand] = (countsMap[brand] || 0) + 1;
       }
     });
     return Object.entries(countsMap)
@@ -623,7 +697,10 @@ function DealsContent() {
                   key: 'renew',
                   icon: <RefreshCw className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
                   label: <span className="font-semibold text-emerald-700 dark:text-emerald-300">Renew Deal</span>,
-                  onClick: () => router.push(`/deals/${record.dealID}?action=renew`),
+                  onClick: () => {
+                    saveViewState();
+                    router.push(`/deals/${record.dealID}?action=renew`);
+                  },
                 },
                 {
                   type: 'divider' as const,
@@ -634,7 +711,10 @@ function DealsContent() {
             key: 'edit',
             icon: <Edit className="w-4 h-4 text-zinc-400" />,
             label: 'Edit Deal',
-            onClick: () => router.push(`/deals/${record.dealID}/edit`),
+            onClick: () => {
+              saveViewState();
+              router.push(`/deals/${record.dealID}/edit`);
+            },
           },
           ...(statusNum !== 7 && statusNum !== 8
             ? [
@@ -812,7 +892,7 @@ function DealsContent() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Filter Popover (Multi-select BU, AO, Currency, Status, Expiry) */}
+            {/* Filter Popover (Multi-select BU, AO, Brand, Currency, Status, Expiry) */}
             <DealsFilterPopover
               buFilters={buFilters}
               onBuFiltersChange={setBuFilters}
@@ -820,6 +900,9 @@ function DealsContent() {
               onAoFiltersChange={setAoFilters}
               availableAOs={availableAOs}
               hideAOFilter={role === 'ao'}
+              brandFilters={brandFilters}
+              onBrandFiltersChange={setBrandFilters}
+              availableBrands={availableBrands}
               currencyFilters={currencyFilters}
               onCurrencyFiltersChange={setCurrencyFilters}
               expiryFilters={expiryFilters}
@@ -842,7 +925,7 @@ function DealsContent() {
         </div>
 
         {/* Active Filter Indicator Chips (Visible only when filters are active) */}
-        {(buFilters.length > 0 || aoFilters.length > 0 || currencyFilters.length > 0 || expiryFilters.length > 0 || statusFilters.length > 0 || searchQuery.trim()) && (
+        {(buFilters.length > 0 || aoFilters.length > 0 || brandFilters.length > 0 || currencyFilters.length > 0 || expiryFilters.length > 0 || Boolean(expiryDaysFilter && expiryDaysFilter !== 'ALL') || statusFilters.length > 0 || searchQuery.trim()) && (
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40 text-xs">
             <span className="text-[11px] font-semibold text-muted mr-1">Active Filters:</span>
 
@@ -890,6 +973,24 @@ function DealsContent() {
                   onClick={() => setAoFilters(aoFilters.filter((a) => a !== ao))}
                   className="hover:text-rose-500 transition cursor-pointer"
                   title={`Remove ${ao} filter`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {/* Brand Active Chips */}
+            {brandFilters.map((brand) => (
+              <span
+                key={brand}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 text-[11px] font-semibold"
+              >
+                Brand: {brand}
+                <button
+                  type="button"
+                  onClick={() => setBrandFilters(brandFilters.filter((b) => b !== brand))}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title={`Remove ${brand} filter`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -950,14 +1051,31 @@ function DealsContent() {
               </span>
             ))}
 
+            {/* Expiry Days Active Chip */}
+            {expiryDaysFilter && expiryDaysFilter !== 'ALL' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[11px] font-semibold">
+                Expiry Threshold: ≤ {expiryDaysFilter === 'EXPIRED' ? 'Expired' : `${expiryDaysFilter} Days`}
+                <button
+                  type="button"
+                  onClick={() => setExpiryDaysFilter(null)}
+                  className="hover:text-rose-500 transition cursor-pointer"
+                  title="Remove expiry days filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
                 setBuFilters([]);
                 setAoFilters([]);
+                setBrandFilters([]);
                 setCurrencyFilters([]);
                 setExpiryFilters([]);
+                setExpiryDaysFilter(null);
                 setStatusFilters([]);
                 try {
                   sessionStorage.removeItem('DEALS_REGISTRY_VIEW_STATE');

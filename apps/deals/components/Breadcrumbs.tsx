@@ -55,6 +55,11 @@ export default function Breadcrumbs() {
         label: 'Deals Registry',
         href: '/deals',
         icon: <FileSpreadsheet className="w-3.5 h-3.5" />,
+        onClick: () => {
+          try {
+            sessionStorage.setItem('DEALS_NAVIGATED_TO_DETAIL', 'true');
+          } catch {}
+        },
       });
       items.push({
         label: `Deal #${dealId}`,
@@ -67,6 +72,11 @@ export default function Breadcrumbs() {
         label: 'Deals Registry',
         href: '/deals',
         icon: <FileSpreadsheet className="w-3.5 h-3.5" />,
+        onClick: () => {
+          try {
+            sessionStorage.setItem('DEALS_NAVIGATED_TO_DETAIL', 'true');
+          } catch {}
+        },
       });
       items.push({
         label: `Deal #${dealId}`,

@@ -17,6 +17,7 @@ import { AppFilterPopover, FilterGroup } from './ui/popover';
 import { AppButton } from './ui/buttons';
 
 export type SortField =
+  | 'dtCreated'
   | 'dtRegistered'
   | 'expDt'
   | 'dealRegID'
@@ -39,6 +40,7 @@ export interface DealsSortPopoverProps {
 }
 
 const SORT_FIELDS: { id: SortField; label: string; icon: React.ReactNode }[] = [
+  { id: 'dtCreated', label: 'Date Created (Newest First)', icon: <Clock className="w-3.5 h-3.5" /> },
   { id: 'dtRegistered', label: 'Date Registered', icon: <Calendar className="w-3.5 h-3.5" /> },
   { id: 'expDt', label: 'Expiration Date', icon: <Clock className="w-3.5 h-3.5" /> },
   { id: 'dealRegID', label: 'Deal Reg ID', icon: <Hash className="w-3.5 h-3.5" /> },
@@ -52,7 +54,7 @@ export function DealsSortPopover({ value, onChange, className }: DealsSortPopove
   const [open, setOpen] = useState(false);
 
   const currentFieldMeta = SORT_FIELDS.find((f) => f.id === value.field) || SORT_FIELDS[0];
-  const isDefaultSort = value.field === 'dtRegistered' && value.order === 'desc';
+  const isDefaultSort = (value.field === 'dtCreated' || value.field === 'dtRegistered') && value.order === 'desc';
 
   const handleSelectField = (field: SortField) => {
     onChange({ ...value, field });
@@ -63,7 +65,7 @@ export function DealsSortPopover({ value, onChange, className }: DealsSortPopove
   };
 
   const handleReset = () => {
-    onChange({ field: 'dtRegistered', order: 'desc' });
+    onChange({ field: 'dtCreated', order: 'desc' });
   };
 
   return (

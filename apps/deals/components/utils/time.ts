@@ -13,6 +13,58 @@ const MONTH_NAMES = [
   'December',
 ];
 
+const SHORT_MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/**
+ * Formats a date into "MMM D, YYYY" (e.g. "Sep 1, 2026", "Oct 15, 2026")
+ */
+export function formatDate(
+  dateInput: string | Date | null | undefined,
+  fallback: string = 'N/A'
+): string {
+  if (!dateInput) return fallback;
+
+  try {
+    if (typeof dateInput === 'string') {
+      const trimmed = dateInput.trim();
+      if (!trimmed) return fallback;
+      const clean = trimmed.split('T')[0];
+      const parts = clean.split('-').map(Number);
+      if (parts.length === 3 && !parts.some(isNaN)) {
+        const [year, month, day] = parts;
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          const monthName = SHORT_MONTH_NAMES[month - 1];
+          return `${monthName} ${day}, ${year}`;
+        }
+      }
+    }
+
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return fallback;
+
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch (err) {
+    return fallback;
+  }
+}
+
 /**
  * Formats a date into "MMMM DD, YYYY" (e.g. "August 18, 2026")
  */

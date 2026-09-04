@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { DealHeaderRecord } from '@my-app/types';
 import { SortConfig } from './DealsSortPopover';
+import { DateRangeValue, filterDealByDateRange } from './DateRangeFilterPopover';
 import { normalizeBU } from '@/lib/buUtils';
 
 const getDealTotal = (d: DealHeaderRecord): number => {
@@ -12,23 +13,54 @@ const getDealTotal = (d: DealHeaderRecord): number => {
   return sum;
 };
 
-export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: boolean = true) {
+export interface UseModalDealFiltersOptions {
+  dateField?: 'dtRegistered' | 'expDt';
+  defaultSort?: SortConfig;
+}
+
+export function useModalDealFilters(
+  initialDeals: DealHeaderRecord[],
+  enabled: boolean = true,
+  options?: UseModalDealFiltersOptions
+) {
+  const initialSort = useMemo<SortConfig>(() => {
+    if (options?.defaultSort) return options.defaultSort;
+    if (options?.dateField === 'expDt') {
+      return { field: 'expDt', order: 'asc' };
+    }
+    return { field: 'dtRegistered', order: 'desc' };
+  }, [options?.defaultSort, options?.dateField]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [buFilters, setBuFilters] = useState<string[]>([]);
+  const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [expiryFilters, setExpiryFilters] = useState<string[]>([]);
+  const [expiryDaysFilter, setExpiryDaysFilter] = useState<string | null>(null);
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
-    field: 'dtRegistered',
-    order: 'desc',
+  const [dateRange, setDateRange] = useState<DateRangeValue>({
+    preset: 'ALL',
+    label: 'All Time',
   });
+  const [sortConfig, setSortConfig] = useState<SortConfig>(initialSort);
+
+  const availableBrands = useMemo(() => {
+    const map: Record<string, number> = {};
+    initialDeals.forEach((d) => {
+      const b = (d.brand || '').trim();
+      if (b) map[b] = (map[b] || 0) + 1;
+    });
+    return Object.entries(map)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [initialDeals]);
 
   const filteredAndSortedDeals = useMemo(() => {
     if (!enabled) return initialDeals;
     let result = initialDeals;
 
-    // 1. Search Query
+    // 1. Search Query (supports comma-separated multi-keywords like "Shiela, Dell, Waiting")
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
+      const terms = searchQuery.split(',').map((t) => t.toLowerCase().trim()).filter(Boolean);
       result = result.filter((d) => {
         const id = String(d.dealID);
         const regId = (d.dealRegID || '').toLowerCase();
@@ -41,19 +73,39 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: b
         const compVendor = (d.lostInfo?.competitorVendor || '').toLowerCase();
         const compBrand = (d.lostInfo?.competitorBrand || '').toLowerCase();
         const reason = (d.lostInfo?.reason || '').toLowerCase();
-        return (
-          id.includes(q) ||
-          regId.includes(q) ||
-          cust.includes(q) ||
-          proj.includes(q) ||
-          brand.includes(q) ||
-          bu.includes(q) ||
-          ao.includes(q) ||
-          remarks.includes(q) ||
-          compVendor.includes(q) ||
-          compBrand.includes(q) ||
-          reason.includes(q)
-        );
+        const statusNum = String(d.dealStatus || '1');
+
+        return terms.every((q) => {
+          let statusMatch = false;
+          if (q === 'waiting' || q === 'wait' || q === 'pending') {
+            statusMatch = statusNum === '4' || statusNum === '3';
+          } else if (q === 'registered' || q === 'approved' || q === 'reg') {
+            statusMatch = statusNum === '1';
+          } else if (q === 'declined' || q === 'dec') {
+            statusMatch = statusNum === '2';
+          } else if (q === 'expired' || q === 'exp') {
+            statusMatch = statusNum === '5';
+          } else if (q === 'won') {
+            statusMatch = statusNum === '6';
+          } else if (q === 'lost') {
+            statusMatch = statusNum === '7';
+          }
+
+          return (
+            id.includes(q) ||
+            regId.includes(q) ||
+            cust.includes(q) ||
+            proj.includes(q) ||
+            brand.includes(q) ||
+            bu.includes(q) ||
+            ao.includes(q) ||
+            remarks.includes(q) ||
+            compVendor.includes(q) ||
+            compBrand.includes(q) ||
+            reason.includes(q) ||
+            statusMatch
+          );
+        });
       });
     }
 
@@ -70,7 +122,26 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: b
       });
     }
 
-    // 4. Expiry Filter
+    // 4. Brand Filter
+    if (brandFilters.length > 0) {
+      const lowerBrands = brandFilters.map((b) => b.toLowerCase().trim());
+      result = result.filter((d) => {
+        const dealBrand = (d.brand || '').toLowerCase().trim();
+        return lowerBrands.some((b) => dealBrand.includes(b) || b.includes(dealBrand));
+      });
+    }
+
+    // 5. Date Range Filter
+    if (dateRange.preset !== 'ALL') {
+      result = result.filter((d) => {
+        const targetDate = options?.dateField === 'expDt'
+          ? (d.expDt || d.expiration)
+          : (d.dtRegistered || d.dtCreated);
+        return filterDealByDateRange(targetDate, dateRange);
+      });
+    }
+
+    // 6. Expiry Bucket Filter
     if (expiryFilters.length > 0) {
       const nowMs = Date.now();
       result = result.filter((d) => {
@@ -89,7 +160,23 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: b
       });
     }
 
-    // 5. Sorting
+    // 7. Expiry Days Threshold Filter (30, 15, 7, 3, 2, 1 Day, Expired)
+    if (expiryDaysFilter && expiryDaysFilter !== 'ALL') {
+      const nowMs = Date.now();
+      result = result.filter((d) => {
+        const expDate = d.expDt || d.expiration;
+        if (!expDate) return false;
+        const days = Math.ceil((new Date(expDate).getTime() - nowMs) / (1000 * 60 * 60 * 24));
+        if (expiryDaysFilter === 'EXPIRED') return days < 0;
+        const numThreshold = Number(expiryDaysFilter);
+        if (!isNaN(numThreshold) && numThreshold > 0) {
+          return days >= 0 && days <= numThreshold;
+        }
+        return true;
+      });
+    }
+
+    // 8. Sorting
     return [...result].sort((a, b) => {
       let comparison = 0;
       switch (sortConfig.field) {
@@ -126,14 +213,28 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: b
       }
       return sortConfig.order === 'asc' ? comparison : -comparison;
     });
-  }, [enabled, initialDeals, searchQuery, statusFilters, buFilters, expiryFilters, sortConfig]);
+  }, [
+    enabled,
+    initialDeals,
+    searchQuery,
+    statusFilters,
+    buFilters,
+    brandFilters,
+    dateRange,
+    expiryFilters,
+    expiryDaysFilter,
+    sortConfig,
+  ]);
 
   const resetFilters = () => {
     setSearchQuery('');
     setBuFilters([]);
+    setBrandFilters([]);
     setExpiryFilters([]);
+    setExpiryDaysFilter(null);
     setStatusFilters([]);
-    setSortConfig({ field: 'dtRegistered', order: 'desc' });
+    setDateRange({ preset: 'ALL', label: 'All Time' });
+    setSortConfig(initialSort);
   };
 
   return {
@@ -141,8 +242,15 @@ export function useModalDealFilters(initialDeals: DealHeaderRecord[], enabled: b
     setSearchQuery,
     buFilters,
     setBuFilters,
+    brandFilters,
+    setBrandFilters,
+    availableBrands,
+    dateRange,
+    setDateRange,
     expiryFilters,
     setExpiryFilters,
+    expiryDaysFilter,
+    setExpiryDaysFilter,
     statusFilters,
     setStatusFilters,
     sortConfig,
