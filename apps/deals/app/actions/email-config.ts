@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { runEmailConfigMigration } from '@/lib/db-migration';
 import { invalidateEmailConfigCache } from '@/lib/email-recipients';
 import { getMailTransporter, getSenderAddress } from '@/lib/email-config';
+import { logActivity } from '@/lib/activity-logger';
 
 export interface EmailRecipientItem {
   accountId?: number;
@@ -284,7 +285,20 @@ export async function saveEmailConfig(payload: {
     invalidateEmailConfigCache();
     revalidatePath('/admin/emails');
 
+    await logActivity({
+      action: 'EMAIL_CONFIG_UPDATE',
+      fieldName: 'Routing Mode & Rules',
+      oldValue: null,
+      newValue: `Mode: ${mode}; Dev Recipients: ${payload.devRecipients?.length || 0}; Live CC: ${payload.liveCCRecipients?.length || 0}`,
+      remarks: `Updated by ${updatedBy}`,
+      performedBy: user.DomainAccount || user.Email || user.email || 'ITadmin',
+      performedByName: user.AccountName || user.name || null,
+      performedByRole: user.role || 'ITadmin',
+      impersonatedBy: user.isImpersonating ? (user.originalAdminEmail || null) : null,
+    });
+
     return { success: true };
+
   } catch (err: any) {
     console.error('[Action: saveEmailConfig] Error:', err);
     return { success: false, error: err.message || 'Failed to save email configuration.' };

@@ -7,6 +7,7 @@ import { UserRole } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveUserRoleAndBUs } from '@/lib/roles';
 import { runUserTableMigration, hasAssignedColumns } from '@/lib/db-migration';
+import { logActivity } from '@/lib/activity-logger';
 
 
 export interface AdminUserRecord {
@@ -276,7 +277,17 @@ export async function createUser(payload: {
     }
 
     revalidatePath('/admin/users');
+
+    await logActivity({
+      action: 'USER_MANAGEMENT',
+      fieldName: 'User Account',
+      oldValue: null,
+      newValue: `Registered user: ${employeeName} (${employeeEmail}, Role: ${role}, BU: ${buVal || 'None'}, Brands: ${brandVal || 'None'})`,
+      remarks: `Created user ${employeeName} (AccountID: ${accountId})`,
+    });
+
     return { success: true };
+
   } catch (error: any) {
     console.error('[createUser] Error:', error);
     return { success: false, error: error.message || 'Failed to create user' };
@@ -326,7 +337,17 @@ export async function updateUser(payload: {
     }
 
     revalidatePath('/admin/users');
+
+    await logActivity({
+      action: 'USER_MANAGEMENT',
+      fieldName: 'User Role/Scope',
+      oldValue: null,
+      newValue: `Role: ${role}; BUs: ${buVal || 'None'}; Brands: ${brandVal || 'None'}`,
+      remarks: `Updated AccountID: ${accountId}`,
+    });
+
     return { success: true };
+
   } catch (error: any) {
     console.error('[updateUser] Error:', error);
     return { success: false, error: error.message || 'Failed to update user' };
@@ -367,7 +388,17 @@ export async function updateUserBrands(
     }
 
     revalidatePath('/admin/users');
+
+    await logActivity({
+      action: 'USER_MANAGEMENT',
+      fieldName: 'Assigned Brands',
+      oldValue: null,
+      newValue: brandVal || 'None',
+      remarks: `Updated PM brands for AccountID: ${accountId}`,
+    });
+
     return { success: true };
+
   } catch (error: any) {
     console.error('[updateUserBrands] Error:', error);
     return { success: false, error: error.message || 'Failed to update brands' };
@@ -410,7 +441,17 @@ export async function updateUserBUs(
     }
 
     revalidatePath('/admin/users');
+
+    await logActivity({
+      action: 'USER_MANAGEMENT',
+      fieldName: 'Assigned BUs',
+      oldValue: null,
+      newValue: `Role: ${cleanBase}, BUs: ${buVal || 'None'}`,
+      remarks: `Updated BUs for AccountID: ${accountId}`,
+    });
+
     return { success: true };
+
   } catch (error: any) {
     console.error('[updateUserBUs] Error:', error);
     return { success: false, error: error.message || 'Failed to update business units' };
@@ -438,7 +479,17 @@ export async function deleteUser(accountId: number): Promise<{ success: boolean;
     `);
 
     revalidatePath('/admin/users');
+
+    await logActivity({
+      action: 'USER_MANAGEMENT',
+      fieldName: 'User Account',
+      oldValue: `AccountID: ${accountId}`,
+      newValue: 'Deleted from portal access',
+      remarks: `Deleted by ${user?.AccountName || user?.name || user?.Email || 'ITadmin'}`,
+    });
+
     return { success: true };
+
   } catch (error: any) {
     console.error('[deleteUser] Error:', error);
     return { success: false, error: error.message || 'Failed to delete user' };

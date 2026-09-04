@@ -159,3 +159,29 @@ model DealRenewal {
   @@index([dealID])
   @@index([dtRenewal])
 }
+
+model ActivityLogs {
+  logID           Int       @id
+  dealID          Int?
+  dealRegID       String?   @db.VarChar(50)
+  custName        String?   @db.NVarChar(Max)
+  projectName     String?   @db.NVarChar(Max)
+  action          String    @db.VarChar(50)
+  fieldName       String?   @db.VarChar(100)
+  oldValue        String?   @db.NVarChar(Max)
+  newValue        String?   @db.NVarChar(Max)
+  remarks         String?   @db.NVarChar(Max)
+  performedBy     String    @db.VarChar(100)
+  performedByName String?   @db.NVarChar(200)
+  performedByRole String?   @db.VarChar(50)
+  impersonatedBy  String?   @db.VarChar(100)
+  dtCreated       DateTime  @default(now()) @db.DateTime
+
+  @@index([dtCreated])
+  @@index([dealID])
+  @@index([dealRegID])
+  @@index([action])
+  @@index([performedBy])
+  @@map("activity_logs")
+}
+

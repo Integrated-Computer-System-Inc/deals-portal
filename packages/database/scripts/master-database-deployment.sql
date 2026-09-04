@@ -133,7 +133,7 @@ GO
 -- ==============================================================================
 -- 3. Table: dbo.app_email_config (Central Email Routing & Mode Settings)
 -- ==============================================================================
-PRINT '>>> [3/6] Checking dbo.app_email_config table and columns...';
+PRINT '>>> [3/7] Checking dbo.app_email_config table and columns...';
 GO
 
 IF NOT EXISTS (
@@ -163,6 +163,51 @@ BEGIN
     PRINT '    [OK] Table [dbo].[app_email_config] exists.';
 END
 GO
+
+-- ==============================================================================
+-- 4. Table: dbo.activity_logs (Audit Trail for Deal Mutations & System Actions)
+-- ==============================================================================
+PRINT '>>> [4/7] Checking dbo.activity_logs table...';
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'activity_logs'
+)
+BEGIN
+    CREATE TABLE [dbo].[activity_logs] (
+        [logID]           INT NOT NULL,
+        [dealID]          INT NULL,
+        [dealRegID]       VARCHAR(50) NULL,
+        [custName]        NVARCHAR(MAX) NULL,
+        [projectName]     NVARCHAR(MAX) NULL,
+        [action]          VARCHAR(50) NOT NULL,
+        [fieldName]       VARCHAR(100) NULL,
+        [oldValue]        NVARCHAR(MAX) NULL,
+        [newValue]        NVARCHAR(MAX) NULL,
+        [remarks]         NVARCHAR(MAX) NULL,
+        [performedBy]     VARCHAR(100) NOT NULL,
+        [performedByName] NVARCHAR(200) NULL,
+        [performedByRole] VARCHAR(50) NULL,
+        [impersonatedBy]  VARCHAR(100) NULL,
+        [dtCreated]       DATETIME NOT NULL CONSTRAINT [DF_activity_logs_dtCreated] DEFAULT (GETDATE()),
+        CONSTRAINT [PK_activity_logs] PRIMARY KEY CLUSTERED ([logID] ASC)
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_activity_logs_dtCreated] ON [dbo].[activity_logs] ([dtCreated] DESC);
+    CREATE NONCLUSTERED INDEX [IX_activity_logs_dealID] ON [dbo].[activity_logs] ([dealID] ASC);
+    CREATE NONCLUSTERED INDEX [IX_activity_logs_dealRegID] ON [dbo].[activity_logs] ([dealRegID] ASC);
+    CREATE NONCLUSTERED INDEX [IX_activity_logs_action] ON [dbo].[activity_logs] ([action] ASC);
+    CREATE NONCLUSTERED INDEX [IX_activity_logs_performedBy] ON [dbo].[activity_logs] ([performedBy] ASC);
+
+    PRINT '    [+] Created table [dbo].[activity_logs] and indexes.';
+END
+ELSE
+BEGIN
+    PRINT '    [OK] Table [dbo].[activity_logs] exists.';
+END
+GO
+
 
 -- Ensure all email config columns exist
 IF NOT EXISTS (

@@ -13,6 +13,7 @@ import {
   DealHeaderRecord,
   DealRenewalRecord,
   CurrencyTotals,
+  getDealStatusMeta,
 } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveDealEmailRecipients, processNotifications } from '@/lib/notifications';
@@ -27,6 +28,7 @@ import { serverCache } from '@/lib/serverCache';
 import { buildAOScopingConditions, buildBUScopingConditions, buildPMScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
 import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
 import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
+import { logActivity, logActivitiesBatch, ActivityLogInput } from '@/lib/activity-logger';
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -921,6 +923,23 @@ export async function createDeal(
         );
       }
 
+      // 5. Target Table: activity_logs (Audit Trail)
+      await logActivity({
+        dealID: nextDealID,
+        dealRegID: dealRegID,
+        custName: payload.custName,
+        projectName: payload.ProjectName || payload.projectName,
+        action: 'CREATE',
+        fieldName: 'Deal',
+        oldValue: null,
+        newValue: `Registered deal for ${payload.custName} (${normalizedBrand || payload.brand})`,
+        remarks: payload.remarks || 'New Deal Registration',
+        performedBy: domainAccount,
+        performedByName: userName,
+        performedByRole: userRole,
+        impersonatedBy: (session?.user as any)?.isImpersonating ? (session?.user as any)?.originalAdminEmail : null,
+      }, tx);
+
       return { dealID: nextDealID };
     });
 
@@ -988,10 +1007,17 @@ export async function updateDeal(
         0
       );
 
+      const dealRegID = (payload.dealRegID || currentDeal.dealRegID || '').trim();
+      const projectName = (payload.ProjectName || payload.projectName || currentDeal.ProjectName || '').trim();
+      const assignedAO = (payload.AssignedAO || payload.assignedAO || currentDeal.AssignedAO || '').trim();
+      const bu = (payload.BU || payload.bu || currentDeal.BU || 'BU5').trim();
+      const custName = (payload.custName || currentDeal.custName || '').trim();
+      const remarks = payload.remarks !== undefined ? payload.remarks : currentDeal.remarks;
+      const brand = payload.brand || currentDeal.brand || '';
+      const normalizedBrand = normalizeBrandName(brand);
+
       const oldStatus = currentDeal.dealStatus;
       const newStatus = String(payload.dealStatus);
-
-      const normalizedBrand = normalizeBrandName(payload.brand);
 
       // 1. Target Table: DealHeader
       await tx.dealHeader.update({
@@ -1004,12 +1030,13 @@ export async function updateDeal(
           customerID: typeof payload.customerID === 'string'
             ? (parseInt(payload.customerID, 10) || null)
             : (payload.customerID ?? null),
-          ProjectName: payload.ProjectName,
-          AssignedAO: payload.AssignedAO,
-          BU: payload.BU,
+          dealRegID: dealRegID || null,
+          ProjectName: projectName,
+          AssignedAO: assignedAO,
+          BU: bu,
           dealStatus: newStatus,
-          custName: payload.custName,
-          remarks: payload.remarks || null,
+          custName: custName,
+          remarks: remarks || null,
           dtValidTo: expDate,
         },
       });
@@ -1093,144 +1120,161 @@ export async function updateDeal(
         });
       }
 
+      // 4. Track field-level modifications for email diff and activity logs
+      const normalizeStr = (val?: string | null) => (val || '').trim();
+      const formatDateStr = (d?: Date | string | null) => {
+        if (!d) return '';
+        const dateObj = typeof d === 'string' ? new Date(d) : d;
+        return isNaN(dateObj.getTime())
+          ? ''
+          : dateObj.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+      };
+
+      const changes: Array<{ label: string; from: string; to: string }> = [];
+
+      // Deal Registration ID
+      if (normalizeStr(currentDeal.dealRegID) !== normalizeStr(dealRegID)) {
+        changes.push({
+          label: 'Deal Registration ID',
+          from: currentDeal.dealRegID || '',
+          to: dealRegID,
+        });
+      }
+
+      // Customer Name
+      if (normalizeStr(currentDeal.custName) !== normalizeStr(custName)) {
+        changes.push({
+          label: 'Customer Name',
+          from: currentDeal.custName || '',
+          to: custName,
+        });
+      }
+
+      // Project Name
+      if (normalizeStr(currentDeal.ProjectName) !== normalizeStr(projectName)) {
+        changes.push({
+          label: 'Project Name',
+          from: currentDeal.ProjectName || '',
+          to: projectName,
+        });
+      }
+
+      // Brand
+      if (normalizeStr(currentDeal.brand).toUpperCase() !== normalizeStr(normalizedBrand).toUpperCase()) {
+        changes.push({
+          label: 'Brand',
+          from: currentDeal.brand || '',
+          to: normalizedBrand || '',
+        });
+      }
+
+      // BU
+      if (normalizeStr(currentDeal.BU) !== normalizeStr(bu)) {
+        changes.push({
+          label: 'Business Unit (BU)',
+          from: currentDeal.BU || '',
+          to: bu,
+        });
+      }
+
+      // Assigned AO
+      if (normalizeStr(currentDeal.AssignedAO) !== normalizeStr(assignedAO)) {
+        changes.push({
+          label: 'Assigned AO',
+          from: currentDeal.AssignedAO || '',
+          to: assignedAO,
+        });
+      }
+
+      // Deal Status
+      if (oldStatus !== newStatus) {
+        const oldStatusLabel = getDealStatusMeta(oldStatus).label;
+        const newStatusLabel = getDealStatusMeta(newStatus).label;
+        changes.push({
+          label: 'Deal Status',
+          from: oldStatusLabel,
+          to: newStatusLabel,
+        });
+      }
+
+      // Registration Date
+      const oldReg = formatDateStr(currentDeal.dtRegistered);
+      const newReg = formatDateStr(regDate);
+      if (oldReg && newReg && oldReg !== newReg) {
+        changes.push({
+          label: 'Registration Date',
+          from: oldReg,
+          to: newReg,
+        });
+      }
+
+      // Expiration Date
+      const oldExp = formatDateStr(currentDeal.expDt || currentDeal.expiration);
+      const newExp = formatDateStr(expDate);
+      if (oldExp && newExp && oldExp !== newExp) {
+        changes.push({
+          label: 'Expiration Date',
+          from: oldExp,
+          to: newExp,
+        });
+      }
+
+      // Currency
+      const prevCurrency = existingItems?.[0]?.currency || 'PHP';
+      const newCurrency = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
+      if (normalizeStr(prevCurrency).toUpperCase() !== normalizeStr(newCurrency).toUpperCase()) {
+        changes.push({
+          label: 'Currency',
+          from: prevCurrency,
+          to: newCurrency,
+        });
+      }
+
+      // Deal Amount
+      if (Math.abs(previousTotalAmount - totalAmount) > 0.01) {
+        changes.push({
+          label: 'Deal Amount',
+          from: Number(previousTotalAmount).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }),
+          to: Number(totalAmount).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }),
+        });
+      }
+
+      // Remarks
+      if (normalizeStr(currentDeal.remarks) !== normalizeStr(remarks)) {
+        changes.push({
+          label: 'Remarks',
+          from: currentDeal.remarks || '',
+          to: remarks || '',
+        });
+      }
+
       // 5. Target Table: deals_reg_notification: If toEmail is checked and BU != 'BU6', insert an update notification row (status = 0)
-      if (payload.toEmail && payload.BU !== 'BU6') {
-        // Track field-level modifications for email diff
-        const normalizeStr = (val?: string | null) => (val || '').trim();
-        const formatDateStr = (d?: Date | string | null) => {
-          if (!d) return '';
-          const dateObj = typeof d === 'string' ? new Date(d) : d;
-          return isNaN(dateObj.getTime())
-            ? ''
-            : dateObj.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-        };
-        const formatMoney = (amt?: number | null) =>
-          amt != null
-            ? `PHP ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : 'PHP 0.00';
-
-        const changes: Array<{ label: string; from: string; to: string }> = [];
-
-        // Customer Name
-        if (normalizeStr(currentDeal.custName) !== normalizeStr(payload.custName)) {
-          changes.push({
-            label: 'Customer Name',
-            from: currentDeal.custName || '',
-            to: payload.custName || '',
-          });
-        }
-
-        // Project Name
-        if (normalizeStr(currentDeal.ProjectName) !== normalizeStr(payload.ProjectName)) {
-          changes.push({
-            label: 'Project Name',
-            from: currentDeal.ProjectName || '',
-            to: payload.ProjectName || '',
-          });
-        }
-
-        // Brand
-        if (normalizeStr(currentDeal.brand).toUpperCase() !== normalizeStr(normalizedBrand).toUpperCase()) {
-          changes.push({
-            label: 'Brand',
-            from: currentDeal.brand || '',
-            to: normalizedBrand || '',
-          });
-        }
-
-        // BU
-        if (normalizeStr(currentDeal.BU) !== normalizeStr(payload.BU)) {
-          changes.push({
-            label: 'Business Unit (BU)',
-            from: currentDeal.BU || '',
-            to: payload.BU || '',
-          });
-        }
-
-        // Assigned AO
-        if (normalizeStr(currentDeal.AssignedAO) !== normalizeStr(payload.AssignedAO)) {
-          changes.push({
-            label: 'Assigned AO',
-            from: currentDeal.AssignedAO || '',
-            to: payload.AssignedAO || '',
-          });
-        }
-
-        // Registration Date
-        const oldReg = formatDateStr(currentDeal.dtRegistered);
-        const newReg = formatDateStr(regDate);
-        if (oldReg && newReg && oldReg !== newReg) {
-          changes.push({
-            label: 'Registration Date',
-            from: oldReg,
-            to: newReg,
-          });
-        }
-
-        // Expiration Date
-        const oldExp = formatDateStr(currentDeal.expDt || currentDeal.expiration);
-        const newExp = formatDateStr(expDate);
-        if (oldExp && newExp && oldExp !== newExp) {
-          changes.push({
-            label: 'Expiration Date',
-            from: oldExp,
-            to: newExp,
-          });
-        }
-
-        // Currency
-        const prevCurrency = existingItems?.[0]?.currency || 'PHP';
-        const newCurrency = payload.items?.[0]?.currency || (payload as any).currency || 'PHP';
-        if (normalizeStr(prevCurrency).toUpperCase() !== normalizeStr(newCurrency).toUpperCase()) {
-          changes.push({
-            label: 'Currency',
-            from: prevCurrency,
-            to: newCurrency,
-          });
-        }
-
-        // Deal Amount
-        if (Math.abs(previousTotalAmount - totalAmount) > 0.01) {
-          changes.push({
-            label: 'Deal Amount',
-            from: Number(previousTotalAmount).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            }),
-            to: Number(totalAmount).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            }),
-          });
-        }
-
-        // Remarks
-        if (normalizeStr(currentDeal.remarks) !== normalizeStr(payload.remarks)) {
-          changes.push({
-            label: 'Remarks',
-            from: currentDeal.remarks || '',
-            to: payload.remarks || '',
-          });
-        }
-
+      if (payload.toEmail && bu !== 'BU6') {
         const recipients = await resolveDealEmailRecipients(
-          payload.AssignedAO,
-          payload.BU,
-          normalizedBrand || payload.brand || ''
+          assignedAO,
+          bu,
+          normalizedBrand || brand || ''
         );
         const { subject, message } = generateUpdateDealEmail({
           dealID: dealID,
-          dealRegID: currentDeal.dealRegID,
-          custName: payload.custName,
-          projectName: payload.ProjectName,
+          dealRegID: dealRegID || currentDeal.dealRegID,
+          custName: custName,
+          projectName: projectName,
           brand: normalizedBrand,
-          bu: payload.BU || '',
-          assignedAO: payload.AssignedAO || '',
+          bu: bu,
+          assignedAO: assignedAO,
           aoNickName: recipients.aoNickName,
+          dealStatus: getDealStatusMeta(newStatus).label,
           currency: newCurrency,
           regDate: regDate,
           expDate: expDate,
-          remarks: payload.remarks,
+          remarks: remarks,
           totalAmount: totalAmount,
           creatorName: userName,
           creatorAccount: domainAccount,
@@ -1259,7 +1303,45 @@ export async function updateDeal(
           0
         );
       }
+
+      // 6. Target Table: activity_logs (Log discrete row per changed field)
+      const impersonatedBy = (session?.user as any)?.isImpersonating ? (session?.user as any)?.originalAdminEmail : null;
+      if (changes.length > 0) {
+        const logEntries: ActivityLogInput[] = changes.map((ch) => ({
+          dealID: dealID,
+          dealRegID: dealRegID || currentDeal.dealRegID,
+          custName: custName || currentDeal.custName,
+          projectName: projectName || currentDeal.ProjectName,
+          action: 'UPDATE',
+          fieldName: ch.label,
+          oldValue: ch.from || null,
+          newValue: ch.to || null,
+          remarks: remarks || null,
+          performedBy: domainAccount,
+          performedByName: userName,
+          performedByRole: userRole,
+          impersonatedBy,
+        }));
+        await logActivitiesBatch(logEntries, tx);
+      } else {
+        await logActivity({
+          dealID: dealID,
+          dealRegID: dealRegID || currentDeal.dealRegID,
+          custName: custName || currentDeal.custName,
+          projectName: projectName || currentDeal.ProjectName,
+          action: 'UPDATE',
+          fieldName: 'Deal',
+          oldValue: null,
+          newValue: 'Deal updated (no field values changed)',
+          remarks: remarks || null,
+          performedBy: domainAccount,
+          performedByName: userName,
+          performedByRole: userRole,
+          impersonatedBy,
+        }, tx);
+      }
     });
+
 
     invalidateServerDealsCache();
     revalidatePath('/deals');
@@ -1301,6 +1383,9 @@ export async function updateWTN(
     const wtnDate = rawDate ? new Date(rawDate) : new Date();
 
     const existingWTN = await prisma.dealWTN.findUnique({ where: { dealID: dealID } });
+    const prevWtnStr = existingWTN?.whenToNotify ? new Date(existingWTN.whenToNotify).toISOString().slice(0, 10) : null;
+    const newWtnStr = wtnDate.toISOString().slice(0, 10);
+
     if (existingWTN) {
       await prisma.dealWTN.update({
         where: { dealID: dealID },
@@ -1320,6 +1405,17 @@ export async function updateWTN(
         wtnDate
       );
     }
+
+    // Activity log for WTN update
+    await logActivity({
+      dealID,
+      action: 'WTN_UPDATE',
+      fieldName: 'When To Notify',
+      oldValue: prevWtnStr,
+      newValue: newWtnStr,
+      remarks: 'Scheduled expiration notification date updated',
+    });
+
 
     invalidateServerDealsCache();
     revalidatePath('/deals');
@@ -1430,7 +1526,25 @@ export async function saveLostDeal(
           0
         );
       }
+
+      // Log Lost Deal in activity_logs
+      await logActivity({
+        dealID,
+        dealRegID: currentDeal.dealRegID,
+        custName: currentDeal.custName,
+        projectName: currentDeal.ProjectName,
+        action: 'LOST',
+        fieldName: 'Deal Status',
+        oldValue: currentDeal.dealStatus || '1',
+        newValue: '7 (Lost)',
+        remarks: `Reason: ${payload.reason || 'N/A'}; Competitor: ${payload.competitorVendor || 'N/A'} / ${payload.competitorBrand || 'N/A'}; Offer: ${payload.icsOffer || 'N/A'} vs ${payload.competitorOffer || 'N/A'}${payload.otherInformation ? '; Note: ' + payload.otherInformation : ''}`,
+        performedBy: domainAccount,
+        performedByName: userName,
+        performedByRole: userRole,
+        impersonatedBy: (session?.user as any)?.isImpersonating ? (session?.user as any)?.originalAdminEmail : null,
+      }, tx);
     });
+
 
     invalidateServerDealsCache();
     revalidatePath('/deals');
@@ -1598,7 +1712,27 @@ export async function saveDealRenewal(
           0
         );
       }
+
+      // Log Renewal in activity_logs
+      const oldExpStr = currentDeal.expDt ? currentDeal.expDt.toISOString().slice(0, 10) : (currentDeal.expiration || 'N/A');
+      const newExpStr = rexpDate.toISOString().slice(0, 10);
+      await logActivity({
+        dealID,
+        dealRegID: currentDeal.dealRegID,
+        custName: currentDeal.custName,
+        projectName: currentDeal.ProjectName,
+        action: 'RENEW',
+        fieldName: 'Expiration Date',
+        oldValue: oldExpStr,
+        newValue: newExpStr,
+        remarks: `Renewed for ${validityDays} days.${payload.remarks ? ' Remarks: ' + payload.remarks : ''}`,
+        performedBy: domainAccount,
+        performedByName: userName,
+        performedByRole: userRole,
+        impersonatedBy: (session?.user as any)?.isImpersonating ? (session?.user as any)?.originalAdminEmail : null,
+      }, tx);
     });
+
 
     invalidateServerDealsCache();
     revalidatePath('/deals');

@@ -613,7 +613,7 @@ export default function AdminUsersPage() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => setBrandAssignmentUser(user)}
-                                  className="h-7 w-7 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                                  className="h-7 w-7 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 cursor-pointer"
                                 >
                                   <Tag size={14} />
                                 </AppButton>

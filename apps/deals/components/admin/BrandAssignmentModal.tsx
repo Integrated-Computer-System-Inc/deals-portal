@@ -194,7 +194,7 @@ export default function BrandAssignmentModal({
                 <button
                   type="button"
                   onClick={() => setSelectedBrands([])}
-                  className="text-xs text-rose-500 hover:text-rose-600 font-semibold hover:underline"
+                  className="text-xs text-rose-500 hover:text-rose-600 font-semibold hover:underline cursor-pointer"
                 >
                   Clear All
                 </button>
@@ -227,7 +227,7 @@ export default function BrandAssignmentModal({
                     <button
                       type="button"
                       onClick={() => toggleBrand(brand)}
-                      className="p-0.5 rounded-md hover:bg-amber-500/20 text-amber-700/60 dark:text-amber-300/60 hover:text-amber-900 dark:hover:text-amber-100 transition"
+                      className="p-0.5 rounded-md hover:bg-amber-500/20 text-amber-700/60 dark:text-amber-300/60 hover:text-amber-900 dark:hover:text-amber-100 transition cursor-pointer"
                       title={`Remove ${brand}`}
                     >
                       <X size={12} />
@@ -250,7 +250,7 @@ export default function BrandAssignmentModal({
                 <button
                   type="button"
                   onClick={handleSelectAllPresets}
-                  className="text-xs text-primary font-semibold hover:underline shrink-0"
+                  className="text-xs text-primary font-semibold hover:underline shrink-0 cursor-pointer"
                 >
                   {selectedBrands.length === CANONICAL_PRESET_BRANDS.length ? 'Deselect All' : 'Select All Presets'}
                 </button>
@@ -264,7 +264,7 @@ export default function BrandAssignmentModal({
                 type="text"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder=""
+                placeholder="Search canonical brands..."
                 className="w-full pl-8 pr-4 py-1.5 rounded-xl border border-border bg-white dark:bg-neutral/30 text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 transition"
               />
             </div>
@@ -305,7 +305,7 @@ export default function BrandAssignmentModal({
                 type="text"
                 value={customBrandInput}
                 onChange={(e) => setCustomBrandInput(e.target.value)}
-                placeholder=""
+                placeholder="ADD CUSTOM BRAND (E.G. CLOUDFLARE)..."
                 className="flex-1 px-3 py-1.5 rounded-xl border border-border bg-white dark:bg-neutral/30 text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 transition uppercase"
               />
               <AppButton

@@ -177,3 +177,73 @@ export async function runEmailConfigMigration(): Promise<void> {
   }
 }
 
+let activityLogsMigrationRan = false;
+let activityLogsTableExistsCache: boolean | null = null;
+
+/**
+ * Checks if dbo.activity_logs table exists.
+ */
+export async function hasActivityLogsTable(): Promise<boolean> {
+  if (activityLogsTableExistsCache !== null) return activityLogsTableExistsCache;
+  try {
+    const res = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT COUNT(*) AS cnt
+      FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'activity_logs';
+    `);
+    const count = Number(res?.[0]?.cnt || 0);
+    activityLogsTableExistsCache = count > 0;
+    return activityLogsTableExistsCache;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Idempotent migration: creates dbo.activity_logs if it doesn't exist yet.
+ */
+export async function runActivityLogsMigration(): Promise<void> {
+  if (activityLogsMigrationRan) return;
+  activityLogsMigrationRan = true;
+
+  try {
+    await prisma.$executeRawUnsafe(`
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'activity_logs'
+      )
+      BEGIN
+        CREATE TABLE [dbo].[activity_logs] (
+          [logID]           INT NOT NULL,
+          [dealID]          INT NULL,
+          [dealRegID]       VARCHAR(50) NULL,
+          [custName]        NVARCHAR(MAX) NULL,
+          [projectName]     NVARCHAR(MAX) NULL,
+          [action]          VARCHAR(50) NOT NULL,
+          [fieldName]       VARCHAR(100) NULL,
+          [oldValue]        NVARCHAR(MAX) NULL,
+          [newValue]        NVARCHAR(MAX) NULL,
+          [remarks]         NVARCHAR(MAX) NULL,
+          [performedBy]     VARCHAR(100) NOT NULL,
+          [performedByName] NVARCHAR(200) NULL,
+          [performedByRole] VARCHAR(50) NULL,
+          [impersonatedBy]  VARCHAR(100) NULL,
+          [dtCreated]       DATETIME NOT NULL CONSTRAINT [DF_activity_logs_dtCreated] DEFAULT (GETDATE()),
+          CONSTRAINT [PK_activity_logs] PRIMARY KEY CLUSTERED ([logID] ASC)
+        );
+
+        CREATE NONCLUSTERED INDEX [IX_activity_logs_dtCreated] ON [dbo].[activity_logs] ([dtCreated] DESC);
+        CREATE NONCLUSTERED INDEX [IX_activity_logs_dealID] ON [dbo].[activity_logs] ([dealID] ASC);
+        CREATE NONCLUSTERED INDEX [IX_activity_logs_dealRegID] ON [dbo].[activity_logs] ([dealRegID] ASC);
+        CREATE NONCLUSTERED INDEX [IX_activity_logs_action] ON [dbo].[activity_logs] ([action] ASC);
+        CREATE NONCLUSTERED INDEX [IX_activity_logs_performedBy] ON [dbo].[activity_logs] ([performedBy] ASC);
+      END
+    `);
+    activityLogsTableExistsCache = true;
+    console.log('[DB Migration] activity_logs table verification/migration completed.');
+  } catch (err: any) {
+    console.warn('[DB Migration] Note on activity_logs table check:', err?.message || err);
+  }
+}
+
+

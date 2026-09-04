@@ -405,3 +405,34 @@ export const MOCK_DEALS: DealHeaderRecord[] = [
     ],
   },
 ];
+
+export interface ActivityLogRecord {
+  logID: number;
+  dealID?: number | null;
+  dealRegID?: string | null;
+  custName?: string | null;
+  projectName?: string | null;
+  action: string;
+  fieldName?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  remarks?: string | null;
+  performedBy: string;
+  performedByName?: string | null;
+  performedByRole?: string | null;
+  impersonatedBy?: string | null;
+  dtCreated: Date | string;
+}
+
+export interface ActivityLogsFilter {
+  page?: number;
+  pageSize?: number;
+  searchQuery?: string;
+  actionFilter?: string;
+  dateFilter?: 'all' | 'today' | '7days' | '30days' | 'custom';
+  startDate?: string | Date;
+  endDate?: string | Date;
+  dealID?: number;
+  dealRegID?: string;
+}
+

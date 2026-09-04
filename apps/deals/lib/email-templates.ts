@@ -133,9 +133,6 @@ export function generateCreateDealEmail(data: CreateDealEmailData): {
   const subject = `[Deal Registration] Created: ${dealRef} - ${data.custName}`;
 
   const content = `
-    <div style="margin-bottom: 16px;">
-      <span class="status-badge badge-green">Deal Registered</span>
-    </div>
     <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">New Deal Registration</h2>
     <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
       Hi ${aoGreeting},
@@ -206,6 +203,7 @@ export interface UpdateDealEmailData {
   bu: string;
   assignedAO: string;
   aoNickName?: string;
+  dealStatus?: string;
   currency?: string;
   regDate?: Date | string | null;
   expDate?: Date | string | null;
@@ -245,6 +243,7 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
 
   // Index changes by field label
   const changesMap = new Map<string, DealFieldChange>();
+  const renderedChangeLabels = new Set<string>();
   if (data.changes && data.changes.length > 0) {
     for (const c of data.changes) {
       changesMap.set(c.label.trim().toLowerCase(), c);
@@ -256,15 +255,15 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
     currentValueHtml: string,
     isBoldDefault: boolean = false
   ): string => {
-    const change = changesMap.get(label.trim().toLowerCase());
+    const normKey = label.trim().toLowerCase();
+    const change = changesMap.get(normKey);
     if (change) {
+      renderedChangeLabels.add(normKey);
       return `
       <tr style="background-color: #fffbeb;">
         <td class="label" style="background-color: #fef3c7; color: #92400e; font-weight: 600;">${label}</td>
         <td class="value">
-          <del style="color: #dc2626; text-decoration: line-through;">${change.from || '(empty)'}</del>
-          <span style="color: #6b7280; margin: 0 6px; font-weight: 700;">&#10140;</span>
-          <strong style="color: #16a34a;">${change.to || '(empty)'}</strong>
+          <del style="color: #dc2626; text-decoration: line-through;">${change.from || '(empty)'}</del> - <strong style="color: #16a34a;">${change.to || '(empty)'}</strong>
         </td>
       </tr>`;
     }
@@ -277,10 +276,29 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
       </tr>`;
   };
 
+  // Render any remaining changes not captured in standard rows
+  const renderRemainingChanges = (): string => {
+    if (!data.changes || data.changes.length === 0) return '';
+    const unrendered = data.changes.filter(
+      (c) => !renderedChangeLabels.has(c.label.trim().toLowerCase())
+    );
+    if (unrendered.length === 0) return '';
+    return unrendered
+      .map(
+        (c) => `
+      <tr style="background-color: #fffbeb;">
+        <td class="label" style="background-color: #fef3c7; color: #92400e; font-weight: 600;">${c.label}</td>
+        <td class="value">
+          <del style="color: #dc2626; text-decoration: line-through;">${c.from || '(empty)'}</del> - <strong style="color: #16a34a;">${c.to || '(empty)'}</strong>
+        </td>
+      </tr>`
+      )
+      .join('');
+  };
+
+  const statusDisplay = data.dealStatus || data.newStatus || 'Registered';
+
   const content = `
-    <div style="margin-bottom: 16px;">
-      <span class="status-badge badge-blue">Deal Updated</span>
-    </div>
     <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">Deal Update Notification</h2>
     <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
       Hi ${aoGreeting},
@@ -292,6 +310,10 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
 
     <table class="data-table">
       ${renderRow('Deal Registration ID', dealRef, true)}
+      ${renderRow('Customer Name', data.custName)}
+      ${renderRow('Business Unit (BU)', data.bu)}
+      ${renderRow('Assigned AO', data.assignedAO)}
+      ${renderRow('Deal Status', statusDisplay)}
       ${renderRow('Brand', data.brand)}
       ${renderRow('Project Name', data.projectName || 'N/A')}
       ${regFormatted ? renderRow('Registration Date', regFormatted) : ''}
@@ -299,6 +321,7 @@ export function generateUpdateDealEmail(data: UpdateDealEmailData): {
       ${renderRow('Currency', data.currency || 'PHP')}
       ${renderRow('Deal Amount', amountFormatted, true)}
       ${data.remarks || changesMap.has('remarks') ? renderRow('Remarks', data.remarks || 'N/A') : ''}
+      ${renderRemainingChanges()}
     </table>
 
     <div class="btn-container">
@@ -347,9 +370,7 @@ export function generateLostDealEmail(data: LostDealEmailData): {
   const subject = `[Deal Registration] Closed as Lost: ${dealRef} - ${data.custName}`;
 
   const content = `
-    <div style="margin-bottom: 16px;">
-      <span class="status-badge badge-red">Deal Closed as Lost</span>
-    </div>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #b91c1c;">Deal Closed as Lost</h2>
     <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
       Hi ${aoGreeting},
     </p>
@@ -444,9 +465,6 @@ export function generateRenewDealEmail(data: RenewDealEmailData): {
   const subject = `[Deal Registration] Renewed: ${dealRef} - ${data.custName}`;
 
   const content = `
-    <div style="margin-bottom: 16px;">
-      <span class="status-badge badge-green">Deal Renewed</span>
-    </div>
     <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">Deal Renewal Notification</h2>
     <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
       Hi ${aoGreeting},
@@ -529,29 +547,24 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
   const expFormatted = new Date(data.expirationDate).toLocaleDateString();
   const aoGreeting = data.aoNickName || data.assignedAO || 'Team';
 
-  let badgeHtml = '';
   let warningTitle = '';
   let subjectPrefix = '';
 
   switch (data.warningLevel) {
     case '30d':
-      badgeHtml = `<span class="status-badge badge-amber">1st Warning - ${data.daysRemaining} Days Left</span>`;
       warningTitle = `Deal Expiring in ${data.daysRemaining} Days (1st Warning)`;
       subjectPrefix = `[Deal Registration] Expiring in ${data.daysRemaining} Days:`;
       break;
     case '15d':
-      badgeHtml = `<span class="status-badge badge-amber">2nd Warning - 15 Days Left</span>`;
       warningTitle = `Deal Expiring in 15 Days (2nd Warning)`;
       subjectPrefix = `[Deal Registration] Expiring in 15 Days:`;
       break;
     case '7d':
-      badgeHtml = `<span class="status-badge badge-red">Critical Warning - 7 Days Left</span>`;
       warningTitle = `CRITICAL: Deal Expiring in 7 Days`;
       subjectPrefix = `[Deal Registration] CRITICAL 7-Day Warning:`;
       break;
     case 'daily':
     default:
-      badgeHtml = `<span class="status-badge badge-red">Urgent Daily Alert - ${data.daysRemaining} Day(s) Left</span>`;
       warningTitle = `URGENT: Deal Expiring in ${data.daysRemaining} Day(s)`;
       subjectPrefix = `[Deal Registration] URGENT - Expiring in ${data.daysRemaining} Day(s):`;
       break;
@@ -560,9 +573,6 @@ export function generateExpiringDealEmail(data: ExpiringDealEmailData): {
   const subject = `${subjectPrefix} ${dealRef} - ${data.custName}`;
 
   const content = `
-    <div style="margin-bottom: 16px;">
-      ${badgeHtml}
-    </div>
     <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #991b1b;">${warningTitle}</h2>
     <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #1e293b;">
       Hi ${aoGreeting},
@@ -628,12 +638,7 @@ export function generateSystemDiagnosticEmail(data: {
   const subject = `[Deal Registration] System Connection & Delivery Test (${data.formattedDate})`;
 
   const content = `
-    <div style="margin-bottom: 16px;">
-      <span class="status-badge ${data.mode === 'DEV' ? 'badge-amber' : 'badge-green'}">
-        ${data.mode} Mode Active
-      </span>
-    </div>
-    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">SMTP Delivery & Routing Test</h2>
+    <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0f172a;">SMTP Delivery & Routing Test (${data.mode} MODE)</h2>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">
       This email verifies that your SMTP transport configuration, recipient resolution engine, and mode rules are operational.
     </p>

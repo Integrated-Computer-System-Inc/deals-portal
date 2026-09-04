@@ -16,6 +16,7 @@ import {
   BarChart2,
   Users,
   Mail,
+  ScrollText,
   LogOut,
   PanelLeftClose,
   PanelLeft,
@@ -86,6 +87,7 @@ export default function Sidebar() {
     if (userRole === 'ITadmin') {
       router.prefetch('/admin/users');
       router.prefetch('/admin/emails');
+      router.prefetch('/admin/activity-logs');
     }
     if (!isViewOnly) {
       router.prefetch('/deals/new');
@@ -330,6 +332,7 @@ export default function Sidebar() {
                     Admin
                   </div>
                 )}
+                {/* 1. User Management */}
                 <div className="w-full flex justify-center">
                   <AppSidebar.Item
                     href="/admin/users"
@@ -348,6 +351,7 @@ export default function Sidebar() {
                   </AppSidebar.Item>
                 </div>
 
+                {/* 2. Email Configuration */}
                 <div className="w-full flex justify-center">
                   <AppSidebar.Item
                     href="/admin/emails"
@@ -365,7 +369,27 @@ export default function Sidebar() {
                     Email Configuration
                   </AppSidebar.Item>
                 </div>
+
+                {/* 3. Activity Logs */}
+                <div className="w-full flex justify-center">
+                  <AppSidebar.Item
+                    href="/admin/activity-logs"
+                    icon={<ScrollText size={18} />}
+                    active={pathname === '/admin/activity-logs' || pathname.startsWith('/admin/activity-logs/')}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      setIsDealsSubmenuOpen(false);
+                      try {
+                        sessionStorage.removeItem('DEALS_NAVIGATED_TO_DETAIL');
+                      } catch {}
+                    }}
+                    tooltipPlacement="right"
+                  >
+                    Activity Logs
+                  </AppSidebar.Item>
+                </div>
               </AppSidebar.Group>
+
             </div>
           )}
         </AppSidebar.Content>
