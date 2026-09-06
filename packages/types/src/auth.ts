@@ -36,5 +36,11 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
   interface JWT extends DomainUserClaims {
     sub?: string;
+    authTime?: number;
+    error?: string;
+    isImpersonating?: boolean;
+    originalAdminEmail?: string;
+    GAvatar?: string;
+    assignedBrands?: string[];
   }
 }

@@ -19,6 +19,36 @@ const CDB_ACCOUNT_SELECT = {
   GAvatar: true,
 } as const;
 
+export const ABSOLUTE_SESSION_MAX_AGE = 24 * 60 * 60; // 24 Hours in seconds (1 Day)
+export const REMEMBER_TOKEN_CACHE_TTL = 15_000; // 15 seconds in milliseconds
+
+/**
+ * Retrieves the currently active RememberToken for an account from memory cache
+ * or falls back to querying dbo.Users table. Caches result for 15s to maintain <1ms latency.
+ */
+export async function getCachedUserRememberToken(accountId: number): Promise<string | null> {
+  const cacheKey = `user:remember_token:${accountId}`;
+  const cached = serverCache.get<string>(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+        SELECT TOP 1 RememberToken FROM Users WHERE AccountID = ${accountId};
+    `);
+    if (Array.isArray(rows) && rows.length > 0 && rows[0]?.RememberToken) {
+      const token = String(rows[0].RememberToken);
+      serverCache.set(cacheKey, token, REMEMBER_TOKEN_CACHE_TTL);
+      return token;
+    }
+  } catch (err) {
+    console.warn('[Auth] getCachedUserRememberToken lookup notice:', err);
+  }
+  return null;
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -132,6 +162,14 @@ export const authOptions: NextAuthOptions = {
                 const assignedBUs = (resolvedRole === 'ITadmin' || resolvedRole === 'admin') ? ['ALL'] : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
                 const assignedBrands = userAccess.assignedBrands || [];
 
+                const newRememberToken = randomUUID();
+                prisma.$executeRawUnsafe(`
+                  UPDATE Users 
+                  SET LastLogin = GETDATE(), RememberToken = '${newRememberToken}' 
+                  WHERE AccountID = ${accountId};
+                `).catch((e) => console.warn('[Credentials Fast-Path] LastLogin update notice:', e));
+                serverCache.set(`user:remember_token:${accountId}`, newRememberToken, REMEMBER_TOKEN_CACHE_TTL);
+
                 return {
                   id: `usr_${accountId}`,
                   name: accountName,
@@ -143,7 +181,7 @@ export const authOptions: NextAuthOptions = {
                   role: resolvedRole,
                   assignedBUs: assignedBUs,
                   assignedBrands: assignedBrands,
-                  RememberToken: u.RememberToken || rememberToken,
+                  RememberToken: newRememberToken,
                 };
               }
             } catch (err) {
@@ -204,6 +242,7 @@ export const authOptions: NextAuthOptions = {
                     VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${userEmail.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
                 END
               `);
+              serverCache.set(`user:remember_token:${accountId}`, rememberToken, REMEMBER_TOKEN_CACHE_TTL);
             } catch (dbErr) {
               console.warn('[Credentials] Error saving into Users table:', dbErr);
             }
@@ -353,7 +392,7 @@ export const authOptions: NextAuthOptions = {
               const accountId = Number(existingUser.AccountID);
               const userRole = existingUser.UserRole as UserRole;
               const accountName = existingUser.AccountName || user.name || emailLower.split('@')[0].toUpperCase();
-              const rememberToken = existingUser.RememberToken || randomUUID();
+              const newRememberToken = randomUUID();
 
               // Resolve BU scopes with explicit UserRole, AssignedBU and AssignedBrand from Users table
               const userAccess = resolveUserRoleAndBUs(
@@ -376,9 +415,10 @@ export const authOptions: NextAuthOptions = {
               syncGooglePhotoToCdb(emailLower, accountId).catch(() => {});
               prisma.$executeRawUnsafe(`
                 UPDATE Users 
-                SET LastLogin = GETDATE(), RememberToken = '${rememberToken}' 
+                SET LastLogin = GETDATE(), RememberToken = '${newRememberToken}' 
                 WHERE AccountID = ${accountId};
               `).catch((e) => console.warn('[Fast-Path] Non-blocking LastLogin update error:', e));
+              serverCache.set(`user:remember_token:${accountId}`, newRememberToken, REMEMBER_TOKEN_CACHE_TTL);
 
               const domainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
 
@@ -391,7 +431,7 @@ export const authOptions: NextAuthOptions = {
               (user as any).role = resolvedRole;
               (user as any).assignedBUs = assignedBUs;
               (user as any).assignedBrands = assignedBrands;
-              (user as any).RememberToken = rememberToken;
+              (user as any).RememberToken = newRememberToken;
               (user as any).GAvatar = googlePhotoUrl || undefined;
 
               return true;
@@ -480,6 +520,7 @@ export const authOptions: NextAuthOptions = {
                 INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
                 VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
             `);
+            serverCache.set(`user:remember_token:${accountId}`, rememberToken, REMEMBER_TOKEN_CACHE_TTL);
           } catch (dbError) {
             console.warn('[Google Sign-In] Users upsert notice:', dbError);
           }
@@ -518,6 +559,38 @@ export const authOptions: NextAuthOptions = {
         token.isImpersonating = u.isImpersonating || false;
         token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
         token.GAvatar = u.GAvatar || user.image || undefined;
+        token.authTime = Math.floor(Date.now() / 1000);
+      }
+
+      // 1. Enforce Absolute 24-Hour Session Expiration (1 Day Limit)
+      const authTime = (token.authTime as number) || Math.floor(Date.now() / 1000);
+      const now = Math.floor(Date.now() / 1000);
+      if (now - authTime > ABSOLUTE_SESSION_MAX_AGE) {
+        token.error = 'SessionExpired';
+        delete (token as any).AccountID;
+        delete (token as any).RememberToken;
+        delete (token as any).role;
+        return token;
+      }
+
+      // 2. Enforce Single Active Session via RememberToken
+      // Impersonation is isolated so it never triggers or alters the DB token
+      if (!token.isImpersonating && token.AccountID && token.RememberToken && !user) {
+        const accountId = Number(token.AccountID);
+        if (!isNaN(accountId)) {
+          const activeRememberToken = await getCachedUserRememberToken(accountId);
+          if (activeRememberToken && activeRememberToken !== token.RememberToken) {
+            token.error = 'SessionReplaced';
+            delete (token as any).AccountID;
+            delete (token as any).RememberToken;
+            delete (token as any).role;
+            return token;
+          }
+        }
+      }
+
+      if (token.error) {
+        return token;
       }
 
       // Proactive Self-Healing Role & Name Sync:
@@ -606,6 +679,9 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
+      if (token?.error || !token?.AccountID) {
+        return null as any;
+      }
       if (session.user) {
         const u = session.user as any;
         u.DomainAccount = token.DomainAccount as string;
@@ -650,8 +726,8 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 Days "Remember Me" persistent session
-    updateAge: 24 * 60 * 60,    // Update token once per day
+    maxAge: ABSOLUTE_SESSION_MAX_AGE, // 24 Hours (1 Day) session
+    updateAge: 15 * 60,               // Re-validate session every 15 minutes
   },
   debug: process.env.NODE_ENV === 'development',
   secret: process.env.NEXTAUTH_SECRET || 'super-secret-deals-reg-portal-key',

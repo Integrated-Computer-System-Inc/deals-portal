@@ -856,3 +856,148 @@ export function getScenarioEmailTemplate(
       });
   }
 }
+
+// --------------------------------------------------------------------------------
+// 6. Follow-Up Deal Email
+// --------------------------------------------------------------------------------
+
+export interface FollowUpEmailData {
+  dealID: number | string;
+  dealRegID?: string | null;
+  custName: string;
+  projectName?: string | null;
+  brand: string;
+  bu: string;
+  assignedAO: string;
+  aoNickName?: string;
+  currency?: string;
+  regDate?: Date | string | null;
+  expDate?: Date | string | null;
+  totalAmount?: number | null;
+  dealStatus?: string | number | null;
+  customMessage: string;
+  senderName: string;
+  senderAvatar?: string | null;
+  sentAt?: Date | string | null;
+}
+
+export function generateFollowUpEmailHtml(data: FollowUpEmailData): {
+  message: string;
+} {
+  const portalUrl = getPortalBaseUrl();
+  const dealLink = `${portalUrl}/deals/${data.dealID}`;
+  const regFormatted = data.regDate ? new Date(data.regDate).toLocaleDateString() : 'N/A';
+  const expFormatted = data.expDate ? new Date(data.expDate).toLocaleDateString() : 'N/A';
+  const numAmount = data.totalAmount != null ? Number(data.totalAmount) : null;
+  const amountFormatted =
+    numAmount != null
+      ? numAmount % 1 === 0
+        ? numAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })
+        : numAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : 'N/A';
+  const dealRef = data.dealRegID || data.dealID;
+
+  // Format timestamp (e.g., Fri, Aug 28, 2026, 05:52 PM)
+  const sendDate = data.sentAt ? new Date(data.sentAt) : new Date();
+  const formattedTimestamp = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(sendDate);
+
+  // Helper to safely preserve allowed HTML formatting tags from the rich editor
+  let formattedMessage = (data.customMessage || '').trim();
+  if (/<[a-z][\s\S]*>/i.test(formattedMessage)) {
+    // Contains HTML from rich editor: strip dangerous tags and attributes
+    formattedMessage = formattedMessage
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+      .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+      .replace(/on\w+="[^"]*"/gi, '')
+      .replace(/on\w+='[^']*'/gi, '');
+  } else {
+    // Pure plain text: escape and convert newlines
+    formattedMessage = formattedMessage
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/\n/g, '<br/>');
+  }
+
+  const content = `
+    <!-- Sender Header (Gmail-Style Avatar + Name + Timestamp) -->
+    <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 24px; border-collapse: collapse;">
+      <tr>
+        <td style="vertical-align: middle; padding-right: 12px; width: 42px;">
+          ${data.senderAvatar ? `
+            <img src="${data.senderAvatar}" alt="${data.senderName}" width="40" height="40" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: block; border: 1px solid #e2e8f0;" />
+          ` : `
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #ab47bc, #8e24aa); color: #ffffff; font-size: 15px; font-weight: 700; text-align: center; line-height: 40px; text-transform: uppercase;">
+              ${(data.senderName || 'U').trim().charAt(0).toUpperCase()}
+            </div>
+          `}
+        </td>
+        <td style="vertical-align: middle;">
+          <div style="font-size: 15px; font-weight: 700; color: #0f172a; line-height: 1.2;">
+            ${data.senderName}
+          </div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 3px;">
+            ${formattedTimestamp}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Follow-Up Message Body -->
+    <div style="font-size: 15px; line-height: 1.6; color: #1e293b; margin-bottom: 28px; font-family: inherit;">
+      ${formattedMessage}
+    </div>
+
+    <div style="margin-bottom: 12px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 700; color: #0f172a;">Referenced Deal Details</h3>
+      <p style="margin: 0; font-size: 13px; color: #64748b;">Here is the summary of the deal referenced in this follow-up:</p>
+    </div>
+
+    <!-- 2-Column Key-Value Deal Summary Table -->
+    <table class="data-table" style="width: 100%; margin: 16px 0; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; border-collapse: collapse;">
+      <tr>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Deal Reg ID</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;"><strong>${dealRef}</strong></td>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Customer Name</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;"><strong>${data.custName}</strong></td>
+      </tr>
+      <tr>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Brand</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">${data.brand}</td>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Project Name</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">${data.projectName || 'N/A'}</td>
+      </tr>
+      <tr>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Registration Date</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">${regFormatted}</td>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">Expiration Date</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0;">${expFormatted}</td>
+      </tr>
+      <tr>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px;">Currency</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 13px; font-weight: 600; color: #0f172a;">${data.currency || 'PHP'}</td>
+        <td class="label" style="width: 22%; font-weight: 600; color: #475569; background-color: #fafafa; padding: 10px 12px; font-size: 13px;">Total Amount</td>
+        <td class="value" style="width: 28%; padding: 10px 12px; font-size: 14px; font-weight: 700; color: #047857;">${amountFormatted}</td>
+      </tr>
+    </table>
+
+    <div class="btn-container">
+      <a href="${dealLink}" class="btn">View Deal in Portal</a>
+    </div>
+  `;
+
+  return {
+    message: wrapEmailHtml(content, `[Follow Up] Deal ID : ${dealRef} - ${data.custName}`),
+  };
+}

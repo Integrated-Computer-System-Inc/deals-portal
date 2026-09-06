@@ -31,9 +31,11 @@ import dynamic from 'next/dynamic';
 const WTNModal = dynamic(() => import('../../components/WTNModal'), { ssr: false });
 const LostDealModal = dynamic(() => import('../../components/LostDealModal'), { ssr: false });
 const DealDetailsModal = dynamic(() => import('../../components/DealDetailsModal'), { ssr: false });
+const FollowUpModal = dynamic(() => import('../../components/FollowUpModal'), { ssr: false });
 import {
   Search,
   Edit,
+  Mail,
   BellRing,
   ShieldAlert,
   Plus,
@@ -121,6 +123,7 @@ function DealsContent() {
   const [viewTarget, setViewTarget] = useState<number | null>(null);
   const [wtnTarget, setWtnTarget] = useState<{ id: number; regID: string; date?: string | Date | null } | null>(null);
   const [lostTarget, setLostTarget] = useState<{ id: number; regID: string } | null>(null);
+  const [followUpTarget, setFollowUpTarget] = useState<{ id: number; regID: string } | null>(null);
 
   const scopedFilter = useCurrentUserFilter();
 
@@ -714,6 +717,20 @@ function DealsContent() {
             onClick: () => {
               saveViewState();
               router.push(`/deals/${record.dealID}/edit`);
+            },
+          },
+          {
+            type: 'divider' as const,
+          },
+          {
+            key: 'follow_up',
+            icon: <Mail className="w-4 h-4 text-purple-600 dark:text-purple-400" />,
+            label: <span className="font-semibold text-purple-700 dark:text-purple-300">Follow Up</span>,
+            onClick: () => {
+              setFollowUpTarget({
+                id: record.dealID,
+                regID: record.dealRegID || `DR-${record.dealID}`,
+              });
             },
           },
           ...(statusNum !== 7 && statusNum !== 8
@@ -1311,6 +1328,17 @@ function DealsContent() {
           dealRegID={lostTarget.regID}
           isOpen={true}
           onClose={() => setLostTarget(null)}
+          onSuccess={fetchDeals}
+        />
+      )}
+
+      {/* Follow Up Modal */}
+      {followUpTarget && (
+        <FollowUpModal
+          dealID={followUpTarget.id}
+          dealRegID={followUpTarget.regID}
+          isOpen={true}
+          onClose={() => setFollowUpTarget(null)}
           onSuccess={fetchDeals}
         />
       )}
