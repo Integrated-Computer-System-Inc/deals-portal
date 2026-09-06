@@ -15,6 +15,7 @@ export interface EmailRecipientItem {
   email: string;
   domainAccount?: string;
   accountGroup?: string;
+  avatar?: string;
 }
 
 export interface AppEmailConfigRecord {
@@ -320,7 +321,7 @@ export async function searchCdbAccountsForEmail(searchQuery: string): Promise<{
     if (!term) {
       // Return top active internal accounts
       const topAccounts = await prisma.$queryRawUnsafe<any[]>(`
-        SELECT TOP 20 [AccountID], [AccountName], [Email], [DomainAccount], [AccountGroup], [NickName]
+        SELECT TOP 20 [AccountID], [AccountName], [Email], [DomainAccount], [AccountGroup], [NickName], [GAvatar]
         FROM [dbo].[cdbAccounts]
         WHERE [AccountType] <> 'CUSTOMER' 
           AND [Email] IS NOT NULL 
@@ -338,6 +339,7 @@ export async function searchCdbAccountsForEmail(searchQuery: string): Promise<{
           email: String(acc.Email).toLowerCase().trim(),
           domainAccount: acc.DomainAccount,
           accountGroup: acc.AccountGroup,
+          avatar: acc.GAvatar ? String(acc.GAvatar).trim() : undefined,
         })),
       };
     }
@@ -355,7 +357,7 @@ export async function searchCdbAccountsForEmail(searchQuery: string): Promise<{
     }).join(' AND ');
 
     const results = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT TOP 25 [AccountID], [AccountName], [Email], [DomainAccount], [AccountGroup], [NickName]
+      SELECT TOP 25 [AccountID], [AccountName], [Email], [DomainAccount], [AccountGroup], [NickName], [GAvatar]
       FROM [dbo].[cdbAccounts]
       WHERE [AccountType] <> 'CUSTOMER'
         AND [Email] IS NOT NULL 
@@ -373,6 +375,7 @@ export async function searchCdbAccountsForEmail(searchQuery: string): Promise<{
         email: String(acc.Email).toLowerCase().trim(),
         domainAccount: acc.DomainAccount,
         accountGroup: acc.AccountGroup,
+        avatar: acc.GAvatar ? String(acc.GAvatar).trim() : undefined,
       })),
     };
   } catch (err: any) {

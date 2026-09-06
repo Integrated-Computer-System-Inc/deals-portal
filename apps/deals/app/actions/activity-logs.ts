@@ -140,23 +140,64 @@ export async function getActivityLogs(
       FETCH NEXT ${pageSize} ROWS ONLY;
     `);
 
-    const formattedRecords: ActivityLogRecord[] = (records || []).map((row) => ({
-      logID: Number(row.logID),
-      dealID: row.dealID != null ? Number(row.dealID) : null,
-      dealRegID: row.dealRegID || null,
-      custName: row.custName || null,
-      projectName: row.projectName || null,
-      action: row.action || 'UNKNOWN',
-      fieldName: row.fieldName || null,
-      oldValue: row.oldValue || null,
-      newValue: row.newValue || null,
-      remarks: row.remarks || null,
-      performedBy: row.performedBy || 'Unknown',
-      performedByName: row.performedByName || null,
-      performedByRole: row.performedByRole || null,
-      impersonatedBy: row.impersonatedBy || null,
-      dtCreated: row.dtCreated ? new Date(row.dtCreated) : new Date(),
-    }));
+    // 3. Resolve actor avatars from cdbAccounts
+    const avatarMap: Record<string, string> = {};
+    try {
+      const avatarRows = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT DomainAccount, Email, AccountName, GAvatar 
+        FROM [dbo].[cdbAccounts] 
+        WHERE GAvatar IS NOT NULL AND LEN(LTRIM(RTRIM(GAvatar))) > 0;
+      `);
+      if (Array.isArray(avatarRows)) {
+        for (const row of avatarRows) {
+          const avatar = String(row.GAvatar).trim();
+          if (row.DomainAccount) {
+            const da = String(row.DomainAccount).trim().toUpperCase();
+            avatarMap[da] = avatar;
+            avatarMap[`CORP\\${da}`] = avatar;
+          }
+          if (row.Email) {
+            const em = String(row.Email).trim().toLowerCase();
+            avatarMap[em] = avatar;
+          }
+          if (row.AccountName) {
+            const an = String(row.AccountName).trim().toUpperCase();
+            avatarMap[an] = avatar;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[ActivityLogs] Avatar lookup notice:', e);
+    }
+
+    const formattedRecords: ActivityLogRecord[] = (records || []).map((row) => {
+      const pBy = String(row.performedBy || '').trim();
+      const pByName = String(row.performedByName || '').trim().toUpperCase();
+      const avatar =
+        avatarMap[pBy.toUpperCase()] ||
+        avatarMap[pBy.toLowerCase()] ||
+        avatarMap[pByName] ||
+        null;
+
+      return {
+        logID: Number(row.logID),
+        dealID: row.dealID != null ? Number(row.dealID) : null,
+        dealRegID: row.dealRegID || null,
+        custName: row.custName || null,
+        projectName: row.projectName || null,
+        action: row.action || 'UNKNOWN',
+        fieldName: row.fieldName || null,
+        oldValue: row.oldValue || null,
+        newValue: row.newValue || null,
+        remarks: row.remarks || null,
+        performedBy: row.performedBy || 'Unknown',
+        performedByName: row.performedByName || null,
+        performedByRole: row.performedByRole || null,
+        performedByAvatar: avatar,
+        impersonatedBy: row.impersonatedBy || null,
+        dtCreated: row.dtCreated ? new Date(row.dtCreated) : new Date(),
+      };
+    });
 
     const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1;
 

@@ -6,8 +6,8 @@ import { DashboardSummaryData } from '../app/actions/deals';
 export { useDashboardQuery };
 export type { DashboardSummaryData };
 
-export function useDashboardMetrics() {
-  const { data, error, isLoading, isFetching, refetch } = useDashboardQuery();
+export function useDashboardMetrics(dateRange?: { preset?: string; startDate?: string; endDate?: string }) {
+  const { data, error, isLoading, isFetching, refetch } = useDashboardQuery(dateRange);
 
   return {
     metrics: data,

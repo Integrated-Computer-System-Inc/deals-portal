@@ -29,8 +29,10 @@ import {
   SlidersHorizontal,
   Filter,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { useDealsQuery, useCurrentUserFilter } from '@/hooks/useDealsQuery';
+import { useReportsMetricsQuery, useReportDrilldownQuery } from '@/hooks/useReportsQuery';
 import {
   DealHeaderRecord,
   UserRole,
@@ -67,13 +69,15 @@ type ActiveReportType = 'EXPIRY_RISK' | 'BRAND_ANALYTICS' | 'BU_MATRIX' | null;
 export default function ReportsPage() {
   const router = useRouter();
   const scopedFilter = useCurrentUserFilter();
-  const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
 
   // Global Page Date Range
   const [globalDateRange, setGlobalDateRange] = useState<DateRangeValue>({
     preset: 'ALL',
     label: 'All Time',
   });
+
+  // Fast pre-aggregated metrics from dbo.DealReportView (< 35KB)
+  const { data: metricsData, isLoading: metricsLoading, isFetching: metricsFetching } = useReportsMetricsQuery(scopedFilter, globalDateRange);
 
   // Section 3: Brand Matrix Interactive Filter & Sort States
   const [brandSearch, setBrandSearch] = useState('');
@@ -86,10 +90,18 @@ export default function ReportsPage() {
   const [buSort, setBuSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
   const [buStatusFilter, setBuStatusFilter] = useState<'ALL' | 'ACTIVE' | 'APPROVED' | 'WAITING' | 'LOST'>('ALL');
 
-  // Modal States for KPI Drilldowns
+  // Modal States for KPI Drilldowns (Server-Paginated)
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
+  const [regPage, setRegPage] = useState(1);
+  const [regSearch, setRegSearch] = useState('');
+
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
+  const [expPage, setExpPage] = useState(1);
+  const [expSearch, setExpSearch] = useState('');
+
   const [isRenewedModalOpen, setIsRenewedModalOpen] = useState(false);
+  const [renPage, setRenPage] = useState(1);
+  const [renSearch, setRenSearch] = useState('');
 
   // Brand Directory Modal States
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
@@ -98,6 +110,8 @@ export default function ReportsPage() {
   const [modalBrandSort, setModalBrandSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('value-desc');
   const [selectedBrandForDeals, setSelectedBrandForDeals] = useState<string | null>(null);
   const [isBrandDealsModalOpen, setIsBrandDealsModalOpen] = useState(false);
+  const [brandDealsPage, setBrandDealsPage] = useState(1);
+  const [brandDealsSearch, setBrandDealsSearch] = useState('');
 
   // BU Directory Modal States (Displays ALL Official + Specialized BUs)
   const [isOtherBUModalOpen, setIsOtherBUModalOpen] = useState(false);
@@ -106,6 +120,8 @@ export default function ReportsPage() {
   const [modalBUSort, setModalBUSort] = useState<'count-desc' | 'count-asc' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('count-desc');
   const [selectedBUForDeals, setSelectedBUForDeals] = useState<string | null>(null);
   const [isBUDealsModalOpen, setIsBUDealsModalOpen] = useState(false);
+  const [buDealsPage, setBuDealsPage] = useState(1);
+  const [buDealsSearch, setBuDealsSearch] = useState('');
 
   const [isLostReportModalOpen, setIsLostReportModalOpen] = useState(false);
 
@@ -123,6 +139,83 @@ export default function ReportsPage() {
     field: 'expDt',
     order: 'asc',
   });
+
+  // Server-side paginated queries from DealReportView
+  const { data: regDrilldown, isLoading: regLoading } = useReportDrilldownQuery({
+    type: 'registered',
+    page: regPage,
+    pageSize: 50,
+    searchQuery: regSearch,
+    preset: globalDateRange.preset,
+    startDate: globalDateRange.startDate,
+    endDate: globalDateRange.endDate,
+    filter: scopedFilter,
+    enabled: isRegisteredModalOpen,
+  });
+
+  const { data: expDrilldown, isLoading: expLoading } = useReportDrilldownQuery({
+    type: 'expired',
+    page: expPage,
+    pageSize: 50,
+    searchQuery: expSearch,
+    preset: globalDateRange.preset,
+    startDate: globalDateRange.startDate,
+    endDate: globalDateRange.endDate,
+    filter: scopedFilter,
+    enabled: isExpiredModalOpen,
+  });
+
+  const { data: renDrilldown, isLoading: renLoading } = useReportDrilldownQuery({
+    type: 'renewed',
+    page: renPage,
+    pageSize: 50,
+    searchQuery: renSearch,
+    preset: globalDateRange.preset,
+    startDate: globalDateRange.startDate,
+    endDate: globalDateRange.endDate,
+    filter: scopedFilter,
+    enabled: isRenewedModalOpen,
+  });
+
+  const { data: brandDrilldown, isLoading: brandDrilldownLoading } = useReportDrilldownQuery({
+    type: 'brand',
+    value: selectedBrandForDeals || undefined,
+    page: brandDealsPage,
+    pageSize: 50,
+    searchQuery: brandDealsSearch,
+    preset: globalDateRange.preset,
+    startDate: globalDateRange.startDate,
+    endDate: globalDateRange.endDate,
+    filter: scopedFilter,
+    enabled: isBrandDealsModalOpen && Boolean(selectedBrandForDeals),
+  });
+
+  const { data: buDrilldown, isLoading: buDrilldownLoading } = useReportDrilldownQuery({
+    type: 'bu',
+    value: selectedBUForDeals || undefined,
+    page: buDealsPage,
+    pageSize: 50,
+    searchQuery: buDealsSearch,
+    preset: globalDateRange.preset,
+    startDate: globalDateRange.startDate,
+    endDate: globalDateRange.endDate,
+    filter: scopedFilter,
+    enabled: isBUDealsModalOpen && Boolean(selectedBUForDeals),
+  });
+
+  // Only load heavy allDeals when Lost deals modal or Deep-Dive Studios are active
+  const shouldFetchAllDeals = isLostReportModalOpen || Boolean(activeReport);
+  const { data: allDeals = [], isLoading: dealsLoading } = useDealsQuery(scopedFilter, {
+    enabled: shouldFetchAllDeals,
+  });
+
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const loading = !isMounted || metricsLoading || metricsFetching || !metricsData;
+
 
   // Debounce brand search in modal
   useEffect(() => {
@@ -181,7 +274,10 @@ export default function ReportsPage() {
       });
   }, [allDeals, globalDateRange]);
 
-  const formatAmounts = (deal: DealHeaderRecord) => {
+  const formatAmounts = (deal: DealHeaderRecord | any) => {
+    if (deal.TotalAmount !== undefined && deal.TotalAmount !== null) {
+      return `PHP ${Number(deal.TotalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
       return Object.entries(deal.aggregatedTotals)
         .map(([curr, amt]: [string, any]) => `${curr} ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
@@ -204,12 +300,16 @@ export default function ReportsPage() {
     return Math.ceil((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   };
 
-  // 1. KPI Computations
+  // 1. KPI Computations directly from pre-aggregated server view
+  const totalRegistered = metricsData?.totalRegistered ?? 0;
+  const expiredThisMonth = metricsData?.expiredThisMonth ?? 0;
+  const totalRenewed = metricsData?.totalRenewed ?? 0;
+  const lostDealsCount = metricsData?.lostCount ?? 0;
+  const grandTotalPipelineValue = metricsData?.grandTotalPipelineValue ?? 0;
+
   const registeredDealsList = useMemo(() => {
     return deals.filter((d: DealHeaderRecord) => String(d.dealStatus) === '1' || d.dealStatus === 1);
   }, [deals]);
-
-  const totalRegistered = registeredDealsList.length;
 
   const expiredDealsList = useMemo(() => {
     const nowMs = Date.now();
@@ -239,27 +339,14 @@ export default function ReportsPage() {
 
   const renewedFilters = useModalDealFilters(renewedDealsList, isRenewedModalOpen);
 
-  const expiredThisMonth = useMemo(() => {
-    const now = new Date();
-    const cMonth = now.getMonth();
-    const cYear = now.getFullYear();
-    const nowMs = now.getTime();
-    return deals.filter((d: DealHeaderRecord) => {
-      const rawExp = d.expDt || d.expiration;
-      if (!rawExp) return false;
-      const exp = new Date(rawExp);
-      return exp.getMonth() === cMonth && exp.getFullYear() === cYear && exp.getTime() < nowMs;
-    }).length;
-  }, [deals]);
-
-  const grandTotalPipelineValue = useMemo(() => {
-    return deals.reduce((acc: number, deal: any) => {
-      return acc + (deal._computedTotal || 0);
-    }, 0);
-  }, [deals]);
-
   // Calculate official BUs breakdown
   const officialBUsList = useMemo(() => {
+    if (metricsData?.buMetrics && metricsData.buMetrics.length > 0) {
+      return OFFICIAL_REGISTERED_BUS.map((bu) => {
+        const match = metricsData.buMetrics.find((m) => m.bu.toLowerCase() === bu.toLowerCase());
+        return [bu, match?.dealCount || 0] as [string, number];
+      });
+    }
     const officialCounts: Record<string, number> = {};
     OFFICIAL_REGISTERED_BUS.forEach((bu) => {
       officialCounts[bu] = 0;
@@ -273,7 +360,7 @@ export default function ReportsPage() {
     });
 
     return OFFICIAL_REGISTERED_BUS.map((bu) => [bu, officialCounts[bu]] as [string, number]);
-  }, [deals]);
+  }, [metricsData, deals]);
 
   const lostDealsList = useMemo(() => {
     return deals.filter((d: DealHeaderRecord) => {
@@ -284,13 +371,25 @@ export default function ReportsPage() {
 
   // Brand Distribution List with Active, Approved, Waiting, Lost counts & Revenue (strictly official BUs, scoped for PM)
   const brandDistributionList = useMemo(() => {
+    if (metricsData?.brandMetrics && metricsData.brandMetrics.length > 0) {
+      return metricsData.brandMetrics.map((b) => ({
+        brand: b.brand,
+        assignedPM: b.assignedPM,
+        count: b.dealCount,
+        totalValue: b.totalValue,
+        activeCount: b.activeCount,
+        approvedCount: b.approvedCount,
+        waitingCount: b.waitingCount,
+        lostCount: b.lostCount,
+      }));
+    }
     return calculateBrandDistribution(
       deals,
       scopedFilter.userRole === 'pm' && scopedFilter.assignedBrands && scopedFilter.assignedBrands.length > 0
         ? scopedFilter.assignedBrands
         : undefined
     );
-  }, [deals, scopedFilter.userRole, scopedFilter.assignedBrands]);
+  }, [metricsData, deals, scopedFilter.userRole, scopedFilter.assignedBrands]);
 
   // Filtered and Sorted Brands List for Section 3
   const processedBrandList = useMemo(() => {
@@ -326,6 +425,19 @@ export default function ReportsPage() {
 
   // Complete BU Distribution List (Strictly 7 Official Registered BUs)
   const buDistributionList = useMemo(() => {
+    if (metricsData?.buMetrics && metricsData.buMetrics.length > 0) {
+      return metricsData.buMetrics.map((b) => ({
+        bu: b.bu,
+        isOfficial: b.isOfficial,
+        count: b.dealCount,
+        totalValue: b.totalValue,
+        activeCount: b.activeCount,
+        approvedCount: b.approvedCount,
+        waitingCount: b.waitingCount,
+        lostCount: b.lostCount,
+      }));
+    }
+
     const map: Record<
       string,
       {
@@ -372,7 +484,7 @@ export default function ReportsPage() {
     });
 
     return Object.values(map);
-  }, [deals]);
+  }, [metricsData, deals]);
 
   // Filtered and Sorted BU List for Section 3
   const processedBuList = useMemo(() => {
@@ -414,6 +526,9 @@ export default function ReportsPage() {
 
   // Recent Deals Pipeline computation (Top 6 most recent deals)
   const recentDeals = useMemo(() => {
+    if (metricsData?.recentDeals && metricsData.recentDeals.length > 0) {
+      return metricsData.recentDeals;
+    }
     return [...deals]
       .sort((a, b) => {
         const timeB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
@@ -421,7 +536,7 @@ export default function ReportsPage() {
         return timeB - timeA;
       })
       .slice(0, 6);
-  }, [deals]);
+  }, [metricsData, deals]);
 
   // Brand Deals modal list and filter hook (evaluated only when modal is open)
   const brandDealsList = useMemo(() => {
@@ -447,6 +562,9 @@ export default function ReportsPage() {
 
   // 2. Expiry Risk Analytics
   const expiryAnalytics = useMemo(() => {
+    if (metricsData?.expiryRiskCounts) {
+      return metricsData.expiryRiskCounts;
+    }
     let criticalCount = 0; // <= 3 days
     let urgentCount = 0;   // <= 7 days
     let warningCount = 0;  // <= 15 days
@@ -468,10 +586,19 @@ export default function ReportsPage() {
       noticeCount,
       totalAtRisk: criticalCount + urgentCount + warningCount + noticeCount,
     };
-  }, [deals]);
+  }, [metricsData, deals]);
 
   // 3. Brand Analytics
   const brandAnalytics = useMemo(() => {
+    if (brandDistributionList.length > 0) {
+      return {
+        brandsList: brandDistributionList.map((b) => [b.brand, { count: b.count, totalValue: b.totalValue, deals: [] }] as any),
+        topBrand: brandDistributionList[0]?.brand || 'DELL',
+        topBrandValue: brandDistributionList[0]?.totalValue || 0,
+        grandTotal: grandTotalPipelineValue,
+        totalBrandsCount: brandDistributionList.length,
+      };
+    }
     const map: Record<string, { count: number; totalValue: number; deals: DealHeaderRecord[] }> = {};
     deals.forEach((d: any) => {
       const b = normalizeBrandName(d.brand);
@@ -493,7 +620,8 @@ export default function ReportsPage() {
       grandTotal,
       totalBrandsCount: list.length,
     };
-  }, [deals]);
+  }, [brandDistributionList, grandTotalPipelineValue, deals]);
+
 
   // 4. BU Performance Analytics
   const buAnalytics = useMemo(() => {
@@ -783,9 +911,16 @@ export default function ReportsPage() {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
               Reports & Analytics Studio
             </h1>
-            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-              Live Database
-            </span>
+            {loading ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 animate-pulse">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Syncing live database...
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                Live Database
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted">
             Portfolio performance, SLA velocity, OEM partner analytics, and division quota matrix.
@@ -897,7 +1032,7 @@ export default function ReportsPage() {
               </div>
             ) : (
               <div className="space-y-0.5">
-                <div className="text-2xl font-bold font-mono text-emerald-600">{renewedDealsList.length}</div>
+                <div className="text-2xl font-bold font-mono text-emerald-600">{totalRenewed}</div>
                 <div className="text-[11px] text-muted truncate">
                   Active renewals logged
                 </div>
@@ -999,12 +1134,13 @@ export default function ReportsPage() {
               </div>
             ) : (
               <div className="space-y-0.5">
-                <div className="text-2xl font-bold font-mono text-amber-600">{lostDealsList.length}</div>
+                <div className="text-2xl font-bold font-mono text-amber-600">{lostDealsCount}</div>
                 <div className="text-[11px] text-muted truncate">
                   Competitor intelligence
                 </div>
               </div>
             )}
+
 
             <div className="flex items-center justify-between text-[11px] font-bold text-amber-600 dark:text-amber-400 pt-2 border-t border-border/40">
               <span>Review intel</span>
@@ -1085,7 +1221,7 @@ export default function ReportsPage() {
                             {deal.custName || 'Unknown Customer'}
                           </div>
                           <div className="text-[11px] text-muted truncate max-w-[220px]">
-                            {deal.ProjectName || deal.projectName || 'Project'}
+                            {deal.ProjectName || (deal as any).projectName || 'Project'}
                           </div>
                         </td>
                         <td className="py-2.5 px-2 font-medium text-foreground truncate">
@@ -1095,22 +1231,23 @@ export default function ReportsPage() {
                         </td>
                         <td className="py-2.5 px-1.5 text-center">
                           <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral border border-border/60 whitespace-nowrap shadow-2xs">
-                            {deal.BU || deal.bu || 'BU5'}
+                            {deal.BU || (deal as any).bu || 'BU5'}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 text-muted truncate">
-                          {deal.AssignedAO || deal.assignedAO || '-'}
+                          {deal.AssignedAO || (deal as any).assignedAO || '-'}
                         </td>
-                        <td className="py-2.5 px-2 overflow-hidden" title={formatDateLong(deal.expDt || deal.expiration)}>
+                        <td className="py-2.5 px-2 overflow-hidden" title={formatDateLong(deal.expDt || (deal as any).expiration)}>
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 whitespace-nowrap shadow-2xs max-w-full">
                             <Clock className="w-3 h-3 text-amber-500 shrink-0" />
-                            <span className="truncate">{formatDate(deal.expDt || deal.expiration)}</span>
+                            <span className="truncate">{formatDate(deal.expDt || (deal as any).expiration)}</span>
                           </span>
                         </td>
                         <td className="py-2.5 px-1.5 text-center">
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral border border-border/50 truncate inline-block">
                             {statusMeta.label}
                           </span>
+
                         </td>
                         <td className="py-2.5 px-2.5 text-right font-mono font-bold text-foreground truncate">
                           {formatAmounts(deal)}
@@ -1141,7 +1278,7 @@ export default function ReportsPage() {
                 </div>
               </div>
               <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-neutral border border-border/60 text-muted">
-                {brandDistributionList.length} Brands
+                {loading ? <span className="shimmer-skeleton inline-block h-3.5 w-14 rounded align-middle" /> : `${brandDistributionList.length} Brands`}
               </span>
             </div>
 
@@ -1302,19 +1439,26 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {!loading && brandDistributionList.length > 0 && (
+          {!loading ? (
+            brandDistributionList.length > 0 && (
+              <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+                <span className="text-[11px] text-muted font-medium">
+                  Showing {processedBrandList.length} of {brandDistributionList.length} partner brands
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsBrandModalOpen(true)}
+                  className="text-xs font-bold text-sky-600 hover:text-sky-700 dark:text-sky-400 flex items-center gap-1 hover:underline transition"
+                >
+                  <span>View Full Brand Directory</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )
+          ) : (
             <div className="pt-3 border-t border-border/40 flex items-center justify-between">
-              <span className="text-[11px] text-muted font-medium">
-                Showing {processedBrandList.length} of {brandDistributionList.length} partner brands
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsBrandModalOpen(true)}
-                className="text-xs font-bold text-sky-600 hover:text-sky-700 dark:text-sky-400 flex items-center gap-1 hover:underline transition"
-              >
-                <span>View Full Brand Directory</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="shimmer-skeleton h-3.5 w-48 rounded" />
+              <div className="shimmer-skeleton h-3.5 w-32 rounded" />
             </div>
           )}
         </AppCard>
@@ -1333,7 +1477,7 @@ export default function ReportsPage() {
                 </div>
               </div>
               <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-neutral border border-border/60 text-muted">
-                {buDistributionList.length} Total BUs
+                {loading ? <span className="shimmer-skeleton inline-block h-3.5 w-16 rounded align-middle" /> : `${buDistributionList.length} Total BUs`}
               </span>
             </div>
 
@@ -1510,19 +1654,26 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="pt-3 border-t border-border/40 flex items-center justify-between">
-            <span className="text-[11px] text-muted font-medium">
-              Showing {processedBuList.length} of {buDistributionList.length} total business units
-            </span>
-            <button
-              type="button"
-              onClick={() => setIsOtherBUModalOpen(true)}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 hover:underline transition"
-            >
-              <span>Inspect All Business Units</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {!loading ? (
+            <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+              <span className="text-[11px] text-muted font-medium">
+                Showing {processedBuList.length} of {buDistributionList.length} total business units
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsOtherBUModalOpen(true)}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 hover:underline transition"
+              >
+                <span>Inspect All Business Units</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+              <div className="shimmer-skeleton h-3.5 w-48 rounded" />
+              <div className="shimmer-skeleton h-3.5 w-32 rounded" />
+            </div>
+          )}
         </AppCard>
       </div>
 
@@ -1699,7 +1850,8 @@ export default function ReportsPage() {
         open={isRegisteredModalOpen}
         onClose={() => {
           setIsRegisteredModalOpen(false);
-          registeredFilters.resetFilters();
+          setRegSearch('');
+          setRegPage(1);
         }}
         width={1160}
       >
@@ -1720,51 +1872,40 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Search registered deals by Project, Customer, Reg ID, Brand, BU, AO, Remarks..."
-                value={registeredFilters.searchQuery}
-                onChange={(e: any) => registeredFilters.setSearchQuery(e.target.value)}
+                placeholder="Search registered deals by Project, Customer, Reg ID, Brand, BU, AO..."
+                value={regSearch}
+                onChange={(e: any) => {
+                  setRegSearch(e.target.value);
+                  setRegPage(1);
+                }}
                 allowClear
                 size="md"
               />
             </div>
-            <DateRangeFilterPopover
-              value={registeredFilters.dateRange}
-              onChange={registeredFilters.setDateRange}
-            />
-            <DealsFilterPopover
-              buFilters={registeredFilters.buFilters}
-              onBuFiltersChange={registeredFilters.setBuFilters}
-              brandFilters={registeredFilters.brandFilters}
-              onBrandFiltersChange={registeredFilters.setBrandFilters}
-              availableBrands={registeredFilters.availableBrands}
-              expiryFilters={registeredFilters.expiryFilters}
-              onExpiryFiltersChange={registeredFilters.setExpiryFilters}
-              statusFilters={registeredFilters.statusFilters}
-              onStatusFiltersChange={registeredFilters.setStatusFilters}
-              officialBUs={OFFICIAL_REGISTERED_BUS}
-            />
-            <DealsSortPopover
-              value={registeredFilters.sortConfig}
-              onChange={registeredFilters.setSortConfig}
-            />
           </div>
 
           <ModalDealTable
-            deals={registeredFilters.filteredAndSortedDeals}
+            deals={regDrilldown?.data || []}
+            totalRecordsCount={regDrilldown?.totalCount}
+            serverCurrentPage={regDrilldown?.page || 1}
+            serverTotalPages={regDrilldown?.totalPages || 1}
+            onServerPageChange={setRegPage}
+            isLoading={regLoading}
             onCloseModal={() => setIsRegisteredModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {registeredFilters.filteredAndSortedDeals.length} of {registeredDealsList.length} registered deals
+            Showing {regDrilldown?.data?.length || 0} of {regDrilldown?.totalCount || 0} registered deals
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsRegisteredModalOpen(false);
-              registeredFilters.resetFilters();
+              setRegSearch('');
+              setRegPage(1);
             }}
           >
             Close
@@ -1777,7 +1918,8 @@ export default function ReportsPage() {
         open={isExpiredModalOpen}
         onClose={() => {
           setIsExpiredModalOpen(false);
-          expiredFilters.resetFilters();
+          setExpSearch('');
+          setExpPage(1);
         }}
         width={1160}
       >
@@ -1798,57 +1940,47 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Search expired deals by Project, Customer, Reg ID, Brand, BU, AO, Remarks..."
-                value={expiredFilters.searchQuery}
-                onChange={(e: any) => expiredFilters.setSearchQuery(e.target.value)}
+                placeholder="Search expired deals by Project, Customer, Reg ID, Brand, BU, AO..."
+                value={expSearch}
+                onChange={(e: any) => {
+                  setExpSearch(e.target.value);
+                  setExpPage(1);
+                }}
                 allowClear
                 size="md"
               />
             </div>
-            <DateRangeFilterPopover
-              value={expiredFilters.dateRange}
-              onChange={expiredFilters.setDateRange}
-            />
-            <DealsFilterPopover
-              buFilters={expiredFilters.buFilters}
-              onBuFiltersChange={expiredFilters.setBuFilters}
-              brandFilters={expiredFilters.brandFilters}
-              onBrandFiltersChange={expiredFilters.setBrandFilters}
-              availableBrands={expiredFilters.availableBrands}
-              expiryFilters={expiredFilters.expiryFilters}
-              onExpiryFiltersChange={expiredFilters.setExpiryFilters}
-              statusFilters={expiredFilters.statusFilters}
-              onStatusFiltersChange={expiredFilters.setStatusFilters}
-              officialBUs={OFFICIAL_REGISTERED_BUS}
-            />
-            <DealsSortPopover
-              value={expiredFilters.sortConfig}
-              onChange={expiredFilters.setSortConfig}
-            />
           </div>
 
           <ModalDealTable
-            deals={expiredFilters.filteredAndSortedDeals}
+            deals={expDrilldown?.data || []}
+            totalRecordsCount={expDrilldown?.totalCount}
+            serverCurrentPage={expDrilldown?.page || 1}
+            serverTotalPages={expDrilldown?.totalPages || 1}
+            onServerPageChange={setExpPage}
+            isLoading={expLoading}
             onCloseModal={() => setIsExpiredModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {expiredFilters.filteredAndSortedDeals.length} of {expiredDealsList.length} expired deals
+            Showing {expDrilldown?.data?.length || 0} of {expDrilldown?.totalCount || 0} expired deals
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsExpiredModalOpen(false);
-              expiredFilters.resetFilters();
+              setExpSearch('');
+              setExpPage(1);
             }}
           >
             Close
           </AppButton>
         </AppModal.Footer>
       </AppModal>
+
 
       {/* KPI Modal 3: Brand Performance Drilldown */}
       <AppModal
@@ -1983,13 +2115,14 @@ export default function ReportsPage() {
         </AppModal.Footer>
       </AppModal>
 
-      {/* Brand Deals Drilldown Modal (Landscape Table with Filter & Sort) */}
+      {/* Brand Deals Drilldown Modal (Landscape Table with Server Pagination) */}
       <AppModal
         open={isBrandDealsModalOpen}
         onClose={() => {
           setIsBrandDealsModalOpen(false);
           setSelectedBrandForDeals(null);
-          brandDealsFilters.resetFilters();
+          setBrandDealsSearch('');
+          setBrandDealsPage(1);
         }}
         width={1160}
       >
@@ -2014,41 +2147,32 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder={`Search ${selectedBrandForDeals || ''} deals by Customer, Reg ID, BU, AO, Remarks...`}
-                value={brandDealsFilters.searchQuery}
-                onChange={(e: any) => brandDealsFilters.setSearchQuery(e.target.value)}
+                placeholder={`Search ${selectedBrandForDeals || ''} deals by Customer, Reg ID, BU, AO...`}
+                value={brandDealsSearch}
+                onChange={(e: any) => {
+                  setBrandDealsSearch(e.target.value);
+                  setBrandDealsPage(1);
+                }}
                 allowClear
                 size="md"
               />
             </div>
-            <DateRangeFilterPopover
-              value={brandDealsFilters.dateRange}
-              onChange={brandDealsFilters.setDateRange}
-            />
-            <DealsFilterPopover
-              buFilters={brandDealsFilters.buFilters}
-              onBuFiltersChange={brandDealsFilters.setBuFilters}
-              expiryFilters={brandDealsFilters.expiryFilters}
-              onExpiryFiltersChange={brandDealsFilters.setExpiryFilters}
-              statusFilters={brandDealsFilters.statusFilters}
-              onStatusFiltersChange={brandDealsFilters.setStatusFilters}
-              officialBUs={OFFICIAL_REGISTERED_BUS}
-            />
-            <DealsSortPopover
-              value={brandDealsFilters.sortConfig}
-              onChange={brandDealsFilters.setSortConfig}
-            />
           </div>
 
           <ModalDealTable
-            deals={brandDealsFilters.filteredAndSortedDeals}
+            deals={brandDrilldown?.data || []}
+            totalRecordsCount={brandDrilldown?.totalCount}
+            serverCurrentPage={brandDrilldown?.page || 1}
+            serverTotalPages={brandDrilldown?.totalPages || 1}
+            onServerPageChange={setBrandDealsPage}
+            isLoading={brandDrilldownLoading}
             onCloseModal={() => setIsBrandDealsModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {brandDealsFilters.filteredAndSortedDeals.length} of {brandDealsList.length} deals
+            Showing {brandDrilldown?.data?.length || 0} of {brandDrilldown?.totalCount || 0} deals
           </span>
           <AppButton
             variant="neutral"
@@ -2056,13 +2180,15 @@ export default function ReportsPage() {
             onClick={() => {
               setIsBrandDealsModalOpen(false);
               setSelectedBrandForDeals(null);
-              brandDealsFilters.resetFilters();
+              setBrandDealsSearch('');
+              setBrandDealsPage(1);
             }}
           >
             Close
           </AppButton>
         </AppModal.Footer>
       </AppModal>
+
 
       {/* KPI Modal 4: Business Units Portfolio Directory Modal (ALL BUs + Filters) */}
       <AppModal
@@ -2212,13 +2338,14 @@ export default function ReportsPage() {
         </AppModal.Footer>
       </AppModal>
 
-      {/* BU Deals Drilldown Modal (Landscape Table with Filter & Sort) */}
+      {/* BU Deals Drilldown Modal (Landscape Table with Server Pagination) */}
       <AppModal
         open={isBUDealsModalOpen}
         onClose={() => {
           setIsBUDealsModalOpen(false);
           setSelectedBUForDeals(null);
-          buDealsFilters.resetFilters();
+          setBuDealsSearch('');
+          setBuDealsPage(1);
         }}
         width={1160}
       >
@@ -2243,45 +2370,32 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder={`Search ${selectedBUForDeals || ''} deals by Customer, Reg ID, Brand, AO, Remarks...`}
-                value={buDealsFilters.searchQuery}
-                onChange={(e: any) => buDealsFilters.setSearchQuery(e.target.value)}
+                placeholder={`Search ${selectedBUForDeals || ''} deals by Customer, Reg ID, Brand, AO...`}
+                value={buDealsSearch}
+                onChange={(e: any) => {
+                  setBuDealsSearch(e.target.value);
+                  setBuDealsPage(1);
+                }}
                 allowClear
                 size="md"
               />
             </div>
-            <DateRangeFilterPopover
-              value={buDealsFilters.dateRange}
-              onChange={buDealsFilters.setDateRange}
-            />
-            <DealsFilterPopover
-              buFilters={buDealsFilters.buFilters}
-              onBuFiltersChange={buDealsFilters.setBuFilters}
-              brandFilters={buDealsFilters.brandFilters}
-              onBrandFiltersChange={buDealsFilters.setBrandFilters}
-              availableBrands={buDealsFilters.availableBrands}
-              expiryFilters={buDealsFilters.expiryFilters}
-              onExpiryFiltersChange={buDealsFilters.setExpiryFilters}
-              statusFilters={buDealsFilters.statusFilters}
-              onStatusFiltersChange={buDealsFilters.setStatusFilters}
-              officialBUs={OFFICIAL_REGISTERED_BUS}
-              hideBUFilter={true}
-            />
-            <DealsSortPopover
-              value={buDealsFilters.sortConfig}
-              onChange={buDealsFilters.setSortConfig}
-            />
           </div>
 
           <ModalDealTable
-            deals={buDealsFilters.filteredAndSortedDeals}
+            deals={buDrilldown?.data || []}
+            totalRecordsCount={buDrilldown?.totalCount}
+            serverCurrentPage={buDrilldown?.page || 1}
+            serverTotalPages={buDrilldown?.totalPages || 1}
+            onServerPageChange={setBuDealsPage}
+            isLoading={buDrilldownLoading}
             onCloseModal={() => setIsBUDealsModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {buDealsFilters.filteredAndSortedDeals.length} of {buDealsList.length} deals
+            Showing {buDrilldown?.data?.length || 0} of {buDrilldown?.totalCount || 0} deals
           </span>
           <AppButton
             variant="neutral"
@@ -2289,7 +2403,8 @@ export default function ReportsPage() {
             onClick={() => {
               setIsBUDealsModalOpen(false);
               setSelectedBUForDeals(null);
-              buDealsFilters.resetFilters();
+              setBuDealsSearch('');
+              setBuDealsPage(1);
             }}
           >
             Close
@@ -2302,7 +2417,8 @@ export default function ReportsPage() {
         open={isRenewedModalOpen}
         onClose={() => {
           setIsRenewedModalOpen(false);
-          renewedFilters.resetFilters();
+          setRenSearch('');
+          setRenPage(1);
         }}
         width={1160}
       >
@@ -2313,7 +2429,7 @@ export default function ReportsPage() {
             </div>
             <div>
               <AppModal.Title>
-                Renewed Deals Directory ({renewedFilters.filteredAndSortedDeals.length})
+                Renewed Deals Directory
               </AppModal.Title>
               <AppModal.Description>
                 Overview of deal registrations with processed validity extensions and renewal records.
@@ -2327,57 +2443,47 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-0">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Search renewed deals by Customer, Reg ID, Brand, BU, AO, Remarks..."
-                value={renewedFilters.searchQuery}
-                onChange={(e: any) => renewedFilters.setSearchQuery(e.target.value)}
+                placeholder="Search renewed deals by Customer, Reg ID, Brand, BU, AO..."
+                value={renSearch}
+                onChange={(e: any) => {
+                  setRenSearch(e.target.value);
+                  setRenPage(1);
+                }}
                 allowClear
                 size="md"
               />
             </div>
-            <DateRangeFilterPopover
-              value={renewedFilters.dateRange}
-              onChange={renewedFilters.setDateRange}
-            />
-            <DealsFilterPopover
-              buFilters={renewedFilters.buFilters}
-              onBuFiltersChange={renewedFilters.setBuFilters}
-              brandFilters={renewedFilters.brandFilters}
-              onBrandFiltersChange={renewedFilters.setBrandFilters}
-              availableBrands={renewedFilters.availableBrands}
-              expiryFilters={renewedFilters.expiryFilters}
-              onExpiryFiltersChange={renewedFilters.setExpiryFilters}
-              statusFilters={renewedFilters.statusFilters}
-              onStatusFiltersChange={renewedFilters.setStatusFilters}
-              officialBUs={OFFICIAL_REGISTERED_BUS}
-            />
-            <DealsSortPopover
-              value={renewedFilters.sortConfig}
-              onChange={renewedFilters.setSortConfig}
-            />
           </div>
 
           <ModalDealTable
-            deals={renewedFilters.filteredAndSortedDeals}
+            deals={renDrilldown?.data || []}
+            totalRecordsCount={renDrilldown?.totalCount}
+            serverCurrentPage={renDrilldown?.page || 1}
+            serverTotalPages={renDrilldown?.totalPages || 1}
+            onServerPageChange={setRenPage}
+            isLoading={renLoading}
             onCloseModal={() => setIsRenewedModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {renewedFilters.filteredAndSortedDeals.length} of {renewedDealsList.length} renewed deals
+            Showing {renDrilldown?.data?.length || 0} of {renDrilldown?.totalCount || 0} renewed deals
           </span>
           <AppButton
             variant="neutral"
             size="sm"
             onClick={() => {
               setIsRenewedModalOpen(false);
-              renewedFilters.resetFilters();
+              setRenSearch('');
+              setRenPage(1);
             }}
           >
             Close
           </AppButton>
         </AppModal.Footer>
       </AppModal>
+
 
       {/* KPI Modal 5: Lost Deals & Competitor Intel Drilldown */}
       <DealLostListModal

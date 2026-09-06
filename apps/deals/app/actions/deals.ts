@@ -30,6 +30,18 @@ import { buildAOScopingConditions, buildBUScopingConditions, buildPMScopingCondi
 import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
 import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
 import { logActivity, logActivitiesBatch, ActivityLogInput } from '@/lib/activity-logger';
+import {
+  getReportsMetrics,
+  getReportDrilldownDeals,
+  ReportsSummaryMetrics,
+  ReportBrandMetric,
+  ReportBUMetric,
+  ExpiryRiskCounts,
+  DateRangeFilterParams,
+} from './reports';
+
+export { getReportDrilldownDeals };
+export type { ReportBrandMetric, ReportBUMetric, ExpiryRiskCounts, DateRangeFilterParams };
 
 function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined) return fallback;
@@ -1993,233 +2005,78 @@ export interface DashboardSummaryData {
   totalRegistered: number;
   expiredThisMonth: number;
   totalRenewed: number;
-  dealsByBrand: { brand: string; count: number }[];
-  dealsByBU: { bu: string; count: number }[];
+  grandTotalPipelineValue?: number;
+  totalExpired?: number;
+  lostCount?: number;
+  expiryRiskCounts?: ExpiryRiskCounts;
+  dealsByBrand: { brand: string; count: number; totalValue?: number }[];
+  dealsByBU: { bu: string; count: number; totalValue?: number }[];
+  brandMetrics?: ReportBrandMetric[];
+  buMetrics?: ReportBUMetric[];
   recentDeals: DealHeaderRecord[];
 }
 
 /**
  * 9. getDashboardSummary (Server Action)
- * High-performance SQL Server aggregation query for the main Dashboard metrics across all 8,400+ deals.
+ * High-performance SQL Server aggregation query for the main Dashboard metrics across all deals
+ * using dbo.DealReportView or indexed queries, supporting date range bounds and role scoping.
  */
-export async function getDashboardSummary(): Promise<{
+export async function getDashboardSummary(
+  filter?: ScopedDealsFilter,
+  dateRange?: DateRangeFilterParams
+): Promise<{
   success: boolean;
   data?: DashboardSummaryData;
   error?: string;
 }> {
   try {
-    let session: any = null;
-    try {
-      session = await getServerSession(authOptions);
-    } catch {
-      // In standalone scripts or background jobs outside request context
-    }
-    const userRole = ((session?.user as any)?.role as string) || 'admin';
-    const accountName = ((session?.user as any)?.AccountName || session?.user?.name || '').trim();
-    const domainAccount = ((session?.user as any)?.DomainAccount || '').trim();
-    const email = ((session?.user as any)?.Email || session?.user?.email || '').trim();
-    const accountGroup = ((session?.user as any)?.AccountGroup || '').trim();
-    const assignedBUs = (session?.user as any)?.assignedBUs as string[] | undefined;
-
-    const andConditions: any[] = [];
-    if (userRole === 'ao') {
-      const aoConditions = buildAOScopingConditions(accountName, domainAccount, email);
-      andConditions.push({ OR: aoConditions });
-    } else if (userRole === 'bu' || userRole === 'bu_admin') {
-      const buConditions = buildBUScopingConditions(assignedBUs && assignedBUs.length > 0 ? assignedBUs : accountGroup);
-      andConditions.push({ OR: buConditions });
+    const reportsRes = await getReportsMetrics(filter || {}, dateRange);
+    if (!reportsRes.success || !reportsRes.data) {
+      throw new Error(reportsRes.error || 'Failed to calculate dashboard metrics');
     }
 
-    const cacheKey = serverCache.generateKey('dashboard_summary', {
-      userRole,
-      accountName,
-      domainAccount,
-      accountGroup,
-      assignedBUs,
-    });
-
-    const cached = serverCache.get<DashboardSummaryData>(cacheKey);
-    if (cached) {
-      return { success: true, data: cached };
-    }
-
-    const baseWhere = andConditions.length > 0 ? { AND: andConditions } : {};
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
-    const startIso = startOfMonth.toISOString().slice(0, 10);
-    const endIso = endOfMonth.toISOString().slice(0, 10);
-    const nowIso = now.toISOString().slice(0, 10);
-
-    // Fast Single-Pass KPI Computation for Admin/Global scope vs Scoped Prisma
-    let totalCount = 0;
-    let totalRegistered = 0;
-    let expiredThisMonth = 0;
-    let totalRenewed = 0;
-
-    const isGlobalScope = andConditions.length === 0;
-    const officialBUsSqlList = OFFICIAL_REGISTERED_BUS.map((b) => `'${b}'`).join(',');
-
-    const [kpiResult, dealsByBrandGroup, dealsByBUGroup, recentRawDeals]: any = await Promise.all([
-      isGlobalScope
-        ? prisma.$queryRawUnsafe<any[]>(`
-            SELECT
-              COUNT(*) AS totalCount,
-              SUM(CASE WHEN dealStatus = '1' THEN 1 ELSE 0 END) AS totalRegistered,
-              SUM(CASE WHEN expDt >= '${startIso}' AND expDt <= '${endIso}' AND expDt < '${nowIso}' THEN 1 ELSE 0 END) AS expiredThisMonth,
-              (SELECT COUNT(DISTINCT r.dealID) FROM DealRenewal r INNER JOIN DealHeader h ON r.dealID = h.dealID WHERE h.BU IN (${officialBUsSqlList})) AS totalRenewed
-            FROM DealHeader;
-          `)
-        : Promise.all([
-            prisma.dealHeader.count({ where: baseWhere }),
-            prisma.dealHeader.count({ where: { ...baseWhere, dealStatus: '1' } }),
-            prisma.dealHeader.count({
-              where: {
-                ...baseWhere,
-                expDt: { gte: startOfMonth, lte: endOfMonth, lt: now },
-              },
-            }),
-            prisma.dealHeader.count({
-              where: { ...baseWhere, BU: { in: [...OFFICIAL_REGISTERED_BUS] }, Renewals: { some: {} } },
-            }),
-          ]),
-      prisma.dealHeader.groupBy({
-        by: ['brand'],
-        where: baseWhere,
-        _count: {
-          dealID: true,
-        },
-        orderBy: {
-          _count: {
-            dealID: 'desc',
-          },
-        },
-        take: 10,
-      }),
-      // Deals Grouped by BU
-      prisma.dealHeader.groupBy({
-        by: ['BU'],
-        where: baseWhere,
-        _count: {
-          dealID: true,
-        },
-        orderBy: {
-          _count: {
-            dealID: 'desc',
-          },
-        },
-      }),
-      // Recent 5 deals with lean projection
-      prisma.dealHeader.findMany({
-        where: baseWhere,
-        take: 5,
-        orderBy: {
-          dtCreated: 'desc',
-        },
-        select: {
-          dealID: true,
-          dtRegistered: true,
-          expiration: true,
-          expDt: true,
-          brand: true,
-          customerID: true,
-          dealRegID: true,
-          ProjectName: true,
-          AssignedAO: true,
-          BU: true,
-          dealStatus: true,
-          createdBy: true,
-          custName: true,
-          remarks: true,
-          dtCreated: true,
-          dtValidTo: true,
-          DealItems: {
-            select: {
-              dealItemID: true,
-              dealID: true,
-              itemDesc: true,
-              qty: true,
-              currency: true,
-              totalAmt: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    if (isGlobalScope && Array.isArray(kpiResult) && kpiResult.length > 0) {
-      totalCount = Number(kpiResult[0].totalCount || 0);
-      totalRegistered = Number(kpiResult[0].totalRegistered || 0);
-      expiredThisMonth = Number(kpiResult[0].expiredThisMonth || 0);
-      totalRenewed = Number(kpiResult[0].totalRenewed || 0);
-    } else if (Array.isArray(kpiResult)) {
-      totalCount = kpiResult[0];
-      totalRegistered = kpiResult[1];
-      expiredThisMonth = kpiResult[2];
-      totalRenewed = kpiResult[3];
-    }
-
-    const formattedRecentDeals: DealHeaderRecord[] = recentRawDeals.map((deal: any) => {
-      const totalsByCurrency: CurrencyTotals = {};
-      deal.DealItems.forEach((item: any) => {
-        const curr = item.currency || 'USD';
-        const amt = parseSafeNumber(item.totalAmt);
-        totalsByCurrency[curr] = (totalsByCurrency[curr] || 0) + amt;
-      });
-
-      return {
-        dealID: deal.dealID,
-        dtRegistered: deal.dtRegistered || new Date(),
-        expiration: deal.expiration || null,
-        expDt: deal.expDt || new Date(),
-        brand: deal.brand || '',
-        customerID: deal.customerID,
-        dealRegID: deal.dealRegID || '',
-        ProjectName: deal.ProjectName || '',
-        AssignedAO: deal.AssignedAO || '',
-        BU: deal.BU || '',
-        dealStatus: deal.dealStatus || '1',
-        createdBy: deal.createdBy || '',
-        custName: deal.custName || '',
-        remarks: deal.remarks || null,
-        dtCreated: deal.dtCreated || new Date(),
-        dtValidTo: deal.dtValidTo || null,
-        items: deal.DealItems.map((i: any) => ({
-          itemID: i.dealItemID,
-          dealID: i.dealID || deal.dealID,
-          itemDesc: i.itemDesc || '',
-          qty: parseSafeInt(i.qty, 1),
-          currency: i.currency || 'USD',
-          totalAmt: parseSafeNumber(i.totalAmt),
-        })),
-        aggregatedTotals: totalsByCurrency,
-      };
-    });
-
-    const dealsByBrand = dealsByBrandGroup.map((b: any) => ({
-      brand: b.brand || 'Unspecified',
-      count: b._count.dealID,
-    }));
-
-    const dealsByBU = dealsByBUGroup.map((bu: any) => ({
-      bu: bu.BU || 'Unassigned',
-      count: bu._count.dealID,
-    }));
-
+    const m = reportsRes.data;
     const summaryData: DashboardSummaryData = {
-      totalCount,
-      totalRegistered,
-      expiredThisMonth,
-      totalRenewed,
-      dealsByBrand,
-      dealsByBU,
-      recentDeals: formattedRecentDeals,
+      totalCount: m.totalRegistered + m.totalExpired + m.lostCount,
+      totalRegistered: m.totalRegistered,
+      expiredThisMonth: m.expiredThisMonth,
+      totalRenewed: m.totalRenewed,
+      grandTotalPipelineValue: m.grandTotalPipelineValue,
+      totalExpired: m.totalExpired,
+      lostCount: m.lostCount,
+      expiryRiskCounts: m.expiryRiskCounts,
+      brandMetrics: m.brandMetrics,
+      buMetrics: m.buMetrics,
+      dealsByBrand: m.brandMetrics.map((b) => ({
+        brand: b.brand,
+        count: b.dealCount,
+        totalValue: b.totalValue,
+      })),
+      dealsByBU: m.buMetrics.map((bu) => ({
+        bu: bu.bu,
+        count: bu.dealCount,
+        totalValue: bu.totalValue,
+      })),
+      recentDeals: (m.recentDeals || []).map((d: any) => ({
+        dealID: d.dealID,
+        dealRegID: d.dealRegID || '',
+        ProjectName: d.ProjectName || '',
+        custName: d.custName || '',
+        customerID: d.customerID ?? null,
+        brand: d.brand || '',
+        BU: d.BU || '',
+        AssignedAO: d.AssignedAO || '',
+        createdBy: d.createdBy || d.AssignedAO || '',
+        dealStatus: d.dealStatus || '1',
+        dtRegistered: d.dtRegistered ? new Date(d.dtRegistered) : new Date(),
+        expDt: d.expDt ? new Date(d.expDt) : new Date(),
+        expiration: d.expDt ? new Date(d.expDt) : null,
+        dtCreated: d.dtCreated ? new Date(d.dtCreated) : new Date(),
+        remarks: d.remarks || null,
+        items: [],
+        aggregatedTotals: { PHP: d.TotalAmount || 0 },
+      })),
     };
-
-    // Cache in server memory for 120s
-    serverCache.set(cacheKey, summaryData, 120_000, ['dashboard', 'deals']);
 
     return {
       success: true,

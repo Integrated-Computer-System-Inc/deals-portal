@@ -7,7 +7,7 @@ import { SecurityGuard } from '../components/SecurityGuard';
 import { DevModeProvider } from '../components/DevModeContext';
 
 export const metadata = {
-  title: 'ICS Deal Registration',
+  title: 'DROMMAR',
   description: 'Enterprise Deal Registration, Tracking and SLA Management',
   icons: {
     icon: '/api/icons/Favicon.png',

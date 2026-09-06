@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { resolveUserRoleAndBUs } from '@/lib/roles';
 import { runUserTableMigration, hasAssignedColumns } from '@/lib/db-migration';
 import { logActivity } from '@/lib/activity-logger';
+import { serverCache } from '@/lib/serverCache';
 
 
 export interface AdminUserRecord {
@@ -75,25 +76,46 @@ export async function getUsersList(): Promise<{ success: boolean; data: AdminUse
     }
 
     const accountIds = dbUsers.map((u) => Number(u.AccountID)).filter((id) => !isNaN(id));
+    const validEmails = dbUsers
+      .map((u) => String(u.Email || '').trim().replace(/'/g, "''").toLowerCase())
+      .filter((e) => e.length > 0);
+
+    const whereClauses: string[] = [];
+    if (accountIds.length > 0) {
+      whereClauses.push(`AccountID IN (${accountIds.join(',')})`);
+    }
+    if (validEmails.length > 0) {
+      whereClauses.push(`LOWER(LTRIM(RTRIM(Email))) IN (${validEmails.map((e) => `'${e}'`).join(',')})`);
+    }
 
     // Fetch directory metadata from cdbAccounts
     let directoryAccounts: any[] = [];
-    if (accountIds.length > 0) {
+    if (whereClauses.length > 0) {
       directoryAccounts = await prisma.$queryRawUnsafe<any[]>(`
         SELECT AccountID, AccountName, Email, DomainAccount, AccountGroup, AccountType, isActive, GAvatar 
         FROM [dbo].[cdbAccounts] 
-        WHERE AccountID IN (${accountIds.join(',')});
+        WHERE ${whereClauses.join(' OR ')};
       `);
     }
 
     const directoryMap = new Map<number, any>();
+    const directoryEmailMap = new Map<string, any>();
     for (const acc of directoryAccounts) {
       directoryMap.set(Number(acc.AccountID), acc);
+      if (acc.Email) {
+        directoryEmailMap.set(String(acc.Email).trim().toLowerCase(), acc);
+      }
     }
+
+    const session = await getServerSession(authOptions);
+    const sessionAvatar = (session?.user as any)?.GAvatar || session?.user?.image;
+    const sessionEmail = String(session?.user?.email || '').toLowerCase().trim();
+    const sessionAccountId = Number((session?.user as any)?.AccountID);
 
     const enrichedUsers: AdminUserRecord[] = dbUsers.map((u) => {
       const accountId = Number(u.AccountID);
-      const dir = directoryMap.get(accountId);
+      const userEmail = String(u.Email || '').trim().toLowerCase();
+      const dir = directoryMap.get(accountId) || (userEmail ? directoryEmailMap.get(userEmail) : undefined);
       const rawRole = String(u.UserRole || 'ao');
 
       const resolved = resolveUserRoleAndBUs(
@@ -107,6 +129,17 @@ export async function getUsersList(): Promise<{ success: boolean; data: AdminUse
         u.AssignedBrand || null
       );
 
+      // Self-heal: If active logged-in user viewing has an avatar in session but cdbAccounts is empty, use sessionAvatar and sync
+      let finalAvatar = dir?.GAvatar ? String(dir.GAvatar).trim() : null;
+      if (!finalAvatar && sessionAvatar && (accountId === sessionAccountId || userEmail === sessionEmail)) {
+        finalAvatar = sessionAvatar;
+        const safeUrl = String(sessionAvatar).replace(/'/g, "''");
+        prisma.$executeRawUnsafe(`
+          UPDATE [dbo].[cdbAccounts]
+          SET GAvatar = '${safeUrl}'
+          WHERE AccountID = ${accountId} OR LOWER(LTRIM(RTRIM(Email))) = '${userEmail}';
+        `).then(() => serverCache.delete('cdb_ao_avatars_map')).catch(() => {});
+      }
 
       return {
         AccountID: accountId,
@@ -116,7 +149,7 @@ export async function getUsersList(): Promise<{ success: boolean; data: AdminUse
         rawRoleString: rawRole,
         AssignedBUs: resolved.assignedBUs || [],
         AssignedBrands: resolved.assignedBrands || [],
-        GAvatar: dir?.GAvatar || null,
+        GAvatar: finalAvatar,
         DomainAccount: dir?.DomainAccount || '',
         DirectoryAccountGroup: dir?.AccountGroup || '',
         DirectoryAccountType: dir?.AccountType || '',

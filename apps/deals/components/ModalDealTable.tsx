@@ -7,12 +7,17 @@ import { DealHeaderRecord, DEAL_STATUS_MAP } from '@my-app/types';
 import { formatDate, formatDateLong } from '@/components/utils/time';
 
 interface ModalDealTableProps {
-  deals: DealHeaderRecord[];
-  onSelectDeal?: (deal: DealHeaderRecord) => void;
+  deals: DealHeaderRecord[] | any[];
+  onSelectDeal?: (deal: DealHeaderRecord | any) => void;
   onCloseModal?: () => void;
   emptyMessage?: string;
   showRemarks?: boolean;
   defaultPageSize?: number;
+  totalRecordsCount?: number;
+  serverCurrentPage?: number;
+  serverTotalPages?: number;
+  onServerPageChange?: (page: number) => void;
+  isLoading?: boolean;
 }
 
 export function ModalDealTable({
@@ -22,31 +27,56 @@ export function ModalDealTable({
   emptyMessage = 'No deals match the selected criteria',
   showRemarks = true,
   defaultPageSize = 50,
+  totalRecordsCount,
+  serverCurrentPage,
+  serverTotalPages,
+  onServerPageChange,
+  isLoading = false,
 }: ModalDealTableProps) {
   const router = useRouter();
-  const [currentPage, setCurrentPage] = useState(1);
+  const [clientPage, setClientPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultPageSize);
 
-  // Reset to page 1 if deals list changes or pageSize changes
+  const isServer = Boolean(onServerPageChange);
+
+  // Reset to page 1 if deals list changes or pageSize changes (client mode only)
   useEffect(() => {
-    setCurrentPage(1);
-  }, [deals.length, pageSize]);
+    if (!isServer) {
+      setClientPage(1);
+    }
+  }, [deals.length, pageSize, isServer]);
 
-  const totalRecords = deals.length;
-  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const totalRecords = isServer ? (totalRecordsCount ?? deals.length) : deals.length;
+  const totalPages = isServer
+    ? Math.max(1, serverTotalPages ?? Math.ceil(totalRecords / pageSize))
+    : Math.max(1, Math.ceil(totalRecords / pageSize));
 
-  // Ensure currentPage is within valid bounds
+  // Current page based on server or client mode
+  const currentPage = isServer ? (serverCurrentPage ?? 1) : clientPage;
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
 
+  const handlePageChange = (newPage: number) => {
+    const target = Math.min(Math.max(1, newPage), totalPages);
+    if (isServer && onServerPageChange) {
+      onServerPageChange(target);
+    } else {
+      setClientPage(target);
+    }
+  };
+
   const paginatedDeals = useMemo(() => {
+    if (isServer) return deals;
     const startIndex = (safeCurrentPage - 1) * pageSize;
     return deals.slice(startIndex, startIndex + pageSize);
-  }, [deals, safeCurrentPage, pageSize]);
+  }, [deals, safeCurrentPage, pageSize, isServer]);
 
   const startRecord = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
   const endRecord = Math.min(safeCurrentPage * pageSize, totalRecords);
 
-  const formatAmounts = (deal: DealHeaderRecord) => {
+  const formatAmounts = (deal: DealHeaderRecord | any) => {
+    if (deal.TotalAmount !== undefined && deal.TotalAmount !== null) {
+      return `PHP ${Number(deal.TotalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
       return Object.entries(deal.aggregatedTotals)
         .map(([curr, amt]: [string, any]) => `${curr} ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
@@ -106,7 +136,21 @@ export function ModalDealTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
-            {totalRecords === 0 ? (
+            {isLoading ? (
+              [1, 2, 3, 4, 5].map((i) => (
+                <tr key={i} className="animate-pulse">
+                  <td className="py-2.5 px-3"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
+                  <td className="py-2.5 px-3"><div className="shimmer-skeleton h-4 w-40 rounded" /></td>
+                  <td className="py-2.5 px-1.5 text-center"><div className="shimmer-skeleton h-4 w-12 mx-auto rounded" /></td>
+                  <td className="py-2.5 px-2"><div className="shimmer-skeleton h-4 w-16 rounded" /></td>
+                  <td className="py-2.5 px-2"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>
+                  <td className="py-2.5 px-2"><div className="shimmer-skeleton h-4 w-24 rounded" /></td>
+                  <td className="py-2.5 px-1.5 text-center"><div className="shimmer-skeleton h-4 w-16 mx-auto rounded" /></td>
+                  {showRemarks && <td className="py-2.5 px-2"><div className="shimmer-skeleton h-4 w-20 rounded" /></td>}
+                  <td className="py-2.5 px-2.5 text-right"><div className="shimmer-skeleton h-4 w-20 ml-auto rounded" /></td>
+                </tr>
+              ))
+            ) : totalRecords === 0 ? (
               <tr>
                 <td colSpan={showRemarks ? 9 : 8} className="p-8 text-center text-muted text-xs">
                   <Layers className="w-6 h-6 mx-auto text-muted/50 mb-1.5" />
@@ -140,37 +184,48 @@ export function ModalDealTable({
                         {deal.custName || 'Unknown Customer'}
                       </div>
                       <div className="text-[11px] text-muted truncate max-w-[240px]">
-                        {deal.ProjectName || deal.projectName || 'Standard Project'}
+                        {deal.ProjectName || 'No Project Name'}
                       </div>
                     </td>
-                    <td className="py-2.5 px-2 text-center overflow-hidden">
-                      <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-neutral border border-border/60 whitespace-nowrap shadow-2xs">
-                        {deal.BU || deal.bu || 'BU5'}
+                    <td className="py-2.5 px-1.5 text-center">
+                      <span className="font-mono text-[10px] bg-neutral/80 px-1.5 py-0.5 rounded border border-border/40">
+                        {deal.BU || deal.bu || 'N/A'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 font-semibold uppercase text-foreground truncate">
-                      {deal.brand}
-                    </td>
-                    <td className="py-2.5 px-2 text-muted truncate">
-                      {deal.AssignedAO || deal.assignedAO || '-'}
-                    </td>
-                    <td className="py-2.5 px-2 overflow-hidden" title={formatDateLong(deal.expDt || deal.expiration)}>
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 whitespace-nowrap shadow-2xs max-w-full">
-                        <Clock className="w-3 h-3 text-amber-500 shrink-0" />
-                        <span className="truncate">{formatDate(deal.expDt || deal.expiration)}</span>
+                    <td className="py-2.5 px-2">
+                      <span className="font-semibold text-foreground truncate max-w-[100px] block">
+                        {deal.brand || 'Unbranded'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 text-center">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral border border-border/50 truncate inline-block">
+                    <td className="py-2.5 px-2 text-muted truncate max-w-[120px]">
+                      {deal.AssignedAO || 'Unassigned'}
+                    </td>
+                    <td className="py-2.5 px-2">
+                      <div className="font-medium text-foreground">
+                        {deal.expDt ? formatDate(deal.expDt) : 'No SLA'}
+                      </div>
+                      {deal.expDt && (
+                        <div className="text-[10px] text-muted">
+                          {formatDateLong(deal.expDt)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-1.5 text-center">
+                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                        statusMeta.variant === 'success' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+                        statusMeta.variant === 'warning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                        statusMeta.variant === 'danger' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' :
+                        'bg-neutral/80 text-muted'
+                      }`}>
                         {statusMeta.label}
                       </span>
                     </td>
                     {showRemarks && (
-                      <td className="py-2.5 px-3 text-muted text-[11px] italic truncate max-w-[180px]" title={deal.remarks || ''}>
-                        {deal.remarks || '-'}
+                      <td className="py-2.5 px-2 text-muted text-[11px] truncate max-w-[140px]" title={deal.remarks || ''}>
+                        {deal.remarks || '—'}
                       </td>
                     )}
-                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-foreground text-[11px] truncate">
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-foreground">
                       {formatAmounts(deal)}
                     </td>
                   </tr>
@@ -181,45 +236,39 @@ export function ModalDealTable({
         </table>
       </div>
 
-      {/* Pagination Controls Bar */}
-      <div className="py-2.5 px-3.5 bg-neutral/40 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        {/* Record count info */}
-        <div className="text-muted text-[11px] font-medium">
-          {totalRecords === 0 ? (
-            '0 deals'
-          ) : (
-            <>
-              Showing <span className="font-semibold text-foreground">{startRecord}</span>–
-              <span className="font-semibold text-foreground">{endRecord}</span> of{' '}
-              <span className="font-semibold text-foreground">{totalRecords}</span> deals
-            </>
-          )}
+      {/* Pagination Footer */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-3 py-2 border-t border-border/60 bg-neutral/30 text-xs">
+        <div className="text-muted text-[11px]">
+          Showing <span className="font-semibold text-foreground">{startRecord}</span> to{' '}
+          <span className="font-semibold text-foreground">{endRecord}</span> of{' '}
+          <span className="font-semibold text-foreground">{totalRecords}</span> deals
         </div>
 
-        {/* Page navigation and page size picker */}
         <div className="flex items-center gap-3">
-          {/* Per-Page Picker */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted text-[11px]">Per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="px-2 py-1 bg-card-bg border border-border/60 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-              <option value={200}>200</option>
-            </select>
-          </div>
+          {/* Per-Page Picker (Client Mode Only) */}
+          {!isServer && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted text-[11px]">Per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="px-2 py-1 bg-card-bg border border-border/60 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
+          )}
 
           {/* Navigation Buttons */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setCurrentPage(1)}
-              disabled={safeCurrentPage <= 1}
+              onClick={() => handlePageChange(1)}
+              disabled={safeCurrentPage <= 1 || isLoading}
               className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
               title="First Page"
             >
@@ -227,8 +276,8 @@ export function ModalDealTable({
             </button>
             <button
               type="button"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={safeCurrentPage <= 1}
+              onClick={() => handlePageChange(safeCurrentPage - 1)}
+              disabled={safeCurrentPage <= 1 || isLoading}
               className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
               title="Previous Page"
             >
@@ -240,7 +289,8 @@ export function ModalDealTable({
               <button
                 key={page}
                 type="button"
-                onClick={() => setCurrentPage(page)}
+                onClick={() => handlePageChange(page)}
+                disabled={isLoading}
                 className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-semibold transition ${
                   safeCurrentPage === page
                     ? 'bg-sky-600 text-white shadow-xs'
@@ -253,8 +303,8 @@ export function ModalDealTable({
 
             <button
               type="button"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safeCurrentPage >= totalPages}
+              onClick={() => handlePageChange(safeCurrentPage + 1)}
+              disabled={safeCurrentPage >= totalPages || isLoading}
               className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
               title="Next Page"
             >
@@ -262,8 +312,8 @@ export function ModalDealTable({
             </button>
             <button
               type="button"
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={safeCurrentPage >= totalPages}
+              onClick={() => handlePageChange(totalPages)}
+              disabled={safeCurrentPage >= totalPages || isLoading}
               className="p-1.5 rounded-lg border border-border/50 text-muted hover:text-foreground hover:bg-neutral disabled:opacity-40 disabled:cursor-not-allowed transition"
               title="Last Page"
             >

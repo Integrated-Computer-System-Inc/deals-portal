@@ -3,9 +3,6 @@
 import { getSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
-import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 import {
   ShieldAlert,
   Loader2,
@@ -304,14 +301,11 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<AuthErrorInfo | null>(null);
-  // Seed from server-side pre-fetched token so the first click is instant
-  const [cachedCsrfToken, setCachedCsrfToken] = useState<string | null>(initialCsrfToken ?? null);
+  const [cachedCsrfToken, setCachedCsrfToken] = useState<string | null>(null);
 
-  // Background refresh of the CSRF token — abort-safe so it never throws on unmount
+  // Background fetch of the CSRF token directly from the browser so the next-auth.csrf-token cookie
+  // is guaranteed stored in the browser's cookie jar before the user clicks sign in
   useEffect(() => {
-    // Skip if server already provided a token
-    if (cachedCsrfToken) return;
-
     const controller = new AbortController();
     const fetchCsrf = async () => {
       try {
@@ -326,7 +320,6 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
     };
     fetchCsrf();
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const visibleAuthError = localAuthError || (!isErrorDismissed ? authError : null);
@@ -389,12 +382,19 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
     }
 
     try {
-      // Use cached CSRF token (from server) or fetch fresh one
+      // Always ensure the browser has a fresh CSRF token and next-auth.csrf-token cookie set
       let csrfToken = cachedCsrfToken;
-      if (!csrfToken) {
+      try {
         const csrfRes = await fetch('/api/auth/csrf');
-        const csrfData = await csrfRes.json();
-        csrfToken = csrfData?.csrfToken;
+        if (csrfRes.ok) {
+          const csrfData = await csrfRes.json();
+          if (csrfData?.csrfToken) {
+            csrfToken = csrfData.csrfToken;
+            setCachedCsrfToken(csrfData.csrfToken);
+          }
+        }
+      } catch (e) {
+        console.warn('[CSRF Fetch] Notice:', e);
       }
 
       const signinRes = await fetch('/api/auth/signin/google', {
@@ -402,7 +402,7 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           csrfToken: csrfToken || '',
-          callbackUrl: `${window.location.origin}/login?popup=1`,
+          callbackUrl: `${window.location.origin}/api/auth/popup-callback`,
           json: 'true',
         }),
       });
@@ -410,9 +410,17 @@ function LoginForm({ onMoodChange, onAuthSuccess, isBusy, initialCsrfToken }: Lo
       const signinData = await signinRes.json();
       const authUrl = signinData?.url;
 
-      if (!authUrl) {
+      // Validate that authUrl actually points to Google OAuth and is not a NextAuth CSRF error redirect
+      if (!authUrl || authUrl.includes('csrf=true') || !authUrl.includes('google')) {
         if (popup && !popup.closed) popup.close();
-        throw new Error('Failed to obtain Google authorization URL');
+        console.error('[Google Sign-In] Invalid authorization URL returned:', authUrl);
+        setIsSigningIn(false);
+        onMoodChange('sad');
+        setLocalAuthError({
+          title: 'Sign-In Error',
+          description: 'Unable to start Google authentication. Please try again or contact IT Support.',
+        });
+        return;
       }
 
       if (popup && popup.closed) {
@@ -649,8 +657,6 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
   const [loadingStatus, setLoadingStatus] = useState<string>('Preparing your Deals Workspace...');
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [isAcronymOpen, setIsAcronymOpen] = useState(false);
-  const queryClient = useQueryClient();
-
   const [isInsidePopup, setIsInsidePopup] = useState(false);
 
   useEffect(() => {
@@ -664,9 +670,13 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
       if (isPopup) {
         setIsInsidePopup(true);
         const error = searchParams?.get('error');
-        const msg = error
-          ? { type: 'OAUTH_ERROR', error, t: Date.now() }
-          : { type: 'OAUTH_SUCCESS', t: Date.now() };
+        // A popup landing on /login means authentication was interrupted or redirected.
+        // It is NEVER an OAuth success — only /api/auth/popup-callback represents success.
+        const msg = {
+          type: 'OAUTH_ERROR',
+          error: error || 'OAuthCallbackError',
+          t: Date.now(),
+        };
 
         try {
           const bc = new BroadcastChannel('deals_google_auth');
@@ -691,20 +701,15 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
   }, [searchParams]);
 
   useEffect(() => {
-    router.prefetch('/dashboard');
-    router.prefetch('/deals');
-    router.prefetch('/reports');
-    router.prefetch('/deals/new');
-
-    // If user is already authenticated when visiting /login directly, redirect to dashboard
+    // If user is already authenticated when visiting /login directly, redirect cleanly to dashboard
     if (typeof window !== 'undefined' && !isInsidePopup) {
       getSession().then((session) => {
         if (session?.user) {
-          router.replace('/dashboard');
+          window.location.replace('/dashboard');
         }
       }).catch(() => {});
     }
-  }, [router, isInsidePopup]);
+  }, [isInsidePopup]);
 
   const [hasLoggedIn, setHasLoggedIn] = useState(false);
 
@@ -724,41 +729,13 @@ function LoginContent({ initialCsrfToken }: { initialCsrfToken?: string | null }
     setAnimationStep('loading');
     setLoadingStatus('Entering Deals Portal...');
 
-    router.prefetch('/dashboard');
-    router.prefetch('/deals');
-    router.prefetch('/reports');
-    router.prefetch('/deals/new');
-
-    (async () => {
-      try {
-        const session = await getSession();
-        const role = (session?.user as any)?.role || 'admin';
-        const accountName = (session?.user as any)?.AccountName || session?.user?.name;
-        const accountGroup = (session?.user as any)?.AccountGroup;
-
-        const scopedFilter = {
-          userRole: role,
-          accountName: accountName || undefined,
-          accountGroup: accountGroup || undefined,
-        };
-
-        queryClient.prefetchQuery({
-          queryKey: DEAL_QUERY_KEYS.dashboard(),
-          queryFn: async () => { const res = await getDashboardSummary(); return res.data || null; },
-          staleTime: 1000 * 60 * 5,
-        });
-        queryClient.prefetchQuery({
-          queryKey: DEAL_QUERY_KEYS.list(scopedFilter),
-          queryFn: async () => { const res = await getScopedDeals(scopedFilter); return res.data || []; },
-          staleTime: 1000 * 60 * 5,
-        });
-      } catch (err) {
-        console.warn('[Login Prewarm] Notice:', err);
-      }
-    })();
-
-    setTimeout(() => { router.replace('/dashboard'); }, 650);
-  }, [router, queryClient]);
+    // Brief celebratory micro-moment (180ms), then immediate native navigation.
+    // Using window.location.replace completely avoids Next.js router cache poisoning
+    // and ensures clean session cookie pickup without blocking on background Server Actions.
+    setTimeout(() => {
+      window.location.replace('/dashboard');
+    }, 180);
+  }, []);
 
   const isExpanded = animationStep === 'loading';
   const isCelebrating = hasLoggedIn || animationStep === 'celebrating' || animationStep === 'loading';
@@ -991,7 +968,8 @@ export function LoginPageClient({ initialCsrfToken }: { initialCsrfToken?: strin
               if (isPop) {
                 var p = new URLSearchParams(window.location.search);
                 var err = p.get('error');
-                var m = err ? { type: 'OAUTH_ERROR', error: err } : { type: 'OAUTH_SUCCESS' };
+                // A popup on /login is never an OAuth success
+                var m = { type: 'OAUTH_ERROR', error: err || 'OAuthCallbackError', t: Date.now() };
                 try { var b = new BroadcastChannel('deals_google_auth'); b.postMessage(m); } catch(e){}
                 try { localStorage.setItem('deals_oauth_result', JSON.stringify({ msg: m, t: Date.now() })); } catch(e){}
                 try {

@@ -33,15 +33,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-import { useDealsQuery, useCurrentUserFilter, useDashboardQuery } from '@/hooks/useDealsQuery';
+import { useCurrentUserFilter } from '@/hooks/useDealsQuery';
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { useReportDrilldownQuery } from '@/hooks/useReportsQuery';
 import {
   DateRangeFilterPopover,
   DateRangeValue,
-  filterDealByDateRange,
 } from '@/components/DateRangeFilterPopover';
 import {
   normalizeBrandName,
-  calculateBrandDistribution,
 } from '@/lib/brandUtils';
 import dynamic from 'next/dynamic';
 import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU } from '@/lib/buUtils';
@@ -96,10 +96,8 @@ export default function DashboardPage() {
   const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
   const [isRenewedModalOpen, setIsRenewedModalOpen] = useState(false);
-  const [renewedSearch, setRenewedSearch] = useState('');
   const [isExpiringModalOpen, setIsExpiringModalOpen] = useState(false);
   const [expiringUrgencyFilter, setExpiringUrgencyFilter] = useState<'ALL' | 'CRITICAL' | 'URGENT' | 'WARNING' | 'NOTICE'>('ALL');
-  const [expiringSearch, setExpiringSearch] = useState('');
   const [expiringSortConfig, setExpiringSortConfig] = useState<SortConfig>({
     field: 'expDt',
     order: 'asc',
@@ -119,40 +117,14 @@ export default function DashboardPage() {
   const assignedBrands = ((session?.user as any)?.assignedBrands as string[]) || [];
 
   const scopedFilter = useCurrentUserFilter();
-  const { data: allDeals = [], isLoading: loading } = useDealsQuery(scopedFilter);
-  const { data: metrics } = useDashboardQuery();
 
-  // Apply Date Range Filter & strictly Official BU Filter to deals
-  const deals = useMemo(() => {
-    return allDeals
-      .filter((d: DealHeaderRecord) => isOfficialBU(d.BU || d.bu))
-      .filter((d: DealHeaderRecord) =>
-        filterDealByDateRange(d.dtRegistered || d.dtCreated, dateRange)
-      );
-  }, [allDeals, dateRange]);
+  const dateParams = useMemo(() => ({
+    preset: dateRange.preset,
+    startDate: dateRange.startDate ? new Date(dateRange.startDate).toISOString().slice(0, 10) : undefined,
+    endDate: dateRange.endDate ? new Date(dateRange.endDate).toISOString().slice(0, 10) : undefined,
+  }), [dateRange]);
 
-  // Filter official BUs for BU Heads and AOs so unassigned BUs are never shown
-  const visibleOfficialBUs = useMemo(() => {
-    if (role === 'bu' || role === 'bu_admin') {
-      if (assignedBUs.length > 0) {
-        const normalizedAssigned = assignedBUs.map((b) => normalizeBU(b));
-        const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => normalizedAssigned.includes(bu));
-        if (filtered.length > 0) return filtered;
-      }
-      // Fallback to BUs present in deals
-      const activeBUs = Array.from(new Set(deals.map((d) => normalizeBU(d.BU || d.bu || '')).filter(Boolean)));
-      const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => activeBUs.includes(bu));
-      return filtered.length > 0 ? filtered : [...OFFICIAL_REGISTERED_BUS];
-    }
-
-    if (role === 'ao') {
-      const activeBUs = Array.from(new Set(deals.map((d) => normalizeBU(d.BU || d.bu || '')).filter(Boolean)));
-      const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => activeBUs.includes(bu));
-      return filtered.length > 0 ? filtered : [...OFFICIAL_REGISTERED_BUS];
-    }
-
-    return [...OFFICIAL_REGISTERED_BUS];
-  }, [role, assignedBUs, deals]);
+  const { metrics, loading } = useDashboardMetrics(dateParams);
 
   // Debounce brand search in modal
   useEffect(() => {
@@ -172,13 +144,36 @@ export default function DashboardPage() {
   // Brand Distribution Sorting State for Dashboard KPI card (default: Total Amount)
   const [dashboardBrandSort, setDashboardBrandSort] = useState<'value-desc' | 'value-asc' | 'count-desc' | 'count-asc' | 'name-asc' | 'name-desc'>('value-desc');
 
-  // Deals per Brand breakdown (strictly official BUs, scoped to assigned brands for PM)
+  // Pre-aggregated Brand Distribution List from View
   const brandDistributionList = useMemo(() => {
-    return calculateBrandDistribution(
-      deals,
-      role === 'pm' && assignedBrands.length > 0 ? assignedBrands : undefined
-    );
-  }, [deals, role, assignedBrands]);
+    if (metrics?.brandMetrics && metrics.brandMetrics.length > 0) {
+      let list = metrics.brandMetrics.map((b) => ({
+        brand: b.brand,
+        count: b.dealCount,
+        totalValue: b.totalValue,
+        activeCount: b.activeCount,
+        approvedCount: b.approvedCount,
+        waitingCount: b.waitingCount,
+        lostCount: b.lostCount,
+      }));
+      if (role === 'pm' && assignedBrands.length > 0) {
+        list = list.filter((b) => assignedBrands.includes(b.brand));
+      }
+      return list;
+    }
+    if (metrics?.dealsByBrand && metrics.dealsByBrand.length > 0) {
+      return metrics.dealsByBrand.map((b) => ({
+        brand: b.brand,
+        count: b.count,
+        totalValue: b.totalValue || 0,
+        activeCount: b.count,
+        approvedCount: b.count,
+        waitingCount: 0,
+        lostCount: 0,
+      }));
+    }
+    return [];
+  }, [metrics?.brandMetrics, metrics?.dealsByBrand, role, assignedBrands]);
 
   // Totals & maximums for accurate bar graphing and percentage share calculations
   const totalBrandValue = useMemo(() => {
@@ -212,73 +207,56 @@ export default function DashboardPage() {
     return list;
   }, [brandDistributionList, dashboardBrandSort]);
 
-  // Detailed BU distribution list with status breakdown & revenue metrics (strictly scoped official BUs)
+  // Pre-aggregated BU distribution list from View
   const buDistributionList = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        bu: string;
-        count: number;
-        totalValue: number;
-        activeCount: number;
-        approvedCount: number;
-        waitingCount: number;
-        lostCount: number;
-      }
-    > = {};
-
-    visibleOfficialBUs.forEach((bu) => {
-      map[bu] = {
-        bu,
-        count: 0,
-        totalValue: 0,
-        activeCount: 0,
-        approvedCount: 0,
+    if (metrics?.buMetrics && metrics.buMetrics.length > 0) {
+      return metrics.buMetrics.map((bu) => ({
+        bu: bu.bu,
+        count: bu.dealCount,
+        totalValue: bu.totalValue,
+        activeCount: bu.activeCount,
+        approvedCount: bu.approvedCount,
+        waitingCount: bu.waitingCount,
+        lostCount: bu.lostCount,
+      }));
+    }
+    if (metrics?.dealsByBU && metrics.dealsByBU.length > 0) {
+      return metrics.dealsByBU.map((bu) => ({
+        bu: bu.bu,
+        count: bu.count,
+        totalValue: bu.totalValue || 0,
+        activeCount: bu.count,
+        approvedCount: bu.count,
         waitingCount: 0,
         lostCount: 0,
-      };
-    });
+      }));
+    }
+    return [];
+  }, [metrics?.buMetrics, metrics?.dealsByBU]);
 
-    deals.forEach((d: DealHeaderRecord) => {
-      const rawBu = normalizeBU(d.BU || d.bu || '');
-      if (!visibleOfficialBUs.includes(rawBu as any)) return;
-
-      const amt = d.items?.reduce((sum: number, item: any) => sum + (Number(item.totalAmt) || 0), 0) || 0;
-      const statusNum = Number(d.dealStatus);
-
-      map[rawBu].count += 1;
-      map[rawBu].totalValue += amt;
-
-      if (statusNum === 1) {
-        map[rawBu].activeCount += 1;
-      } else if (statusNum === 2 || statusNum === 3) {
-        map[rawBu].approvedCount += 1;
-      } else if (statusNum === 0 || statusNum === 4 || isNaN(statusNum)) {
-        map[rawBu].waitingCount += 1;
-      } else if (statusNum === 7 || statusNum === 8) {
-        map[rawBu].lostCount += 1;
-      }
-    });
-
-    return Object.values(map).sort((a, b) => b.count - a.count || b.totalValue - a.totalValue);
-  }, [deals, visibleOfficialBUs]);
-
-  // Calculate official BUs breakdown
   const officialBUsList = useMemo(() => {
-    const officialCounts: Record<string, number> = {};
-    visibleOfficialBUs.forEach((bu) => {
-      officialCounts[bu] = 0;
-    });
+    return buDistributionList.map((bu) => [bu.bu, bu.count] as [string, number]);
+  }, [buDistributionList]);
 
-    deals.forEach((d: DealHeaderRecord) => {
-      const rawBu = normalizeBU(d.BU || d.bu || '');
-      if (visibleOfficialBUs.includes(rawBu as any)) {
-        officialCounts[rawBu] = (officialCounts[rawBu] || 0) + 1;
+  const totalBUDealsCount = useMemo(() => {
+    return officialBUsList.reduce((sum, [, c]) => sum + c, 0) || 1;
+  }, [officialBUsList]);
+
+  const totalOverallDealsCount = useMemo(() => {
+    return metrics?.totalCount || totalBUDealsCount || 1;
+  }, [metrics?.totalCount, totalBUDealsCount]);
+
+  const visibleOfficialBUs = useMemo(() => {
+    if (role === 'bu' || role === 'bu_admin') {
+      if (assignedBUs.length > 0) {
+        const normalizedAssigned = assignedBUs.map((b) => normalizeBU(b));
+        const filtered = OFFICIAL_REGISTERED_BUS.filter((bu) => normalizedAssigned.includes(bu));
+        if (filtered.length > 0) return filtered;
       }
-    });
-
-    return visibleOfficialBUs.map((bu) => [bu, officialCounts[bu]] as [string, number]);
-  }, [deals, visibleOfficialBUs]);
+      return [...OFFICIAL_REGISTERED_BUS];
+    }
+    return [...OFFICIAL_REGISTERED_BUS];
+  }, [role, assignedBUs]);
 
   const isViewOnly = status === 'authenticated' && (role === 'bu' || role === 'bu_admin' || role === 'ao' || role === 'pm');
 
@@ -291,25 +269,12 @@ export default function DashboardPage() {
     return `Account Officer (${accountGroup})`;
   };
 
-  const registeredDealsList = useMemo(() => {
-    return deals.filter((d: DealHeaderRecord) => String(d.dealStatus) === '1' || d.dealStatus === 1);
-  }, [deals]);
-
-  const totalRegistered = registeredDealsList.length;
-
-  const expiredThisMonth = useMemo(() => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    return deals.filter((d: DealHeaderRecord) => {
-      const rawExp = d.expDt || d.expiration;
-      if (!rawExp) return false;
-      const exp = new Date(rawExp);
-      if (isNaN(exp.getTime())) return false;
-      return exp.getFullYear() === currentYear && exp.getMonth() === currentMonth && exp < now;
-    }).length;
-  }, [deals]);
+  const totalRegistered = metrics?.totalRegistered ?? 0;
+  const expiredThisMonth = metrics?.expiredThisMonth ?? 0;
+  const totalExpired = metrics?.totalExpired ?? 0;
+  const totalRenewedCount = metrics?.totalRenewed ?? 0;
+  const totalLostCount = metrics?.lostCount ?? 0;
+  const grandTotalPipelineValue = metrics?.grandTotalPipelineValue ?? 0;
 
   const filteredBrandsInModal = useMemo(() => {
     if (!debouncedBrandSearch.trim()) return brandDistributionList;
@@ -317,263 +282,124 @@ export default function DashboardPage() {
     return brandDistributionList.filter((item) => item.brand.toLowerCase().includes(q));
   }, [brandDistributionList, debouncedBrandSearch]);
 
-  const grandTotalPipelineValue = useMemo(() => {
-    return deals.reduce((totalSum: number, deal: DealHeaderRecord) => {
-      if (deal.items && deal.items.length > 0) {
-        return totalSum + deal.items.reduce((itemSum: number, item: any) => itemSum + (Number(item.totalAmt) || 0), 0);
-      }
-      return totalSum;
-    }, 0);
-  }, [deals]);
-
-  const expiredDealsList = useMemo(() => {
-    return deals.filter((d: DealHeaderRecord) => {
-      const rawExp = d.expDt || d.expiration;
-      if (!rawExp) return false;
-      const exp = new Date(rawExp);
-      return !isNaN(exp.getTime()) && exp < new Date();
-    });
-  }, [deals]);
-
-  const lostDealsList = useMemo(() => {
-    return deals.filter((d: DealHeaderRecord) => {
-      const statusStr = String(d.dealStatus ?? '');
-      return statusStr === '7' || d.dealStatus === 7 || Boolean(d.lostInfo && d.lostInfo.reason);
-    });
-  }, [deals]);
-
-  const renewedDealsList = useMemo(() => {
-    return deals
-      .filter((d: DealHeaderRecord) => {
-        return Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal);
-      })
-      .sort((a: any, b: any) => {
-        const latestA = a.latestRenewal || (a.renewals ? a.renewals[0] : null);
-        const latestB = b.latestRenewal || (b.renewals ? b.renewals[0] : null);
-        const timeB = latestB ? new Date(latestB.dtRenewal || latestB.dtCreated || 0).getTime() : 0;
-        const timeA = latestA ? new Date(latestA.dtRenewal || latestA.dtCreated || 0).getTime() : 0;
-        return timeB - timeA;
-      });
-  }, [deals]);
-
-  const totalRenewedCount = renewedDealsList.length;
-
   // Expiring Deals Analytics & Urgency Breakdown
   const expiringDealsAnalytics = useMemo(() => {
-    const now = new Date();
-    const nowMs = now.getTime();
-    const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-    const critical: DealHeaderRecord[] = [];
-    const urgent: DealHeaderRecord[] = [];
-    const warning: DealHeaderRecord[] = [];
-    const notice: DealHeaderRecord[] = [];
-    const allExpiring: DealHeaderRecord[] = [];
-
-    deals.forEach((d: DealHeaderRecord) => {
-      const statusNum = typeof d.dealStatus === 'number' ? d.dealStatus : parseInt(String(d.dealStatus || '1'), 10);
-      if (statusNum === 2 || statusNum === 7 || statusNum === 8) return;
-
-      const rawExp = d.expDt || d.expiration;
-      if (!rawExp) return;
-      const exp = new Date(rawExp);
-      if (isNaN(exp.getTime())) return;
-
-      const daysRemaining = Math.ceil((exp.getTime() - nowMs) / MS_PER_DAY);
-      if (daysRemaining >= 0 && daysRemaining <= 30) {
-        allExpiring.push(d);
-        if (daysRemaining <= 3) {
-          critical.push(d);
-        } else if (daysRemaining <= 7) {
-          urgent.push(d);
-        } else if (daysRemaining <= 15) {
-          warning.push(d);
-        } else {
-          notice.push(d);
-        }
-      }
-    });
-
+    const c = metrics?.expiryRiskCounts;
+    const crit = c?.criticalCount ?? 0;
+    const urg = c?.urgentCount ?? 0;
+    const warn = c?.warningCount ?? 0;
+    const noti = c?.noticeCount ?? 0;
     return {
-      allExpiring,
-      critical,
-      urgent,
-      warning,
-      notice,
-      totalCount: allExpiring.length,
+      totalCount: c?.totalAtRisk ?? 0,
+      criticalCount: crit,
+      urgentCount: urg,
+      warningCount: warn,
+      noticeCount: noti,
     };
-  }, [deals]);
+  }, [metrics?.expiryRiskCounts]);
 
-  const filteredExpiringDeals = useMemo(() => {
-    let list = expiringDealsAnalytics.allExpiring;
-    if (expiringUrgencyFilter === 'CRITICAL') list = expiringDealsAnalytics.critical;
-    else if (expiringUrgencyFilter === 'URGENT') list = expiringDealsAnalytics.urgent;
-    else if (expiringUrgencyFilter === 'WARNING') list = expiringDealsAnalytics.warning;
-    else if (expiringUrgencyFilter === 'NOTICE') list = expiringDealsAnalytics.notice;
+  const recentDeals = useMemo(() => {
+    return metrics?.recentDeals || [];
+  }, [metrics?.recentDeals]);
 
-    if (expiringSearch.trim()) {
-      const q = expiringSearch.toLowerCase().trim();
-      list = list.filter((d) => {
-        const reg = (d.dealRegID || '').toLowerCase();
-        const cust = (d.custName || '').toLowerCase();
-        const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-        const brand = (d.brand || '').toLowerCase();
-        const bu = (d.BU || d.bu || '').toLowerCase();
-        const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
-        const rem = (d.remarks || '').toLowerCase();
-        return reg.includes(q) || cust.includes(q) || proj.includes(q) || brand.includes(q) || bu.includes(q) || ao.includes(q) || rem.includes(q);
-      });
-    }
-
-    return [...list].sort((a, b) => {
-      let comparison = 0;
-      switch (expiringSortConfig.field) {
-        case 'expDt': {
-          const dateA = new Date(a.expDt || a.expiration || 0).getTime();
-          const dateB = new Date(b.expDt || b.expiration || 0).getTime();
-          comparison = dateA - dateB;
-          break;
-        }
-        case 'dtRegistered': {
-          const dateA = new Date(a.dtRegistered || a.dtCreated || 0).getTime();
-          const dateB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
-          comparison = dateA - dateB;
-          break;
-        }
-        case 'dealRegID': {
-          const idA = (a.dealRegID || '').toLowerCase();
-          const idB = (b.dealRegID || '').toLowerCase();
-          comparison = idA.localeCompare(idB);
-          break;
-        }
-        case 'custName': {
-          const nameA = (a.custName || '').toLowerCase();
-          const nameB = (b.custName || '').toLowerCase();
-          comparison = nameA.localeCompare(nameB);
-          break;
-        }
-        case 'projectName': {
-          const projA = (a.ProjectName || a.projectName || '').toLowerCase();
-          const projB = (b.ProjectName || b.projectName || '').toLowerCase();
-          comparison = projA.localeCompare(projB);
-          break;
-        }
-        case 'brand': {
-          const brandA = (a.brand || '').toLowerCase();
-          const brandB = (b.brand || '').toLowerCase();
-          comparison = brandA.localeCompare(brandB);
-          break;
-        }
-        case 'totalAmt': {
-          const getAmt = (deal: DealHeaderRecord) => {
-            if ((deal as any)._computedTotal !== undefined) return (deal as any)._computedTotal;
-            return deal.items?.reduce((s, i) => s + (Number(i.totalAmt) || 0), 0) || 0;
-          };
-          comparison = getAmt(a) - getAmt(b);
-          break;
-        }
-        default: {
-          const dateA = new Date(a.expDt || a.expiration || 0).getTime();
-          const dateB = new Date(b.expDt || b.expiration || 0).getTime();
-          comparison = dateA - dateB;
-        }
-      }
-      return expiringSortConfig.order === 'desc' ? -comparison : comparison;
-    });
-  }, [expiringDealsAnalytics, expiringUrgencyFilter, expiringSearch, expiringSortConfig]);
-
-  const filteredRenewedDeals = useMemo(() => {
-    if (!renewedSearch.trim()) return renewedDealsList;
-    const q = renewedSearch.toLowerCase().trim();
-    return renewedDealsList.filter((d) => {
-      const reg = (d.dealRegID || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      return reg.includes(q) || cust.includes(q) || proj.includes(q) || bu.includes(q) || brand.includes(q);
-    });
-  }, [renewedDealsList, renewedSearch]);
-
-  const formatAmounts = (deal: DealHeaderRecord) => {
+  const formatAmounts = (deal: any) => {
     if (deal.aggregatedTotals && Object.keys(deal.aggregatedTotals).length > 0) {
       return Object.entries(deal.aggregatedTotals)
         .map(([curr, amt]: [string, any]) => `${curr} ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
         .join(' | ');
     }
-    if (deal.items && deal.items.length > 0) {
-      const total = deal.items.reduce((acc: number, item: any) => acc + (Number(item.totalAmt) || 0), 0);
-      const curr = deal.items[0]?.currency || 'PHP';
-      return `${curr} ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (deal.TotalAmount !== undefined && deal.TotalAmount !== null) {
+      return `PHP ${Number(deal.TotalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return 'PHP 0.00';
   };
 
-  const recentDeals = useMemo(() => {
-    return [...deals]
-      .sort((a, b) => {
-        const timeB = new Date(b.dtRegistered || b.dtCreated || 0).getTime();
-        const timeA = new Date(a.dtRegistered || a.dtCreated || 0).getTime();
-        return timeB - timeA;
-      })
-      .slice(0, 6);
-  }, [deals]);
-
-  // Simple Search Filters for Dashboard Modals
+  // Search & Pagination States for Server-Paginated Modals
   const [registeredSearch, setRegisteredSearch] = useState('');
+  const [regPage, setRegPage] = useState(1);
+
   const [expiredSearch, setExpiredSearch] = useState('');
+  const [expPage, setExpPage] = useState(1);
+
+  const [renewedSearch, setRenewedSearch] = useState('');
+  const [renPage, setRenPage] = useState(1);
+
+  const [expiringSearch, setExpiringSearch] = useState('');
+  const [expiringPage, setExpiringPage] = useState(1);
+
   const [brandDealSearch, setBrandDealSearch] = useState('');
+  const [brandDealsPage, setBrandDealsPage] = useState(1);
 
-  const filteredRegisteredDeals = useMemo(() => {
-    if (!registeredSearch.trim()) return registeredDealsList;
-    const q = registeredSearch.toLowerCase().trim();
-    return registeredDealsList.filter((d) => {
-      const reg = (d.dealRegID || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
-      const rem = (d.remarks || '').toLowerCase();
-      return reg.includes(q) || cust.includes(q) || proj.includes(q) || brand.includes(q) || bu.includes(q) || ao.includes(q) || rem.includes(q);
-    });
-  }, [registeredDealsList, registeredSearch]);
+  // Server-side Drilldown Queries (Active on-demand only when modal is open)
+  const { data: regDrilldown, isLoading: regLoading } = useReportDrilldownQuery({
+    type: 'registered',
+    page: regPage,
+    pageSize: 50,
+    searchQuery: registeredSearch,
+    preset: dateRange.preset,
+    startDate: dateParams.startDate,
+    endDate: dateParams.endDate,
+    filter: scopedFilter,
+    enabled: isRegisteredModalOpen,
+  });
 
-  const filteredExpiredDeals = useMemo(() => {
-    if (!expiredSearch.trim()) return expiredDealsList;
-    const q = expiredSearch.toLowerCase().trim();
-    return expiredDealsList.filter((d) => {
-      const reg = (d.dealRegID || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const brand = (d.brand || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
-      const rem = (d.remarks || '').toLowerCase();
-      return reg.includes(q) || cust.includes(q) || proj.includes(q) || brand.includes(q) || bu.includes(q) || ao.includes(q) || rem.includes(q);
-    });
-  }, [expiredDealsList, expiredSearch]);
+  const { data: expDrilldown, isLoading: expLoading } = useReportDrilldownQuery({
+    type: 'expired',
+    page: expPage,
+    pageSize: 50,
+    searchQuery: expiredSearch,
+    preset: dateRange.preset,
+    startDate: dateParams.startDate,
+    endDate: dateParams.endDate,
+    filter: scopedFilter,
+    enabled: isExpiredModalOpen,
+  });
 
-  const brandDealsList = useMemo(() => {
-    if (!selectedBrandForDeals) return [];
-    return deals.filter(
-      (d) => normalizeBrandName(d.brand).toLowerCase() === selectedBrandForDeals.toLowerCase()
-    );
-  }, [deals, selectedBrandForDeals]);
+  const { data: renDrilldown, isLoading: renLoading } = useReportDrilldownQuery({
+    type: 'renewed',
+    page: renPage,
+    pageSize: 50,
+    searchQuery: renewedSearch,
+    preset: dateRange.preset,
+    startDate: dateParams.startDate,
+    endDate: dateParams.endDate,
+    filter: scopedFilter,
+    enabled: isRenewedModalOpen,
+  });
 
-  const filteredBrandDeals = useMemo(() => {
-    if (!brandDealSearch.trim()) return brandDealsList;
-    const q = brandDealSearch.toLowerCase().trim();
-    return brandDealsList.filter((d) => {
-      const reg = (d.dealRegID || '').toLowerCase();
-      const cust = (d.custName || '').toLowerCase();
-      const proj = (d.ProjectName || d.projectName || '').toLowerCase();
-      const bu = (d.BU || d.bu || '').toLowerCase();
-      const ao = (d.AssignedAO || d.assignedAO || '').toLowerCase();
-      const rem = (d.remarks || '').toLowerCase();
-      return reg.includes(q) || cust.includes(q) || proj.includes(q) || bu.includes(q) || ao.includes(q) || rem.includes(q);
-    });
-  }, [brandDealsList, brandDealSearch]);
+  const { data: expiringDrilldown, isLoading: expiringLoading } = useReportDrilldownQuery({
+    type: 'expiring',
+    urgency: expiringUrgencyFilter,
+    page: expiringPage,
+    pageSize: 50,
+    searchQuery: expiringSearch,
+    filter: scopedFilter,
+    enabled: isExpiringModalOpen,
+  });
+
+  const { data: brandDrilldown, isLoading: brandLoading } = useReportDrilldownQuery({
+    type: 'brand',
+    value: selectedBrandForDeals || undefined,
+    page: brandDealsPage,
+    pageSize: 50,
+    searchQuery: brandDealSearch,
+    preset: dateRange.preset,
+    startDate: dateParams.startDate,
+    endDate: dateParams.endDate,
+    filter: scopedFilter,
+    enabled: isBrandDealsModalOpen && Boolean(selectedBrandForDeals),
+  });
+
+  const { data: lostDrilldown, isLoading: lostLoading } = useReportDrilldownQuery({
+    type: 'lost',
+    page: 1,
+    pageSize: 100,
+    preset: dateRange.preset,
+    startDate: dateParams.startDate,
+    endDate: dateParams.endDate,
+    filter: scopedFilter,
+    enabled: isLostModalOpen,
+  });
 
   return (
     <div className="space-y-6">
@@ -761,10 +587,10 @@ export default function DashboardPage() {
               </div>
               <div className="text-[11px] text-amber-600 font-semibold mt-1 flex items-center justify-between truncate">
                 <span className="truncate">
-                  {expiringDealsAnalytics.critical.length > 0
-                    ? `${expiringDealsAnalytics.critical.length} Critical (≤3d)`
-                    : expiringDealsAnalytics.urgent.length > 0
-                    ? `${expiringDealsAnalytics.urgent.length} Urgent (≤7d)`
+                  {expiringDealsAnalytics.criticalCount > 0
+                    ? `${expiringDealsAnalytics.criticalCount} Critical (≤3d)`
+                    : expiringDealsAnalytics.urgentCount > 0
+                    ? `${expiringDealsAnalytics.urgentCount} Urgent (≤7d)`
                     : 'Active pipeline'}
                 </span>
                 <span className="text-[10px] text-muted group-hover:text-amber-600 transition font-medium">Click &rarr;</span>
@@ -790,7 +616,7 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="text-2xl sm:text-3xl font-bold text-amber-600 mt-2 font-mono truncate">
-                {lostDealsList.length}
+                {totalLostCount}
               </div>
               <div className="text-[11px] text-amber-600 font-semibold mt-1 truncate flex items-center justify-between">
                 <span>Competitor Intel</span>
@@ -964,7 +790,7 @@ export default function DashboardPage() {
                 ))
               ) : (
                 officialBUsList.map(([bu, count]) => {
-                  const percentage = deals.length > 0 ? Math.round((count / deals.length) * 100) : 0;
+                  const percentage = Math.round((count / totalOverallDealsCount) * 100);
                   const buThemeMap: Record<string, { bg: string; text: string; border: string; bar: string }> = {
                     BU1: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/30', bar: 'from-emerald-500 to-teal-600' },
                     BU2: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/30', bar: 'from-blue-500 to-indigo-600' },
@@ -1018,7 +844,7 @@ export default function DashboardPage() {
 
               <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
                 {buDistributionList.map((item, idx) => {
-                  const percentage = deals.length > 0 ? Math.round((item.count / deals.length) * 100) : 0;
+                  const percentage = Math.round((item.count / totalOverallDealsCount) * 100);
                   const buThemeMap: Record<string, { bg: string; text: string; border: string; bar: string }> = {
                     BU1: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/30', bar: 'from-emerald-500 to-teal-600' },
                     BU2: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/30', bar: 'from-blue-500 to-indigo-600' },
@@ -1379,14 +1205,22 @@ export default function DashboardPage() {
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder={`Search ${selectedBrandForDeals || ''} deals by Customer, Project, Ref ID, BU, AO, Remarks...`}
               value={brandDealSearch}
-              onChange={(e: any) => setBrandDealSearch(e.target.value)}
+              onChange={(e: any) => {
+                setBrandDealSearch(e.target.value);
+                setBrandDealsPage(1);
+              }}
               allowClear
               size="md"
             />
           </div>
 
           <ModalDealTable
-            deals={filteredBrandDeals}
+            deals={brandDrilldown?.data || []}
+            totalRecordsCount={brandDrilldown?.totalCount ?? 0}
+            serverCurrentPage={brandDealsPage}
+            serverTotalPages={brandDrilldown?.totalPages ?? 1}
+            onServerPageChange={setBrandDealsPage}
+            isLoading={brandLoading}
             onCloseModal={() => {
               setIsBrandDealsModalOpen(false);
               setSelectedBrandForDeals(null);
@@ -1396,7 +1230,7 @@ export default function DashboardPage() {
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredBrandDeals.length} of {brandDealsList.length} deals for {selectedBrandForDeals}
+            Showing {brandDrilldown?.data?.length || 0} of {brandDrilldown?.totalCount ?? 0} deals for {selectedBrandForDeals}
           </span>
           <div className="flex items-center gap-2">
             <Link
@@ -1450,21 +1284,29 @@ export default function DashboardPage() {
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search registered deals by Project, Customer, Reg ID, Brand, BU, AO, Remarks..."
               value={registeredSearch}
-              onChange={(e: any) => setRegisteredSearch(e.target.value)}
+              onChange={(e: any) => {
+                setRegisteredSearch(e.target.value);
+                setRegPage(1);
+              }}
               allowClear
               size="md"
             />
           </div>
 
           <ModalDealTable
-            deals={filteredRegisteredDeals}
+            deals={regDrilldown?.data || []}
+            totalRecordsCount={regDrilldown?.totalCount ?? totalRegistered}
+            serverCurrentPage={regPage}
+            serverTotalPages={regDrilldown?.totalPages ?? 1}
+            onServerPageChange={setRegPage}
+            isLoading={regLoading}
             onCloseModal={() => setIsRegisteredModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredRegisteredDeals.length} of {registeredDealsList.length} registered deals
+            Showing {regDrilldown?.data?.length || 0} of {regDrilldown?.totalCount ?? totalRegistered} registered deals
           </span>
           <div className="flex items-center gap-2">
             <Link
@@ -1516,21 +1358,29 @@ export default function DashboardPage() {
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search expired deals by Project, Customer, Reg ID, BU, AO, Remarks..."
               value={expiredSearch}
-              onChange={(e: any) => setExpiredSearch(e.target.value)}
+              onChange={(e: any) => {
+                setExpiredSearch(e.target.value);
+                setExpPage(1);
+              }}
               allowClear
               size="md"
             />
           </div>
 
           <ModalDealTable
-            deals={filteredExpiredDeals}
+            deals={expDrilldown?.data || []}
+            totalRecordsCount={expDrilldown?.totalCount ?? totalExpired}
+            serverCurrentPage={expPage}
+            serverTotalPages={expDrilldown?.totalPages ?? 1}
+            onServerPageChange={setExpPage}
+            isLoading={expLoading}
             onCloseModal={() => setIsExpiredModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredExpiredDeals.length} of {expiredDealsList.length} expired deals
+            Showing {expDrilldown?.data?.length || 0} of {expDrilldown?.totalCount ?? totalExpired} expired deals
           </span>
           <div className="flex items-center gap-2">
             <Link
@@ -1568,7 +1418,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <RefreshCw className="w-5 h-5 text-emerald-500" />
             <div>
-              <AppModal.Title>Renewed Deals Directory ({filteredRenewedDeals.length})</AppModal.Title>
+              <AppModal.Title>Renewed Deals Directory ({renDrilldown?.totalCount ?? totalRenewedCount})</AppModal.Title>
               <AppModal.Description>
                 Overview of all deal registrations with processed validity extensions and renewal records.
               </AppModal.Description>
@@ -1582,21 +1432,29 @@ export default function DashboardPage() {
               prefix={<Search className="w-4 h-4 text-muted" />}
               placeholder="Search renewed deals by Project, Customer, Reg ID, BU, Brand..."
               value={renewedSearch}
-              onChange={(e: any) => setRenewedSearch(e.target.value)}
+              onChange={(e: any) => {
+                setRenewedSearch(e.target.value);
+                setRenPage(1);
+              }}
               allowClear
               size="md"
             />
           </div>
 
           <ModalDealTable
-            deals={filteredRenewedDeals}
+            deals={renDrilldown?.data || []}
+            totalRecordsCount={renDrilldown?.totalCount ?? totalRenewedCount}
+            serverCurrentPage={renPage}
+            serverTotalPages={renDrilldown?.totalPages ?? 1}
+            onServerPageChange={setRenPage}
+            isLoading={renLoading}
             onCloseModal={() => setIsRenewedModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredRenewedDeals.length} of {renewedDealsList.length} renewed deals
+            Showing {renDrilldown?.data?.length || 0} of {renDrilldown?.totalCount ?? totalRenewedCount} renewed deals
           </span>
           <div className="flex items-center gap-2">
             <Link
@@ -1650,7 +1508,10 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-1.5 pb-1 border-b border-border/40">
             <button
               type="button"
-              onClick={() => setExpiringUrgencyFilter('ALL')}
+              onClick={() => {
+                setExpiringUrgencyFilter('ALL');
+                setExpiringPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                 expiringUrgencyFilter === 'ALL'
                   ? 'bg-primary text-white border-primary shadow-xs font-bold'
@@ -1663,7 +1524,10 @@ export default function DashboardPage() {
 
             <button
               type="button"
-              onClick={() => setExpiringUrgencyFilter('CRITICAL')}
+              onClick={() => {
+                setExpiringUrgencyFilter('CRITICAL');
+                setExpiringPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                 expiringUrgencyFilter === 'CRITICAL'
                   ? 'bg-rose-600 text-white border-rose-600 shadow-xs font-bold'
@@ -1671,12 +1535,15 @@ export default function DashboardPage() {
               }`}
             >
               <span>Critical (≤3d)</span>
-              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.critical.length})</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.criticalCount})</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setExpiringUrgencyFilter('URGENT')}
+              onClick={() => {
+                setExpiringUrgencyFilter('URGENT');
+                setExpiringPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                 expiringUrgencyFilter === 'URGENT'
                   ? 'bg-orange-600 text-white border-orange-600 shadow-xs font-bold'
@@ -1684,12 +1551,15 @@ export default function DashboardPage() {
               }`}
             >
               <span>Urgent (4-7d)</span>
-              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.urgent.length})</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.urgentCount})</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setExpiringUrgencyFilter('WARNING')}
+              onClick={() => {
+                setExpiringUrgencyFilter('WARNING');
+                setExpiringPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                 expiringUrgencyFilter === 'WARNING'
                   ? 'bg-amber-600 text-white border-amber-600 shadow-xs font-bold'
@@ -1697,12 +1567,15 @@ export default function DashboardPage() {
               }`}
             >
               <span>Warning (8-15d)</span>
-              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.warning.length})</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.warningCount})</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setExpiringUrgencyFilter('NOTICE')}
+              onClick={() => {
+                setExpiringUrgencyFilter('NOTICE');
+                setExpiringPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
                 expiringUrgencyFilter === 'NOTICE'
                   ? 'bg-yellow-600 text-white border-yellow-600 shadow-xs font-bold'
@@ -1710,7 +1583,7 @@ export default function DashboardPage() {
               }`}
             >
               <span>Notice (16-30d)</span>
-              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.notice.length})</span>
+              <span className="text-[10px] font-mono font-bold">({expiringDealsAnalytics.noticeCount})</span>
             </button>
           </div>
 
@@ -1720,7 +1593,10 @@ export default function DashboardPage() {
                 prefix={<Search className="w-4 h-4 text-muted" />}
                 placeholder="Search expiring deals by Customer, Project, Ref ID, BU, AO, Brand, Remarks..."
                 value={expiringSearch}
-                onChange={(e: any) => setExpiringSearch(e.target.value)}
+                onChange={(e: any) => {
+                  setExpiringSearch(e.target.value);
+                  setExpiringPage(1);
+                }}
                 allowClear
                 size="md"
               />
@@ -1732,14 +1608,19 @@ export default function DashboardPage() {
           </div>
 
           <ModalDealTable
-            deals={filteredExpiringDeals}
+            deals={expiringDrilldown?.data || []}
+            totalRecordsCount={expiringDrilldown?.totalCount ?? expiringDealsAnalytics.totalCount}
+            serverCurrentPage={expiringPage}
+            serverTotalPages={expiringDrilldown?.totalPages ?? 1}
+            onServerPageChange={setExpiringPage}
+            isLoading={expiringLoading}
             onCloseModal={() => setIsExpiringModalOpen(false)}
           />
         </AppModal.Body>
 
         <AppModal.Footer className="flex items-center justify-between pt-2">
           <span className="text-[11px] text-muted">
-            Showing {filteredExpiringDeals.length} of {expiringDealsAnalytics.totalCount} expiring deals
+            Showing {expiringDrilldown?.data?.length || 0} of {expiringDrilldown?.totalCount ?? expiringDealsAnalytics.totalCount} expiring deals
           </span>
           <div className="flex items-center gap-2">
             <Link
@@ -1769,8 +1650,8 @@ export default function DashboardPage() {
       <DealLostListModal
         isOpen={isLostModalOpen}
         onClose={() => setIsLostModalOpen(false)}
-        deals={deals}
-        loading={loading}
+        deals={lostDrilldown?.data || []}
+        loading={lostLoading}
       />
     </div>
   );

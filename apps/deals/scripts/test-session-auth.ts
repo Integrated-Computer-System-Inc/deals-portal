@@ -97,13 +97,15 @@ async function testSessionAuthFlow() {
   const deviceAToken = {
     AccountID: String(testAccountId),
     AccountName: 'JAMES PAOLO DOREMON',
+    DomainAccount: 'CORP\\JDOREMON',
+    AccountGroup: 'ALL',
     RememberToken: initialRememberToken,
     authTime: Math.floor(Date.now() / 1000) - 600, // 10 minutes ago
     role: 'ITadmin',
   };
 
   const deviceAResult = await jwtCallback!({
-    token: deviceAToken,
+    token: deviceAToken as any,
     user: undefined as any,
     account: null,
   });
@@ -123,7 +125,7 @@ async function testSessionAuthFlow() {
 
   // Now Device A makes another request with its old token
   const deviceAAfterDeviceBLogin = await jwtCallback!({
-    token: { ...deviceAToken },
+    token: { ...deviceAToken } as any,
     user: undefined as any,
     account: null,
   });
@@ -139,6 +141,8 @@ async function testSessionAuthFlow() {
   const impersonatingToken = {
     AccountID: '99999',
     AccountName: 'Test Impersonated AO',
+    DomainAccount: 'CORP\\TESTAO',
+    AccountGroup: 'BU5',
     RememberToken: 'some-arbitrary-impersonation-token',
     authTime: Math.floor(Date.now() / 1000) - 300,
     role: 'ao',
@@ -146,7 +150,7 @@ async function testSessionAuthFlow() {
   };
 
   const impersonationResult = await jwtCallback!({
-    token: impersonatingToken,
+    token: impersonatingToken as any,
     user: undefined as any,
     account: null,
   });
@@ -160,7 +164,7 @@ async function testSessionAuthFlow() {
   const sessionCallback = authOptions.callbacks?.session;
   console.assert(typeof sessionCallback === 'function', 'Session callback must exist');
 
-  const validSession = await sessionCallback!({
+  const validSession = await (sessionCallback as any)({
     session: { user: { name: 'James', email: 'jdoremon@ics.com.ph' }, expires: new Date(Date.now() + 3600000).toISOString() } as any,
     token: {
       AccountID: '57845',
@@ -176,7 +180,7 @@ async function testSessionAuthFlow() {
   console.assert(validSession?.user?.AccountID === '57845', 'Valid session must return populated user object');
   console.log('Sub-test 6A: Valid token returns complete session object.');
 
-  const rejectedSession = await sessionCallback!({
+  const rejectedSession = await (sessionCallback as any)({
     session: { user: { name: 'James', email: 'jdoremon@ics.com.ph' }, expires: new Date(Date.now() + 3600000).toISOString() } as any,
     token: {
       error: 'SessionExpired',

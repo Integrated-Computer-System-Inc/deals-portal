@@ -69,7 +69,8 @@ export const DEAL_QUERY_KEYS = {
   list: (filter?: ScopedDealsFilter) => [...DEAL_QUERY_KEYS.lists(), normalizeScopedFilter(filter)] as const,
   details: () => [...DEAL_QUERY_KEYS.all, 'detail'] as const,
   detail: (id: number | null) => [...DEAL_QUERY_KEYS.details(), id ? Number(id) : null] as const,
-  dashboard: () => [...DEAL_QUERY_KEYS.all, 'dashboard'] as const,
+  dashboard: (dateRange?: { preset?: string; startDate?: string; endDate?: string }) =>
+    [...DEAL_QUERY_KEYS.all, 'dashboard', dateRange?.preset || 'ALL', dateRange?.startDate || '', dateRange?.endDate || ''] as const,
 };
 
 /**
@@ -162,11 +163,16 @@ export function useDealsQuery(filter?: ScopedDealsFilter, options?: { enabled?: 
 /**
  * Hook to retrieve dashboard metrics with TanStack Query caching
  */
-export function useDashboardQuery(options?: { enabled?: boolean }) {
+export function useDashboardQuery(
+  dateRange?: { preset?: string; startDate?: string; endDate?: string },
+  options?: { enabled?: boolean }
+) {
+  const scopedFilter = useCurrentUserFilter();
+
   return useQuery<DashboardSummaryData>({
-    queryKey: DEAL_QUERY_KEYS.dashboard(),
+    queryKey: DEAL_QUERY_KEYS.dashboard(dateRange),
     queryFn: async () => {
-      const res = await getDashboardSummary();
+      const res = await getDashboardSummary(scopedFilter, dateRange);
       if (res && res.success && res.data) {
         return res.data;
       }

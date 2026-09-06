@@ -9,6 +9,10 @@
     "db:push": "npx prisma db push",
     "db:index": "ts-node scripts/apply-indexes.ts",
     "db:deploy": "ts-node scripts/deploy-database.ts",
+    "benchmark": "ts-node scripts/benchmark-queries.ts",
+    "check:indexes": "ts-node scripts/check-active-indexes.ts",
+    "check:rcsi": "ts-node scripts/check-db-info.ts",
+    "test:concurrency": "ts-node scripts/test-rcsi-concurrency.ts",
     "seed": "npx ts-node src/seed.ts",
     "seed:admins": "npx ts-node scripts/seed-admins.ts"
   },

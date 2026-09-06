@@ -21,6 +21,50 @@ const CDB_ACCOUNT_SELECT = {
 
 export const ABSOLUTE_SESSION_MAX_AGE = 24 * 60 * 60; // 24 Hours in seconds (1 Day)
 export const REMEMBER_TOKEN_CACHE_TTL = 15_000; // 15 seconds in milliseconds
+export const USER_AVATAR_CACHE_TTL = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+/**
+ * Normalizes Google profile photo URLs to high resolution (=s256-c).
+ * Replaces default low-res =s96-c or appends size query.
+ */
+export function normalizeGooglePhotoUrl(url?: string | null): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  // Upgrade Google User Content photo URLs to high-res (256x256 cropped)
+  if (trimmed.includes('googleusercontent.com')) {
+    if (/=s\d+(-c)?$/i.test(trimmed)) {
+      return trimmed.replace(/=s\d+(-c)?$/i, '=s256-c');
+    }
+    return `${trimmed}=s256-c`;
+  }
+  return trimmed;
+}
+
+/**
+ * Retrieves the cached user avatar from cdbAccounts or in-memory cache.
+ */
+export async function getCachedUserAvatar(accountId: number): Promise<string | null> {
+  const cacheKey = `user:avatar:${accountId}`;
+  const cached = serverCache.get<string>(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT TOP 1 GAvatar FROM [dbo].[cdbAccounts] WHERE AccountID = ${accountId};
+    `);
+    if (Array.isArray(rows) && rows.length > 0 && rows[0]?.GAvatar) {
+      const avatar = String(rows[0].GAvatar).trim();
+      serverCache.set(cacheKey, avatar, USER_AVATAR_CACHE_TTL);
+      return avatar;
+    }
+  } catch (err) {
+    console.warn('[Auth] getCachedUserAvatar lookup notice:', err);
+  }
+  return null;
+}
 
 /**
  * Retrieves the currently active RememberToken for an account from memory cache
@@ -35,8 +79,8 @@ export async function getCachedUserRememberToken(accountId: number): Promise<str
 
   try {
     const rows = await prisma.$queryRawUnsafe<any[]>(`
-      IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
-        SELECT TOP 1 RememberToken FROM Users WHERE AccountID = ${accountId};
+      IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users')
+        SELECT TOP 1 RememberToken FROM [dbo].[Users] WHERE AccountID = ${accountId};
     `);
     if (Array.isArray(rows) && rows.length > 0 && rows[0]?.RememberToken) {
       const token = String(rows[0].RememberToken);
@@ -170,6 +214,7 @@ export const authOptions: NextAuthOptions = {
                 `).catch((e) => console.warn('[Credentials Fast-Path] LastLogin update notice:', e));
                 serverCache.set(`user:remember_token:${accountId}`, newRememberToken, REMEMBER_TOKEN_CACHE_TTL);
 
+                const accountAvatar = await getCachedUserAvatar(accountId);
                 return {
                   id: `usr_${accountId}`,
                   name: accountName,
@@ -182,6 +227,7 @@ export const authOptions: NextAuthOptions = {
                   assignedBUs: assignedBUs,
                   assignedBrands: assignedBrands,
                   RememberToken: newRememberToken,
+                  GAvatar: accountAvatar || undefined,
                 };
               }
             } catch (err) {
@@ -250,6 +296,7 @@ export const authOptions: NextAuthOptions = {
             const assignedBUs = (userAccess.role === 'ITadmin' || userAccess.role === 'admin') ? ['ALL'] : userAccess.assignedBUs;
             const assignedBrands = (userAccess.role === 'ITadmin' || userAccess.role === 'admin') ? ['ALL'] : (userAccess.assignedBrands || []);
             const assignedBUsStr = assignedBUs.join(',') || accountGroup || 'BU5';
+            const accountAvatar = cdbAccount?.GAvatar || (await getCachedUserAvatar(accountId));
             return {
               id: `usr_${accountId}`,
               name: accountName,
@@ -262,6 +309,7 @@ export const authOptions: NextAuthOptions = {
               assignedBUs: assignedBUs,
               assignedBrands: assignedBrands,
               RememberToken: rememberToken,
+              GAvatar: accountAvatar || undefined,
             };
           }
           case 'bu':
@@ -344,27 +392,29 @@ export const authOptions: NextAuthOptions = {
             return '/login?error=AccessDenied';
           }
 
-          // Extract latest Google profile photo URL
-          const googlePhotoUrl = (user.image || (profile as any)?.picture || (account as any)?.picture || '').trim();
+          // Extract latest Google profile photo URL and upgrade to high-res (=s256-c)
+          const rawGooglePhotoUrl = (user.image || (profile as any)?.picture || (account as any)?.picture || '').trim();
+          const googlePhotoUrl = normalizeGooglePhotoUrl(rawGooglePhotoUrl);
 
           // Helper to synchronize Google profile photo with cdbAccounts and cache
           const syncGooglePhotoToCdb = async (targetEmail: string, targetAccountId?: number) => {
             if (!googlePhotoUrl) return;
             try {
-              const conditions: any[] = [
-                { Email: targetEmail },
-                { Email: targetEmail.toUpperCase() },
-              ];
+              const safeUrl = googlePhotoUrl.replace(/'/g, "''");
+              const safeEmail = targetEmail.replace(/'/g, "''").toLowerCase().trim();
+              const accountClause = (targetAccountId && !isNaN(targetAccountId) && targetAccountId > 0)
+                ? `AccountID = ${targetAccountId} OR `
+                : '';
+
+              await prisma.$executeRawUnsafe(`
+                UPDATE [dbo].[cdbAccounts]
+                SET GAvatar = '${safeUrl}'
+                WHERE ${accountClause}LOWER(LTRIM(RTRIM(Email))) = '${safeEmail}';
+              `);
+
               if (targetAccountId && !isNaN(targetAccountId) && targetAccountId > 0) {
-                conditions.push({ AccountID: targetAccountId });
+                serverCache.set(`user:avatar:${targetAccountId}`, googlePhotoUrl, USER_AVATAR_CACHE_TTL);
               }
-              await prisma.cdbAccounts.updateMany({
-                where: { OR: conditions },
-                data: {
-                  GAvatar: googlePhotoUrl,
-                  LastSynced: new Date(),
-                },
-              });
               serverCache.delete('cdb_ao_avatars_map');
             } catch (syncPhotoError) {
               console.warn('[Google Sign-In] Auto-syncing Google profile photo error:', syncPhotoError);
@@ -373,17 +423,17 @@ export const authOptions: NextAuthOptions = {
 
           // 2. FAST-PATH: Check if user is already registered in dbo.Users table with valid RememberToken
           try {
-            await runUserTableMigration();
             const hasCols = await hasAssignedColumns();
+            const safeEmail = emailLower.replace(/'/g, "''");
             const selectGoogleFast = hasCols
-              ? `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+              ? `IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users')
                    SELECT TOP 1 AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin
-                   FROM Users
-                   WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';`
-              : `IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                   FROM [dbo].[Users]
+                   WHERE Email = '${safeEmail}' OR LOWER(Email) = '${safeEmail}';`
+              : `IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users')
                    SELECT TOP 1 AccountID, AccountName, Email, UserRole, RememberToken, DtCreation, LastLogin
-                   FROM Users
-                   WHERE LOWER(Email) = '${emailLower.replace(/'/g, "''")}';`;
+                   FROM [dbo].[Users]
+                   WHERE Email = '${safeEmail}' OR LOWER(Email) = '${safeEmail}';`;
 
             const usersQueryResult = await prisma.$queryRawUnsafe<any[]>(selectGoogleFast);
 
@@ -411,8 +461,8 @@ export const authOptions: NextAuthOptions = {
                 ? ['ALL']
                 : (userAccess.assignedBUs.length > 0 ? userAccess.assignedBUs : ['BU5']);
 
-              // Synchronize photo and LastLogin asynchronously
-              syncGooglePhotoToCdb(emailLower, accountId).catch(() => {});
+              // Synchronize photo and LastLogin
+              await syncGooglePhotoToCdb(emailLower, accountId);
               prisma.$executeRawUnsafe(`
                 UPDATE Users 
                 SET LastLogin = GETDATE(), RememberToken = '${newRememberToken}' 
@@ -423,6 +473,7 @@ export const authOptions: NextAuthOptions = {
               const domainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
 
               const assignedBrands = userAccess.assignedBrands || [];
+              const finalAvatar = googlePhotoUrl || (await getCachedUserAvatar(accountId)) || undefined;
 
               (user as any).AccountID = String(accountId);
               (user as any).AccountName = accountName;
@@ -432,7 +483,10 @@ export const authOptions: NextAuthOptions = {
               (user as any).assignedBUs = assignedBUs;
               (user as any).assignedBrands = assignedBrands;
               (user as any).RememberToken = newRememberToken;
-              (user as any).GAvatar = googlePhotoUrl || undefined;
+              (user as any).GAvatar = finalAvatar;
+              if (finalAvatar) {
+                user.image = finalAvatar;
+              }
 
               return true;
             }
@@ -496,7 +550,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           // Sync latest Google photo to cdbAccounts
-          syncGooglePhotoToCdb(emailLower, accountId).catch(() => {});
+          await syncGooglePhotoToCdb(emailLower, accountId);
 
           const rememberToken = randomUUID();
           const assignedBUsStr = userAccess.assignedBUs.join(',') || accountGroup || 'BU5';
@@ -526,6 +580,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           // 8. Attach claims to NextAuth user object
+          const finalAvatar = googlePhotoUrl || cdbAccount?.GAvatar || (await getCachedUserAvatar(accountId)) || undefined;
           (user as any).AccountID = String(accountId);
           (user as any).AccountName = accountName;
           (user as any).AccountGroup = assignedBUsStr;
@@ -534,7 +589,10 @@ export const authOptions: NextAuthOptions = {
           (user as any).assignedBUs = userAccess.assignedBUs;
           (user as any).assignedBrands = userAccess.assignedBrands || [];
           (user as any).RememberToken = rememberToken;
-          (user as any).GAvatar = googlePhotoUrl || undefined;
+          (user as any).GAvatar = finalAvatar;
+          if (finalAvatar) {
+            user.image = finalAvatar;
+          }
 
           return true;
         } catch (error) {
@@ -560,6 +618,33 @@ export const authOptions: NextAuthOptions = {
         token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
         token.GAvatar = u.GAvatar || user.image || undefined;
         token.authTime = Math.floor(Date.now() / 1000);
+      }
+
+      // Proactive Self-Healing of user avatar between token and cdbAccounts
+      if (token.AccountID && token.AccountID !== 'UNKNOWN') {
+        const accId = Number(token.AccountID);
+        if (!isNaN(accId)) {
+          if (!token.GAvatar) {
+            const cachedAvatar = await getCachedUserAvatar(accId);
+            if (cachedAvatar) {
+              token.GAvatar = cachedAvatar;
+            }
+          } else {
+            // Ensure cdbAccounts has this avatar if not cached yet
+            const cached = serverCache.get(`user:avatar:${accId}`);
+            if (!cached) {
+              const safeUrl = String(token.GAvatar).replace(/'/g, "''");
+              prisma.$executeRawUnsafe(`
+                UPDATE [dbo].[cdbAccounts]
+                SET GAvatar = '${safeUrl}'
+                WHERE AccountID = ${accId} AND (GAvatar IS NULL OR GAvatar != '${safeUrl}');
+              `).then(() => {
+                serverCache.set(`user:avatar:${accId}`, token.GAvatar as string, USER_AVATAR_CACHE_TTL);
+                serverCache.delete('cdb_ao_avatars_map');
+              }).catch((e) => console.warn('[JWT] Avatar sync notice:', e));
+            }
+          }
+        }
       }
 
       // 1. Enforce Absolute 24-Hour Session Expiration (1 Day Limit)

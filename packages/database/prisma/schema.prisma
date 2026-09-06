@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["views"]
 }
 
 datasource db {
@@ -199,5 +200,35 @@ model DealLinks {
   @@index([dealID])
   @@index([previousDealID])
   @@map("DealLinks")
+}
+
+view DealReportView {
+  dealID            Int       @id
+  dealRegID         String?   @db.VarChar(50)
+  custName          String?   @db.VarChar(Max)
+  ProjectName       String?   @db.VarChar(Max)
+  brand             String?   @db.VarChar(50)
+  BU                String?   @db.VarChar(50)
+  AssignedAO        String?   @db.VarChar(50)
+  dealStatus        String?   @db.VarChar(Max)
+  dtRegistered      DateTime? @db.Date
+  expDt             DateTime? @db.Date
+  dtCreated         DateTime? @db.DateTime
+  createdBy         String?   @db.VarChar(50)
+  remarks           String?   @db.VarChar(Max)
+  assignedPM        String?   @db.VarChar(50)
+  TotalAmount       Decimal?  @db.Decimal(18, 2)
+  ItemCount         Int?
+  IsRenewed         Int?
+  RenewalCount      Int?
+  LatestRenewalDate DateTime? @db.Date
+  IsLost            Int?
+  competitorVendor  String?   @db.VarChar(200)
+  competitorBrand   String?   @db.VarChar(200)
+  LostReason        String?   @db.VarChar(250)
+  DaysRemaining     Int?
+  IsExpired         Int?
+
+  @@map("DealReportView")
 }
 

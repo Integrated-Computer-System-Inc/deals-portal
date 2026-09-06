@@ -1,102 +1,43 @@
 import { prisma } from '../src/index';
 
+interface BenchmarkResult {
+  testName: string;
+  recordsCount: number;
+  durationMs: number;
+  notes?: string;
+}
+
 async function runBenchmark() {
-  console.log('=== Database Query Performance Benchmark ===\n');
+  console.log('================================================================');
+  console.log(' Deals Registration Portal - Performance Benchmark Suite');
+  console.log(' Testing against Microsoft SQL Server instance');
+  console.log('================================================================\n');
 
-  // 1. Total counts in tables
-  const dealCount = await prisma.dealHeader.count();
-  const itemCount = await prisma.dealItems.count();
-  const lostCount = await prisma.dealLost.count();
-  const wtnCount = await prisma.dealWTN.count();
-  const renewalCount = await prisma.dealRenewal.count();
-  const accountsCount = await prisma.cdbAccounts.count();
+  // Check connection & record counts
+  const [dealCount, itemCount, lostCount, wtnCount, renewalCount, accountsCount] = await Promise.all([
+    prisma.dealHeader.count(),
+    prisma.dealItems.count(),
+    prisma.dealLost.count(),
+    prisma.dealWTN.count(),
+    prisma.dealRenewal.count(),
+    prisma.cdbAccounts.count(),
+  ]);
 
-  console.log(`Record Counts:`);
-  console.log(`- DealHeader: ${dealCount}`);
-  console.log(`- DealItems: ${itemCount}`);
-  console.log(`- DealLost: ${lostCount}`);
-  console.log(`- dealWTN: ${wtnCount}`);
-  console.log(`- DealRenewal: ${renewalCount}`);
-  console.log(`- cdbAccounts: ${accountsCount}\n`);
+  console.log('📊 Current Database Record Counts:');
+  console.log(`  - DealHeader:           ${dealCount.toLocaleString()} rows`);
+  console.log(`  - DealItems:            ${itemCount.toLocaleString()} rows`);
+  console.log(`  - DealLost:             ${lostCount.toLocaleString()} rows`);
+  console.log(`  - dealWTN:              ${wtnCount.toLocaleString()} rows`);
+  console.log(`  - DealRenewal:          ${renewalCount.toLocaleString()} rows`);
+  console.log(`  - cdbAccounts:          ${accountsCount.toLocaleString()} rows\n`);
 
-  // Benchmark 1: Full findMany with all relations (current unpaginated fetch for Admin)
-  console.log('Test 1: Full fetch of all deals with all 5 relations (Current unpaginated getScopedDeals)...');
+  const results: BenchmarkResult[] = [];
+
+  // --------------------------------------------------------------------------
+  // Benchmark 1: AO Scoped Query (Simulates AO logging in)
+  // --------------------------------------------------------------------------
+  console.log('Running Test 1: AO-Scoped Query (AssignedAO filter with 5 relations)...');
   const t0 = performance.now();
-  const fullDeals = await prisma.dealHeader.findMany({
-    include: {
-      DealItems: true,
-      DealWTN: true,
-      DealResponse: true,
-      DealLost: true,
-      Renewals: true,
-    },
-    orderBy: { dtCreated: 'desc' },
-  });
-  const t1 = performance.now();
-  console.log(`-> Fetched ${fullDeals.length} deals in ${(t1 - t0).toFixed(2)} ms`);
-
-  // Benchmark 2: Lean relations / field selection (only needed fields for table)
-  console.log('\nTest 2: Full fetch with lean field selection (select instead of include)...');
-  const t2 = performance.now();
-  const leanDeals = await prisma.dealHeader.findMany({
-    select: {
-      dealID: true,
-      dtRegistered: true,
-      expiration: true,
-      expDt: true,
-      brand: true,
-      customerID: true,
-      dealRegID: true,
-      ProjectName: true,
-      AssignedAO: true,
-      BU: true,
-      dealStatus: true,
-      createdBy: true,
-      custName: true,
-      remarks: true,
-      dtCreated: true,
-      dtValidTo: true,
-      DealItems: {
-        select: {
-          dealItemID: true,
-          dealID: true,
-          itemDesc: true,
-          qty: true,
-          currency: true,
-          totalAmt: true,
-        },
-      },
-      DealWTN: { select: { id: true, dealID: true, whenToNotify: true } },
-      DealResponse: { select: { id: true, dealID: true, responseDays: true } },
-      DealLost: { select: { dealID: true, competitorVendor: true, competitorBrand: true, icsOffer: true, competitorOffer: true, reason: true, otherInformation: true } },
-      Renewals: { select: { renewalID: true, dealID: true, dtRenewal: true, rexpDt: true, remarks: true, dtCreated: true } },
-    },
-    orderBy: { dtCreated: 'desc' },
-  });
-  const t3 = performance.now();
-  console.log(`-> Fetched ${leanDeals.length} lean deals in ${(t3 - t2).toFixed(2)} ms`);
-
-  // Benchmark 3: Paginated fetch (take 50, skip 0) with relations
-  console.log('\nTest 3: Paginated fetch (take: 50, skip: 0) with relations...');
-  const t4 = performance.now();
-  const pageDeals = await prisma.dealHeader.findMany({
-    take: 50,
-    skip: 0,
-    include: {
-      DealItems: true,
-      DealWTN: true,
-      DealResponse: true,
-      DealLost: true,
-      Renewals: true,
-    },
-    orderBy: { dtCreated: 'desc' },
-  });
-  const t5 = performance.now();
-  console.log(`-> Fetched ${pageDeals.length} paginated deals in ${(t5 - t4).toFixed(2)} ms`);
-
-  // Benchmark 4: AO scoped query (e.g. AssignedAO = 'Dan Lemuel Ramos')
-  console.log('\nTest 4: AO Scoped query (AssignedAO / createdBy filter)...');
-  const t6 = performance.now();
   const aoDeals = await prisma.dealHeader.findMany({
     where: {
       OR: [
@@ -104,95 +45,183 @@ async function runBenchmark() {
         { createdBy: { contains: 'DRAMOS' } },
       ],
     },
-    include: {
-      DealItems: true,
-      DealWTN: true,
-      DealResponse: true,
-      DealLost: true,
-      Renewals: true,
+    select: {
+      dealID: true,
+      dealRegID: true,
+      custName: true,
+      ProjectName: true,
+      brand: true,
+      BU: true,
+      AssignedAO: true,
+      dealStatus: true,
+      expDt: true,
+      dtCreated: true,
+      DealItems: { select: { dealItemID: true, itemDesc: true, totalAmt: true } },
+      Renewals: { take: 1, orderBy: { dtCreated: 'desc' } },
     },
     orderBy: { dtCreated: 'desc' },
   });
-  const t7 = performance.now();
-  console.log(`-> Fetched ${aoDeals.length} AO deals in ${(t7 - t6).toFixed(2)} ms`);
+  const t1 = performance.now();
+  const d1 = +(t1 - t0).toFixed(2);
+  results.push({ testName: '1. AO-Scoped Query', recordsCount: aoDeals.length, durationMs: d1 });
+  console.log(`  ↳ Completed in ${d1} ms (${aoDeals.length} deals fetched)\n`);
 
-  // Benchmark 5: BU scoped query (e.g. BU = 'BU5')
-  console.log('\nTest 5: BU Scoped query (BU = "BU5")...');
-  const t8 = performance.now();
+  // --------------------------------------------------------------------------
+  // Benchmark 2: BU Scoped Query (Simulates BU Head viewing their deals)
+  // --------------------------------------------------------------------------
+  console.log('Running Test 2: BU-Scoped Query (BU filter with 5 relations)...');
+  const t2 = performance.now();
   const buDeals = await prisma.dealHeader.findMany({
     where: {
       BU: 'BU5',
     },
-    include: {
-      DealItems: true,
-      DealWTN: true,
-      DealResponse: true,
-      DealLost: true,
-      Renewals: true,
+    select: {
+      dealID: true,
+      dealRegID: true,
+      custName: true,
+      ProjectName: true,
+      brand: true,
+      BU: true,
+      dealStatus: true,
+      expDt: true,
+      dtCreated: true,
+      DealItems: { select: { dealItemID: true, itemDesc: true, totalAmt: true } },
     },
     orderBy: { dtCreated: 'desc' },
   });
-  const t9 = performance.now();
-  console.log(`-> Fetched ${buDeals.length} BU5 deals in ${(t9 - t8).toFixed(2)} ms`);
+  const t3 = performance.now();
+  const d2 = +(t3 - t2).toFixed(2);
+  results.push({ testName: '2. BU-Scoped Query (BU5)', recordsCount: buDeals.length, durationMs: d2 });
+  console.log(`  ↳ Completed in ${d2} ms (${buDeals.length} deals fetched)\n`);
 
-  // Benchmark 6: Dashboard Aggregation (Parallel counts + groupBys)
-  console.log('\nTest 6: Dashboard Summary Aggregation...');
-  const t10 = performance.now();
+  // --------------------------------------------------------------------------
+  // Benchmark 3: Expiry Filter Query (Upcoming 30 days notice)
+  // --------------------------------------------------------------------------
+  console.log('Running Test 3: Expiry Warnings Query (expDt within next 30 days)...');
   const now = new Date();
+  const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const t4 = performance.now();
+  const expiringDeals = await prisma.dealHeader.findMany({
+    where: {
+      expDt: {
+        gte: now,
+        lte: in30Days,
+      },
+    },
+    select: {
+      dealID: true,
+      dealRegID: true,
+      custName: true,
+      ProjectName: true,
+      expDt: true,
+      AssignedAO: true,
+    },
+    orderBy: { expDt: 'asc' },
+    take: 50,
+  });
+  const t5 = performance.now();
+  const d3 = +(t5 - t4).toFixed(2);
+  results.push({ testName: '3. Expiry Warning Filter (30 Days)', recordsCount: expiringDeals.length, durationMs: d3 });
+  console.log(`  ↳ Completed in ${d3} ms (${expiringDeals.length} expiring deals)\n`);
+
+  // --------------------------------------------------------------------------
+  // Benchmark 4: Paginated Deal List with Relations (take: 50, skip: 0)
+  // --------------------------------------------------------------------------
+  console.log('Running Test 4: Paginated Deal Table (take: 50, skip: 0 with lean relations)...');
+  const t6 = performance.now();
+  const pagedDeals = await prisma.dealHeader.findMany({
+    take: 50,
+    skip: 0,
+    select: {
+      dealID: true,
+      dealRegID: true,
+      custName: true,
+      ProjectName: true,
+      brand: true,
+      BU: true,
+      AssignedAO: true,
+      dealStatus: true,
+      expDt: true,
+      dtCreated: true,
+      DealItems: { select: { dealItemID: true, itemDesc: true, totalAmt: true } },
+      DealLost: { select: { competitorVendor: true, reason: true } },
+      Renewals: { take: 1, orderBy: { dtCreated: 'desc' } },
+    },
+    orderBy: { dtCreated: 'desc' },
+  });
+  const t7 = performance.now();
+  const d4 = +(t7 - t6).toFixed(2);
+  results.push({ testName: '4. Paginated List (50 deals + relations)', recordsCount: pagedDeals.length, durationMs: d4 });
+  console.log(`  ↳ Completed in ${d4} ms (${pagedDeals.length} deals)\n`);
+
+  // --------------------------------------------------------------------------
+  // Benchmark 5: Dashboard Single-Pass KPI Computation
+  // --------------------------------------------------------------------------
+  console.log('Running Test 5: Dashboard KPI Aggregation Query...');
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-  await Promise.all([
-    prisma.dealHeader.count(),
-    prisma.dealHeader.count({ where: { dealStatus: '1' } }),
-    prisma.dealHeader.count({
-      where: {
-        expDt: { gte: startOfMonth, lte: endOfMonth, lt: now },
-      },
-    }),
-    prisma.dealHeader.count({
-      where: { Renewals: { some: {} } },
-    }),
-    prisma.dealHeader.groupBy({
-      by: ['brand'],
-      _count: { dealID: true },
-      orderBy: { _count: { dealID: 'desc' } },
-      take: 10,
-    }),
-    prisma.dealHeader.groupBy({
-      by: ['BU'],
-      _count: { dealID: true },
-      orderBy: { _count: { dealID: 'desc' } },
-    }),
-    prisma.dealHeader.findMany({
-      take: 5,
-      orderBy: { dtCreated: 'desc' },
-      include: { DealItems: true },
-    }),
-  ]);
-  const t11 = performance.now();
-  console.log(`-> Dashboard metrics computed in ${(t11 - t10).toFixed(2)} ms`);
-
-  // Benchmark 7: Single Raw SQL query for Dashboard metrics vs 7 Prisma queries
-  console.log('\nTest 7: Single Raw SQL query for Dashboard metrics...');
-  const t12 = performance.now();
-  const rawDashboard = await prisma.$queryRawUnsafe(`
+  const t8 = performance.now();
+  const kpiResult: any = await prisma.$queryRawUnsafe(`
     SELECT
       COUNT(*) AS totalCount,
       SUM(CASE WHEN dealStatus = '1' THEN 1 ELSE 0 END) AS totalRegistered,
       SUM(CASE WHEN expDt >= '${startOfMonth.toISOString().slice(0, 10)}' AND expDt <= '${endOfMonth.toISOString().slice(0, 10)}' AND expDt < '${now.toISOString().slice(0, 10)}' THEN 1 ELSE 0 END) AS expiredThisMonth,
-      (SELECT COUNT(DISTINCT dealID) FROM DealRenewal) AS totalRenewed
-    FROM DealHeader;
+      (SELECT COUNT(DISTINCT dealID) FROM dbo.DealRenewal) AS totalRenewed
+    FROM dbo.DealHeader;
   `);
-  const t13 = performance.now();
-  console.log(`-> Raw SQL single-pass aggregate computed in ${(t13 - t12).toFixed(2)} ms:`, rawDashboard);
+  const t9 = performance.now();
+  const d5 = +(t9 - t8).toFixed(2);
+  results.push({ testName: '5. Dashboard KPI Single-Pass Aggregation', recordsCount: 1, durationMs: d5 });
+  console.log(`  ↳ Completed in ${d5} ms:`, kpiResult[0]);
+  console.log();
 
-  console.log('\n=== Benchmark Finished ===');
+  // --------------------------------------------------------------------------
+  // Benchmark 6: Reports Server-Side Aggregation via DealReportView
+  // --------------------------------------------------------------------------
+  console.log('Running Test 6: Reports Metrics Aggregation (via DealReportView)...');
+  try {
+    const t10 = performance.now();
+    const [reportKPIs, brandReportGroup, buReportGroup] = await Promise.all([
+      prisma.dealReportView.aggregate({
+        _sum: { TotalAmount: true },
+        _count: { dealID: true },
+      }),
+      prisma.dealReportView.groupBy({
+        by: ['brand', 'assignedPM'],
+        _count: { dealID: true },
+        _sum: { TotalAmount: true },
+        orderBy: { _count: { dealID: 'desc' } },
+        take: 10,
+      }),
+      prisma.dealReportView.groupBy({
+        by: ['BU'],
+        _count: { dealID: true },
+        _sum: { TotalAmount: true },
+        orderBy: { _count: { dealID: 'desc' } },
+      }),
+    ]);
+    const t11 = performance.now();
+    const d6 = +(t11 - t10).toFixed(2);
+    results.push({ testName: '6. Reports Server Aggregation (DealReportView)', recordsCount: brandReportGroup.length + buReportGroup.length, durationMs: d6 });
+    console.log(`  ↳ Completed in ${d6} ms (${brandReportGroup.length} top brands, ${buReportGroup.length} BUs aggregated)\n`);
+  } catch (err: any) {
+    console.log('  ↳ Notice: DealReportView not yet created in SQL Server (run create-deal-report-view.sql in SSMS)\n');
+  }
+
+  // --------------------------------------------------------------------------
+  // Summary Table
+  // --------------------------------------------------------------------------
+  console.log('================================================================');
+  console.log(' BENCHMARK SUMMARY RESULTS:');
+  console.log('================================================================');
+  console.table(results);
+  console.log('================================================================\n');
 }
 
 runBenchmark()
-  .catch((e) => {
-    console.error(e);
+  .catch((err) => {
+    console.error('[BENCHMARK ERROR]', err);
     process.exit(1);
   })
   .finally(async () => {

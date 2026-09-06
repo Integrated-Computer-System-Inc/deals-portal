@@ -167,7 +167,7 @@ export default function EmailAccountPicker({
                 key={item.email}
                 className="group flex items-center gap-2 pl-2 pr-1.5 py-1 bg-card-bg hover:bg-neutral/80 border border-border rounded-lg text-xs shadow-2xs transition animate-in fade-in zoom-in-95 duration-100"
               >
-                <AppAvatar name={displayName} size={22} className="text-[10px] shrink-0" />
+                <AppAvatar src={item.avatar} name={displayName} size={22} className="text-[10px] shrink-0" />
                 <div className="flex flex-col min-w-0 pr-1">
                   <span className="font-semibold text-foreground text-[11px] leading-tight truncate max-w-[150px] sm:max-w-[220px]" title={displayName}>
                     {displayName}
@@ -268,7 +268,7 @@ export default function EmailAccountPicker({
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <AppAvatar name={item.name} size={28} className="shrink-0" />
+                        <AppAvatar src={item.avatar} name={item.name} size={28} className="shrink-0" />
                         <div className="flex flex-col min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-foreground truncate">{item.name}</span>

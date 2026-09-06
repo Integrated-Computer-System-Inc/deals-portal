@@ -639,6 +639,7 @@ export default function AdminActivityLogsPage() {
                           <div className="flex items-center gap-2.5">
                             <AppAvatar
                               name={log.performedByName || log.performedBy}
+                              src={log.performedByAvatar || undefined}
                               size={28}
                               className="shrink-0"
                             />

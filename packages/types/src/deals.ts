@@ -437,6 +437,7 @@ export interface ActivityLogRecord {
   performedBy: string;
   performedByName?: string | null;
   performedByRole?: string | null;
+  performedByAvatar?: string | null;
   impersonatedBy?: string | null;
   dtCreated: Date | string;
 }

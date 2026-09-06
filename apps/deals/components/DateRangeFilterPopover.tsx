@@ -40,6 +40,7 @@ export function DateRangeFilterPopover({
   const [tempEnd, setTempEnd] = useState<string>(value.endDate || '');
 
   const presets: { id: DateRangePreset; label: string; desc?: string }[] = [
+    { id: 'CUSTOM', label: 'Custom Range...' },
     { id: 'ALL', label: 'All Time' },
     { id: 'TODAY', label: 'Today' },
     { id: 'THIS_MONTH', label: 'This Month' },
@@ -48,7 +49,6 @@ export function DateRangeFilterPopover({
     { id: 'Q2', label: 'Q2 (Apr - Jun)' },
     { id: 'Q3', label: 'Q3 (Jul - Sep)' },
     { id: 'Q4', label: 'Q4 (Oct - Dec)' },
-    { id: 'CUSTOM', label: 'Custom Range...' },
   ];
 
   const handleApply = () => {

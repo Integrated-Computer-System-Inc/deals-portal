@@ -14,6 +14,7 @@ export interface DomainUserClaims {
   role: UserRole;
   assignedBUs?: string[];
   RememberToken?: string | null;
+  GAvatar?: string | null;
 }
 
 export interface CustomUserSession extends DomainUserClaims {
