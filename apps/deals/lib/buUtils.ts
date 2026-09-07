@@ -6,13 +6,13 @@
  * 7 Primary / Official Registered Business Units on Dashboard
  */
 export const OFFICIAL_REGISTERED_BUS = [
-  'BU1',
-  'BU2',
   'BU5',
   'BU8',
-  'BU10',
+  'BU2',
   'BU12',
   'CE01',
+  'BU1',
+  'BU10',
 ] as const;
 
 export type OfficialBUCode = (typeof OFFICIAL_REGISTERED_BUS)[number];

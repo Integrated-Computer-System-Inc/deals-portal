@@ -14,10 +14,12 @@ import { normalizeBusinessUnit } from '@/lib/searchUtils';
 import {
   ACTIVE_BUSINESS_UNITS,
   ALL_BUSINESS_UNITS,
+  OFFICIAL_REGISTERED_BUS,
   DEAL_STATUS_MAP,
   CustomerLookupResult,
   UserRole,
 } from '@my-app/types';
+import { isOfficialBU } from '@/lib/buUtils';
 import {
   AppTextarea,
   AppCard,
@@ -193,12 +195,8 @@ function NewDealContent() {
   }, [sourceDeal, hasPrefilled, setValue]);
 
   const dynamicBuOptions = useMemo(() => {
-    const set = new Set<string>([...ALL_BUSINESS_UNITS]);
-    if (watchBu && watchBu.trim()) {
-      set.add(watchBu.trim());
-    }
-    return Array.from(set);
-  }, [watchBu]);
+    return [...OFFICIAL_REGISTERED_BUS];
+  }, []);
 
   const handleRegDateChange = (regDateStr: string) => {
     setValue('dtRegistered', regDateStr, { shouldValidate: true });
@@ -263,7 +261,8 @@ function NewDealContent() {
   const handleSelectCustomer = (customer: CustomerLookupResult) => {
     setValue('customerID', customer.customerID || '', { shouldValidate: true, shouldDirty: true });
     setValue('custName', customer.custName || '', { shouldValidate: true, shouldDirty: true });
-    setValue('bu', customer.bu || 'BU5', { shouldValidate: true, shouldDirty: true });
+    const validBu = customer.bu && isOfficialBU(customer.bu) ? customer.bu : 'BU5';
+    setValue('bu', validBu, { shouldValidate: true, shouldDirty: true });
     if (customer.assignedAO) {
       setValue('assignedAO', customer.assignedAO, { shouldValidate: true, shouldDirty: true });
     }

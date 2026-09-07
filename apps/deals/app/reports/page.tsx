@@ -2219,7 +2219,7 @@ export default function ReportsPage() {
             <div className="flex-1 min-w-[200px]">
               <AppInput
                 prefix={<Search className="w-4 h-4 text-muted" />}
-                placeholder="Search business unit (e.g. BU5, CE01, CAC, CSD, ESD)..."
+                placeholder="Search business unit (e.g. BU5, BU8, BU2, BU12, CE01)..."
                 value={modalBUSearch}
                 onChange={(e: any) => setModalBUSearch(e.target.value)}
                 allowClear

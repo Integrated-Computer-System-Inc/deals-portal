@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { rankCustomersByRelevance, cleanCorporateName, normalizeBusinessUnit } from '@/lib/searchUtils';
+import { rankCustomersByRelevance, cleanCorporateName } from '@/lib/searchUtils';
+import { isOfficialBU, normalizeBU } from '@/lib/buUtils';
 import { CustomerLookupResult } from '@my-app/types';
 
 export const dynamic = 'force-dynamic';
@@ -50,10 +51,16 @@ function ingestRawItems(items: any[], candidateMap: Map<string, CustomerLookupRe
       continue;
     }
 
+    const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
+    const bu = normalizeBU(rawBuValue);
+
+    // Strictly filter out non-official BUs (e.g. TCD, CSD, IT)
+    if (!isOfficialBU(bu)) {
+      continue;
+    }
+
     const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
     const custName = item.CustomerName || 'Unknown Account';
-    const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
-    const bu = normalizeBusinessUnit(rawBuValue);
     const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
     const isActive = true;
     const createdDate = item.DateCreated;

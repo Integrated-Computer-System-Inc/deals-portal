@@ -25,6 +25,7 @@ import {
   AppCard,
   AppModal,
   AppButton,
+  HighlightText,
 } from '../../components/ui';
 import dynamic from 'next/dynamic';
 
@@ -34,6 +35,7 @@ const DealDetailsModal = dynamic(() => import('../../components/DealDetailsModal
 const FollowUpModal = dynamic(() => import('../../components/FollowUpModal'), { ssr: false });
 import {
   Search,
+  Loader2,
   Edit,
   Mail,
   BellRing,
@@ -166,6 +168,16 @@ function DealsContent() {
   ]);
 
   const { data: queryResult, isLoading: loading, isFetching, refetch: fetchDeals } = usePaginatedDealsQuery(queryFilter);
+
+  // Parse comma-separated search terms (e.g. "dell,rosette" -> ["dell", "rosette"])
+  const searchTerms = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return searchQuery.split(',').map((t) => t.trim()).filter(Boolean);
+  }, [searchQuery]);
+
+  const isSearchPending = searchQuery.trim() !== debouncedSearch.trim();
+  const isSearching = isSearchPending || isFetching;
+  const showTableSkeleton = loading || (isSearching && (searchQuery.trim().length > 0 || isSearchPending));
 
   const rawDeals: DealHeaderRecord[] = queryResult?.data || [];
   const totalRecords = queryResult?.totalCount || 0;
@@ -588,13 +600,13 @@ function DealsContent() {
               className="font-bold text-xs text-foreground hover:text-sky-600 transition truncate block hover:underline"
               title={record.custName}
             >
-              {record.custName}
+              <HighlightText text={record.custName} terms={searchTerms} />
             </Link>
             <div className="text-xs text-muted dark:text-zinc-300 truncate" title={projName}>
-              {projName}
+              <HighlightText text={projName} terms={searchTerms} />
             </div>
             <div className="font-mono text-[10px] text-muted dark:text-zinc-400">
-              ID: <span className="text-foreground dark:text-zinc-200 font-medium">{record.dealRegID}</span>
+              ID: <span className="text-foreground dark:text-zinc-200 font-medium"><HighlightText text={record.dealRegID} terms={searchTerms} /></span>
             </div>
           </div>
         );
@@ -607,11 +619,11 @@ function DealsContent() {
       render: (_: any, record: DealHeaderRecord) => (
         <div className="space-y-1">
           <div className="inline-block px-2 py-0.5 rounded-md text-xs font-bold uppercase bg-neutral text-foreground border border-border">
-            {normalizeBrandName(record.brand)}
+            <HighlightText text={normalizeBrandName(record.brand)} terms={searchTerms} />
           </div>
           <div>
             <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-300 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
-              {record.BU || record.bu}
+              <HighlightText text={record.BU || record.bu} terms={searchTerms} />
             </span>
           </div>
         </div>
@@ -645,7 +657,7 @@ function DealsContent() {
               {aoName !== 'Unassigned' ? aoName.charAt(0).toUpperCase() : <User className="w-3 h-3" />}
             </div>
             <span className="truncate text-foreground dark:text-zinc-100" title={aoName}>
-              {aoName}
+              <HighlightText text={aoName} terms={searchTerms} />
             </span>
           </div>
         );
@@ -905,11 +917,17 @@ function DealsContent() {
       {/* Search, Filter Popover and Sort Popover Bar */}
       <AppCard id="tour-deals-search-filters" className="p-3.5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-2.5">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          {/* Search Input */}
+          {/* Search Input with Live Spinner and Comma-Support Placeholder */}
           <div className="flex-1 min-w-0">
             <AppInput
-              prefix={<Search className="w-4 h-4 text-muted" />}
-              placeholder=""
+              prefix={
+                isSearching ? (
+                  <Loader2 className="w-4 h-4 text-sky-500 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4 text-muted" />
+                )
+              }
+              placeholder="Search by customer, deal ID, brand, AO (comma-separated: e.g. dell,rosette)..."
               value={searchQuery}
               onChange={(e: any) => setSearchQuery(e.target.value)}
               allowClear
@@ -950,24 +968,55 @@ function DealsContent() {
           </div>
         </div>
 
+        {/* Multi-Keyword Comma Search Indicator Banner */}
+        {searchTerms.length > 1 && (
+          <div className="flex items-center gap-1.5 flex-wrap px-1 pt-1 text-[11px] animate-in fade-in duration-200">
+            <span className="font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1">
+              <Search className="w-3 h-3" />
+              Multi-term search ({searchTerms.length} keywords):
+            </span>
+            {searchTerms.map((term, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono font-medium border border-sky-500/20 shadow-2xs"
+              >
+                &quot;{term}&quot;
+              </span>
+            ))}
+            {isSearching && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-600 dark:text-sky-400 font-semibold animate-pulse ml-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Searching...
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Active Filter Indicator Chips (Visible only when filters are active) */}
         {(buFilters.length > 0 || aoFilters.length > 0 || brandFilters.length > 0 || currencyFilters.length > 0 || expiryFilters.length > 0 || Boolean(expiryDaysFilter && expiryDaysFilter !== 'ALL') || statusFilters.length > 0 || searchQuery.trim()) && (
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40 text-xs">
             <span className="text-[11px] font-semibold text-muted mr-1">Active Filters:</span>
 
-            {searchQuery.trim() && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral text-foreground border border-border/60 text-[11px] font-medium">
-                Search: &quot;{searchQuery}&quot;
+            {/* Comma Search Term Chips */}
+            {searchTerms.length > 0 && searchTerms.map((term, idx) => (
+              <span
+                key={`search-term-${idx}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral text-foreground border border-border/60 text-[11px] font-medium"
+              >
+                <Search className="w-3 h-3 text-sky-500 shrink-0" />
+                <span>Search: &quot;{term}&quot;</span>
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="hover:text-rose-500 transition cursor-pointer"
-                  title="Clear search"
+                  onClick={() => {
+                    const remaining = searchTerms.filter((_, i) => i !== idx);
+                    setSearchQuery(remaining.join(', '));
+                  }}
+                  className="hover:text-rose-500 transition cursor-pointer ml-0.5"
+                  title={`Remove "${term}" from search`}
                 >
                   <X className="w-3 h-3" />
                 </button>
               </span>
-            )}
+            ))}
 
             {/* BU Active Chips */}
             {buFilters.map((bu) => (
@@ -1117,8 +1166,19 @@ function DealsContent() {
 
       {/* Upgraded Data Table with Smooth Table-Matched Skeleton */}
       <AppCard id="tour-deals-table-container" className="border border-border/50 rounded-xl overflow-hidden shadow-xs bg-card-bg">
-        {loading && deals.length === 0 ? (
+        {showTableSkeleton ? (
           <div className="overflow-x-auto">
+            {isSearching && searchQuery.trim() && (
+              <div className="p-2.5 bg-sky-500/10 border-b border-sky-500/20 text-xs text-sky-700 dark:text-sky-300 flex items-center justify-between animate-in fade-in duration-150">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
+                  <span className="font-semibold">
+                    Searching deals for: <span className="font-bold font-mono">{searchTerms.map((t) => `"${t}"`).join(', ')}</span>
+                  </span>
+                </div>
+                <span className="text-[11px] text-muted dark:text-sky-300/70 font-medium">Filtering database...</span>
+              </div>
+            )}
             <table className="w-full text-left border-collapse min-w-[1000px]">
               <thead>
                 <tr className="border-b border-border/60 bg-neutral/40 dark:bg-zinc-800/30 text-xs font-bold text-muted">

@@ -13,6 +13,7 @@ import {
   Search,
 } from 'lucide-react';
 import { AppFilterPopover, FilterGroup } from './ui/popover';
+import { HighlightText } from './ui/HighlightText';
 import { DEAL_STATUS_MAP } from '@my-app/types';
 
 export interface DealsFilterPopoverProps {
@@ -80,7 +81,6 @@ export function DealsFilterPopover({
   className,
 }: DealsFilterPopoverProps) {
   const [open, setOpen] = useState(false);
-  const [isOthersExpanded, setIsOthersExpanded] = useState(false);
   const [aoSearchQuery, setAoSearchQuery] = useState('');
   const [brandSearchQuery, setBrandSearchQuery] = useState('');
 
@@ -159,22 +159,9 @@ export function DealsFilterPopover({
     if (onCurrencyFiltersChange) onCurrencyFiltersChange([]);
     if (!hideExpiryFilter) onExpiryFiltersChange([]);
     if (!hideStatusFilter) onStatusFiltersChange([]);
-    setIsOthersExpanded(false);
     setAoSearchQuery('');
     setBrandSearchQuery('');
   };
-
-  const otherBUsList = useMemo(() => {
-    return Object.entries(otherBUsMap)
-      .map(([bu, data]) => ({ bu, count: data.count, totalValue: data.totalValue }))
-      .sort((a, b) => b.count - a.count);
-  }, [otherBUsMap]);
-
-  // Non-official BUs that are currently selected while panel is collapsed
-  const selectedOtherBUsWhenCollapsed = useMemo(() => {
-    if (isOthersExpanded) return [];
-    return buFilters.filter((bu) => !officialBUs.includes(bu));
-  }, [buFilters, officialBUs, isOthersExpanded]);
 
   const filteredAOsList = useMemo(() => {
     if (!availableAOs || availableAOs.length === 0) return [];
@@ -256,63 +243,6 @@ export function DealsFilterPopover({
                 </button>
               );
             })}
-
-            {/* Active Non-Official BU Pills when others panel is collapsed */}
-            {selectedOtherBUsWhenCollapsed.map((bu) => (
-              <div
-                key={bu}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold bg-indigo-600 text-white border border-indigo-600 shadow-xs"
-              >
-                <span>{bu}</span>
-                <button
-                  type="button"
-                  onClick={() => handleToggleBU(bu)}
-                  className="hover:opacity-80 p-0.5 rounded-full hover:bg-white/20 transition cursor-pointer"
-                  title={`Remove ${bu}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-
-            {/* Render all other BUs with the exact same box styling when expanded */}
-            {isOthersExpanded &&
-              otherBUsList.map((item) => {
-                const count = item.count;
-                const isSelected = buFilters.includes(item.bu);
-                return (
-                  <button
-                    key={item.bu}
-                    type="button"
-                    onClick={() => handleToggleBU(item.bu)}
-                    className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
-                      isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
-                        : 'bg-neutral/80 text-muted hover:text-foreground border-border/60'
-                    }`}
-                  >
-                    <span>{item.bu}</span>
-                    {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
-                  </button>
-                );
-              })}
-
-            {/* Expand/Collapse Others Button */}
-            {otherBUsList.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIsOthersExpanded(!isOthersExpanded)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1 ${
-                  isOthersExpanded
-                    ? 'bg-neutral/90 text-foreground border-border/80 hover:bg-neutral'
-                    : 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/25'
-                }`}
-                title={isOthersExpanded ? 'Collapse other business units' : 'Show all other business units'}
-              >
-                <Building2 className="w-3 h-3" />
-                <span>{isOthersExpanded ? 'Less BUs ▲' : `+${otherBUsList.length} Others... ▾`}</span>
-              </button>
-            )}
           </div>
         </FilterGroup>
       )}
@@ -411,7 +341,7 @@ export function DealsFilterPopover({
                         : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
                     }`}
                   >
-                    <span className="truncate max-w-[150px]">{ao.name}</span>
+                    <span className="truncate max-w-[150px]"><HighlightText text={ao.name} terms={aoSearchQuery} /></span>
                     {ao.count > 0 && <span className="text-[10px] opacity-75 font-mono">({ao.count})</span>}
                   </button>
                 );
@@ -475,7 +405,7 @@ export function DealsFilterPopover({
                         : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
                     }`}
                   >
-                    <span className="truncate max-w-[150px]">{brand.name}</span>
+                    <span className="truncate max-w-[150px]"><HighlightText text={brand.name} terms={brandSearchQuery} /></span>
                     {brand.count > 0 && <span className="text-[10px] opacity-75 font-mono">({brand.count})</span>}
                   </button>
                 );

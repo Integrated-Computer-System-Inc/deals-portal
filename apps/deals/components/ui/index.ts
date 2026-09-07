@@ -23,3 +23,4 @@ export * from './toggle';
 export * from './table';
 export * from './attachments';
 export * from './bookmark';
+export * from './HighlightText';

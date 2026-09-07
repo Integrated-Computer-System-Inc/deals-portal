@@ -27,7 +27,7 @@ import {
 import { rankCustomersByRelevance, normalizeBusinessUnit } from '@/lib/searchUtils';
 import { serverCache } from '@/lib/serverCache';
 import { buildAOScopingConditions, buildBUScopingConditions, buildPMScopingConditions, isDealAccessibleByUser } from '@/lib/roles';
-import { OFFICIAL_REGISTERED_BUS } from '@/lib/buUtils';
+import { OFFICIAL_REGISTERED_BUS, normalizeBU, isOfficialBU } from '@/lib/buUtils';
 import { normalizeBrandName, getBrandVariations } from '@/lib/brandUtils';
 import { logActivity, logActivitiesBatch, ActivityLogInput } from '@/lib/activity-logger';
 import {
@@ -269,13 +269,20 @@ export async function getScopedDeals(
       }
     }
 
-    // BU filter (single or multi-select array)
+    // BU filter (single or multi-select array, strictly restricted to official 7 BUs)
     if (buFilter) {
       if (Array.isArray(buFilter) && buFilter.length > 0 && !buFilter.includes('ALL')) {
-        andConditions.push({ BU: { in: buFilter.map(String) } });
+        const validBUs = buFilter.map((b) => normalizeBU(String(b))).filter((b) => isOfficialBU(b));
+        andConditions.push({ BU: { in: validBUs.length > 0 ? validBUs : [...OFFICIAL_REGISTERED_BUS] } });
       } else if (typeof buFilter === 'string' && buFilter !== 'ALL' && buFilter !== '') {
-        andConditions.push({ BU: String(buFilter) });
+        const norm = normalizeBU(buFilter);
+        andConditions.push({ BU: isOfficialBU(norm) ? norm : { in: [...OFFICIAL_REGISTERED_BUS] } });
+      } else {
+        andConditions.push({ BU: { in: [...OFFICIAL_REGISTERED_BUS] } });
       }
+    } else {
+      // Default: strictly restrict query to the 7 official BUs
+      andConditions.push({ BU: { in: [...OFFICIAL_REGISTERED_BUS] } });
     }
 
     // AO filter (single or multi-select array)
@@ -914,6 +921,15 @@ export async function createDeal(
       ? (parseInt(payload.customerID, 10) || null)
       : (payload.customerID ?? null);
 
+    const rawBu = payload.BU || payload.bu || 'BU5';
+    const normalizedBu = normalizeBU(rawBu);
+    if (!isOfficialBU(normalizedBu)) {
+      return {
+        success: false,
+        error: `Invalid Business Unit: '${rawBu}'. Only the 7 official BUs (BU5, BU8, BU2, BU12, CE01, BU1, BU10) are permitted.`,
+      };
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       // 1. Calculate next dealID safely
       const maxDealResult = await tx.$queryRawUnsafe<any[]>(
@@ -941,7 +957,7 @@ export async function createDeal(
         dealRegID,
         payload.ProjectName || payload.projectName,
         payload.AssignedAO || payload.assignedAO,
-        payload.BU || payload.bu,
+        normalizedBu,
         String(payload.dealStatus),
         domainAccount,
         payload.custName,
@@ -1188,7 +1204,13 @@ export async function updateDeal(
       const dealRegID = (payload.dealRegID || currentDeal.dealRegID || '').trim();
       const projectName = (payload.ProjectName || payload.projectName || currentDeal.ProjectName || '').trim();
       const assignedAO = (payload.AssignedAO || payload.assignedAO || currentDeal.AssignedAO || '').trim();
-      const bu = (payload.BU || payload.bu || currentDeal.BU || 'BU5').trim();
+      const rawBu = (payload.BU || payload.bu || currentDeal.BU || 'BU5').trim();
+      const normalizedBu = normalizeBU(rawBu);
+      if (!isOfficialBU(normalizedBu)) {
+        throw new Error(
+          `Invalid Business Unit: '${rawBu}'. Only the 7 official BUs (BU5, BU8, BU2, BU12, CE01, BU1, BU10) are permitted.`
+        );
+      }
       const custName = (payload.custName || currentDeal.custName || '').trim();
       const remarks = payload.remarks !== undefined ? payload.remarks : currentDeal.remarks;
       const brand = payload.brand || currentDeal.brand || '';
@@ -1211,7 +1233,7 @@ export async function updateDeal(
           dealRegID: dealRegID || null,
           ProjectName: projectName,
           AssignedAO: assignedAO,
-          BU: bu,
+          BU: normalizedBu,
           dealStatus: newStatus,
           custName: custName,
           remarks: remarks || null,
@@ -1347,11 +1369,11 @@ export async function updateDeal(
       }
 
       // BU
-      if (normalizeStr(currentDeal.BU) !== normalizeStr(bu)) {
+      if (normalizeStr(currentDeal.BU) !== normalizeStr(normalizedBu)) {
         changes.push({
           label: 'Business Unit (BU)',
           from: currentDeal.BU || '',
-          to: bu,
+          to: normalizedBu,
         });
       }
 
@@ -1432,11 +1454,11 @@ export async function updateDeal(
         });
       }
 
-      // 5. Target Table: deals_reg_notification: If toEmail is checked and BU != 'BU6', insert an update notification row (status = 0)
-      if (payload.toEmail && bu !== 'BU6') {
+      // 5. Target Table: deals_reg_notification: If toEmail is checked, insert an update notification row (status = 0)
+      if (payload.toEmail) {
         const recipients = await resolveDealEmailRecipients(
           assignedAO,
-          bu,
+          normalizedBu,
           normalizedBrand || brand || ''
         );
         const { subject, message } = generateUpdateDealEmail({
@@ -1445,7 +1467,7 @@ export async function updateDeal(
           custName: custName,
           projectName: projectName,
           brand: normalizedBrand,
-          bu: bu,
+          bu: normalizedBu,
           assignedAO: assignedAO,
           aoNickName: recipients.aoNickName,
           dealStatus: getDealStatusMeta(newStatus).label,
@@ -1984,10 +2006,16 @@ export async function searchCustomers(
         continue;
       }
 
+      const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
+      const bu = normalizeBU(rawBuValue);
+
+      // Strictly filter out non-official BUs (e.g. TCD, CSD, IT)
+      if (!isOfficialBU(bu)) {
+        continue;
+      }
+
       const customerID = item.CustomerID || item.CustomerNumber || `CUST-${item.id || 'N/A'}`;
       const custName = item.CustomerName || 'Unknown Account';
-      const rawBuValue = item.BU ?? item.bu ?? item.BusinessUnit ?? item.AccountGroup ?? item.Division ?? item.SalesGroup ?? item.bu_code ?? 'BU5';
-      const bu = normalizeBusinessUnit(rawBuValue);
       const assignedAO = item.AO || item.ao || item.AssignedAO || 'Assigned AO';
       const isActive = true;
       const createdDate = item.DateCreated;

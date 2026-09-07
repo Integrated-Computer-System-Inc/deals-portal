@@ -102,10 +102,10 @@ export default function Sidebar() {
           {collapsed ? (
             /* Collapsed Header: Centered Gary Mascot Logo & Centered Expand Button */
             <div id="tour-brand-header" className="flex flex-col items-center justify-center gap-2.5 w-full p-1 rounded-xl">
-              <Tooltip title="ICS Deal Registration" placement="right">
+              <Tooltip title="DROMMAR" placement="right">
                 <img
                   src="/api/icons/Sidebar_Logo.png"
-                  alt="ICS Deal Registration"
+                  alt="DROMMAR"
                   className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 cursor-default select-none mx-auto"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
@@ -132,7 +132,7 @@ export default function Sidebar() {
               <div className="flex items-center gap-2.5 min-w-0">
                 <img
                   src="/api/icons/Sidebar_Logo.png"
-                  alt="ICS Deal Registration"
+                  alt="DROMMAR"
                   className="h-9 w-9 rounded-xl object-contain shadow-xs shrink-0 select-none"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = '/icons/Sidebar_Logo.png';
@@ -140,7 +140,7 @@ export default function Sidebar() {
                 />
                 <div className="flex flex-col min-w-0">
                   <span className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
-                    Deal Registration
+                    DROMMAR
                   </span>
                   <span className="text-[10px] text-muted font-normal leading-tight truncate">
                     Integrated Computer Systems

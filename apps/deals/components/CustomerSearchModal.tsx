@@ -10,6 +10,7 @@ import {
   AppModalFooter,
   AppInput,
   AppChip,
+  HighlightText,
 } from './ui';
 import { Search, Building2, User, Plus, Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { CustomerLookupResult, ALL_BUSINESS_UNITS } from '@my-app/types';
@@ -398,16 +399,16 @@ export default function CustomerSearchModal({
                           CustomerName
                         </span>
                         <span className="font-semibold text-sm text-foreground group-hover:text-sky-600 transition">
-                          {c.custName}
+                          <HighlightText text={c.custName} terms={searchTerm} />
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted">
                         <span className="font-mono bg-neutral px-1.5 py-0.5 rounded border border-border/60">
-                          {c.customerID}
+                          <HighlightText text={c.customerID} terms={searchTerm} />
                         </span>
                         <span>•</span>
                         <span className="flex items-center gap-1">
-                          <User className="w-3 h-3 text-sky-500" /> {c.assignedAO}
+                          <User className="w-3 h-3 text-sky-500" /> <HighlightText text={c.assignedAO} terms={searchTerm} />
                         </span>
                       </div>
                     </div>

@@ -34,7 +34,7 @@ export default function MobileHeader() {
             ICS
           </div>
           <span className="font-bold text-sm text-foreground tracking-tight">
-            Deal Registration
+            DROMMAR
           </span>
         </Link>
       </div>

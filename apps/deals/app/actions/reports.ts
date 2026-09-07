@@ -229,6 +229,9 @@ export async function getReportsMetrics(
       });
     }
 
+    // Strictly scope all report metrics to the 7 official BUs
+    andConditions.push({ BU: { in: [...OFFICIAL_REGISTERED_BUS] } });
+
     const whereClause = andConditions.length > 0 ? { AND: andConditions } : {};
 
     // 1. Overall KPIs from DealReportView
@@ -577,8 +580,11 @@ export async function getReportDrilldownDeals(params: {
       }
     } else if (params.type === 'brand' && params.value) {
       andConditions.push({ brand: params.value });
+      andConditions.push({ BU: { in: [...OFFICIAL_REGISTERED_BUS] } });
     } else if (params.type === 'bu' && params.value) {
       andConditions.push({ BU: params.value });
+    } else {
+      andConditions.push({ BU: { in: [...OFFICIAL_REGISTERED_BUS] } });
     }
 
     // Date range bounds

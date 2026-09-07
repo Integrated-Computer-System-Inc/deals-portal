@@ -196,21 +196,16 @@ export interface DealHeaderRecord {
 }
 
 export const ACTIVE_BUSINESS_UNITS = [
-  'BU1',
-  'BU2',
-  'BU3',
-  'BU4',
   'BU5',
-  'BU6',
-  'BU7',
   'BU8',
-  'BU9',
-  'BU10',
-  'BU11',
+  'BU2',
   'BU12',
   'CE01',
+  'BU1',
+  'BU10',
 ] as const;
 export const ALL_BUSINESS_UNITS = [...ACTIVE_BUSINESS_UNITS];
+export const OFFICIAL_REGISTERED_BUS = [...ACTIVE_BUSINESS_UNITS];
 export type BusinessUnitCode = (typeof ACTIVE_BUSINESS_UNITS)[number];
 
 export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'muted' | 'accent' }> = {
