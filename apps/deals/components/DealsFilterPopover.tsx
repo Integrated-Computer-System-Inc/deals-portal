@@ -628,6 +628,27 @@ export function DealsFilterPopover({
               );
             })()}
 
+            {/* Renewed */}
+            {(() => {
+              const count = dealsCountByStatus['renewed'] || dealsCountByStatus['8'] || 0;
+              const isSelected = statusFilters.includes('renewed') || statusFilters.includes('8');
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleToggleStatus('renewed')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition border cursor-pointer flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-xs font-bold'
+                      : 'bg-neutral/80 text-muted hover:text-foreground border-border/60 hover:bg-neutral'
+                  }`}
+                  title="Deals with renewal records"
+                >
+                  <span>Renewed</span>
+                  {count > 0 && <span className="text-[10px] opacity-75">({count})</span>}
+                </button>
+              );
+            })()}
+
             {/* Waiting (4), Won (6), Lost (7), Expired (5), Declined (2) */}
             {['4', '6', '7', '5', '2'].map((id) => {
               const meta = DEAL_STATUS_MAP[Number(id)];

@@ -5,6 +5,8 @@ import QueryProvider from '../components/QueryProvider';
 import AppShell from '../components/AppShell';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { DevModeProvider } from '../components/DevModeContext';
+import TourProvider from '../components/tour/TourProvider';
+import TourAutoStart from '../components/tour/TourAutoStart';
 
 export const metadata = {
   title: 'DROMMAR',
@@ -57,7 +59,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <DevModeProvider>
             <QueryProvider>
               <SecurityGuard />
-              <AppShell>{children}</AppShell>
+              <TourProvider>
+                <TourAutoStart />
+                <AppShell>{children}</AppShell>
+              </TourProvider>
             </QueryProvider>
           </DevModeProvider>
         </NextAuthProvider>

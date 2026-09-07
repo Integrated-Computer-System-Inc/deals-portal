@@ -90,7 +90,6 @@ model cdbAccounts {
   NickName       String?   @db.VarChar(50)
   isActive       Int?
   GAvatar        String?   @db.VarChar(Max)
-  LastSynced     DateTime? @db.DateTime
 
   @@index([AccountName])
   @@index([AccountIDNo])
@@ -137,13 +136,16 @@ model dealWTN {
 }
 
 model Users {
-  AccountID     Int       @id
-  AccountName   String    @db.NVarChar(600)
-  Email         String    @unique @db.VarChar(255)
-  UserRole      String    @db.VarChar(50)
-  RememberToken String?   @db.VarChar(Max)
-  DtCreation    DateTime  @default(now()) @db.DateTime
-  LastLogin     DateTime? @db.DateTime
+  AccountID        Int       @id
+  AccountName      String    @db.NVarChar(600)
+  Email            String    @unique @db.VarChar(255)
+  UserRole         String    @db.VarChar(50)
+  AssignedBU       String?   @db.NVarChar(500)
+  AssignedBrand    String?   @db.NVarChar(500)
+  HasCompletedTour Boolean?  @default(false)
+  RememberToken    String?   @db.VarChar(Max)
+  DtCreation       DateTime  @default(now()) @db.DateTime
+  LastLogin        DateTime? @db.DateTime
 
   @@index([AccountName])
   @@index([Email])

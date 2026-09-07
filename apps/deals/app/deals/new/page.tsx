@@ -335,7 +335,7 @@ function NewDealContent() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div id="tour-newdeal-header" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
             href="/deals"
@@ -420,7 +420,7 @@ function NewDealContent() {
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Section 1: Customer Account */}
-        <AppCard className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
+        <AppCard id="tour-newdeal-customer" className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4">
           <div className="flex items-center gap-2 border-b border-border/50 pb-3">
             <Building2 className="w-4 h-4 text-sky-600" />
             <h2 className="font-bold text-sm text-foreground">1. Customer Information</h2>

@@ -6,6 +6,7 @@ import { useSidebar } from './AppSidebarProvider';
 import { AppLabel } from '../labels';
 
 export interface AppSidebarGroupProps {
+    id?: string;
     title?: string;
     children: React.ReactNode;
     className?: string;
@@ -13,6 +14,7 @@ export interface AppSidebarGroupProps {
 }
 
 export default function AppSidebarGroup({
+    id,
     title,
     children,
     className,
@@ -21,7 +23,7 @@ export default function AppSidebarGroup({
     const { collapsed } = useSidebar();
 
     return (
-        <div className={cn("flex flex-col w-full", className)}>
+        <div id={id} className={cn("flex flex-col w-full", className)}>
             {title && !collapsed && (
                 <AppLabel as="h3" variant="title" className={cn("uppercase tracking-wider text-gray-400/80 mb-2 px-1", titleClassName, 'text-[11px]')}>
                     {title}

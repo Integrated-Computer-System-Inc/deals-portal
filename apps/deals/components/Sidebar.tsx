@@ -26,7 +26,6 @@ import {
 } from 'lucide-react';
 import { UserRole } from '@my-app/types';
 import ThemeSwitcher from './ThemeSwitcher';
-import DevModeToggle from './DevModeToggle';
 import { useQueryClient } from '@tanstack/react-query';
 import { DEAL_QUERY_KEYS } from '@/hooks/useDealsQuery';
 import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
@@ -34,6 +33,7 @@ import { getDashboardSummary, getScopedDeals } from '@/app/actions/deals';
 const DEAL_STATUS_FILTERS = [
   { id: '1', label: 'Registered', color: 'bg-emerald-500', href: '/deals?status=1' },
   { id: 'expiring', label: 'Expiring', color: 'bg-amber-500', href: '/deals?expiry=expiring', isExpiry: true },
+  { id: 'renewed', label: 'Renewed', color: 'bg-teal-500', href: '/deals?status=renewed' },
   { id: '4', label: 'Waiting', color: 'bg-sky-500', href: '/deals?status=4' },
   { id: '6', label: 'Won', color: 'bg-indigo-500', href: '/deals?status=6' },
   { id: '7', label: 'Lost', color: 'bg-rose-600', href: '/deals?status=7' },
@@ -101,7 +101,7 @@ export default function Sidebar() {
         <AppSidebar.Header className={collapsed ? "p-3 border-b border-border/50 shrink-0" : "p-3.5 border-b border-border/50 shrink-0"}>
           {collapsed ? (
             /* Collapsed Header: Centered Gary Mascot Logo & Centered Expand Button */
-            <div className="flex flex-col items-center justify-center gap-2.5 w-full">
+            <div id="tour-brand-header" className="flex flex-col items-center justify-center gap-2.5 w-full p-1 rounded-xl">
               <Tooltip title="ICS Deal Registration" placement="right">
                 <img
                   src="/api/icons/Sidebar_Logo.png"
@@ -128,7 +128,7 @@ export default function Sidebar() {
             </div>
           ) : (
             /* Expanded Header: Full Brand Title & Collapse Button */
-            <div className="flex items-center justify-between gap-2.5 w-full">
+            <div id="tour-brand-header" className="flex items-center justify-between gap-2.5 w-full p-1 rounded-xl">
               <div className="flex items-center gap-2.5 min-w-0">
                 <img
                   src="/api/icons/Sidebar_Logo.png"
@@ -180,7 +180,7 @@ export default function Sidebar() {
 
         {/* Main Navigation */}
         <AppSidebar.Content className={collapsed ? "p-2 flex-1 flex flex-col items-center overflow-y-auto" : "p-2 flex-1 overflow-y-auto"}>
-          <AppSidebar.Group className="w-full flex flex-col items-center space-y-1">
+          <AppSidebar.Group id="tour-sidebar-nav" className="w-full flex flex-col items-center space-y-1">
             {!collapsed && (
               <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted w-full text-left">
                 Menu
@@ -207,7 +207,7 @@ export default function Sidebar() {
             </div>
 
             {/* 2. Deals Registry & Nested Status Filtering */}
-            <div className="w-full flex flex-col items-center">
+            <div id="tour-deals-submenu" className="w-full flex flex-col items-center">
               <div className="w-full flex justify-center">
                 <AppSidebar.Item
                   href="/deals"
@@ -303,7 +303,7 @@ export default function Sidebar() {
 
             {/* 4. Register Deal */}
             {!isViewOnly && (
-              <div className="w-full flex justify-center">
+              <div id="tour-new-deal-btn" className="w-full flex justify-center">
                 <AppSidebar.Item
                   href="/deals/new"
                   icon={<PlusCircle size={18} />}
@@ -395,7 +395,7 @@ export default function Sidebar() {
         </AppSidebar.Content>
 
         {/* Sticky User Footer */}
-        <AppSidebar.Footer className={collapsed ? "p-2.5 border-t border-border/50 bg-sidebar shrink-0 mt-auto flex flex-col items-center justify-center" : "p-3 border-t border-border/50 bg-sidebar shrink-0 mt-auto"}>
+        <AppSidebar.Footer className={collapsed ? "p-2.5 border-t border-border/50 bg-sidebar shrink-0 mt-auto flex flex-col items-center justify-center space-y-2" : "p-3 border-t border-border/50 bg-sidebar shrink-0 mt-auto space-y-2.5"}>
           {collapsed ? (
             /* Collapsed Footer (Aligned along identical vertical axis) */
             <div className="flex flex-col items-center justify-center gap-2 w-full">
@@ -411,12 +411,7 @@ export default function Sidebar() {
               </Tooltip>
 
               <div className="flex flex-col items-center justify-center gap-1.5 mt-1 w-full">
-                {userRole === 'ITadmin' && (
-                  <div className="flex items-center justify-center">
-                    <DevModeToggle placement="right" />
-                  </div>
-                )}
-                <div className="flex items-center justify-center">
+                <div id="tour-theme-switcher" className="flex items-center justify-center">
                   <ThemeSwitcher />
                 </div>
                 <Tooltip title="Sign Out" placement="right">
@@ -463,8 +458,7 @@ export default function Sidebar() {
                 </div>
               )}
 
-              <div className="flex items-center gap-1 shrink-0">
-                {userRole === 'ITadmin' && <DevModeToggle placement="top" />}
+              <div id="tour-theme-switcher" className="flex items-center gap-1 shrink-0">
                 <ThemeSwitcher />
                 <Tooltip title="Sign Out" placement="top">
                   <div>

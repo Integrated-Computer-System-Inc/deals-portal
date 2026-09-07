@@ -89,6 +89,8 @@ export function useModalDealFilters(
             statusMatch = statusNum === '6';
           } else if (q === 'lost') {
             statusMatch = statusNum === '7';
+          } else if (q === 'renewed' || q === 'renewal' || q === 'ren') {
+            statusMatch = Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal) || statusNum === '8';
           }
 
           return (
@@ -111,7 +113,16 @@ export function useModalDealFilters(
 
     // 2. Status Filter
     if (statusFilters.length > 0) {
-      result = result.filter((d) => statusFilters.includes(String(d.dealStatus)));
+      result = result.filter((d) => {
+        const statusNum = String(d.dealStatus || '1');
+        const isRenewed = Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal) || statusNum === '8' || d.dealStatus === 'renewed';
+
+        return statusFilters.some((st) => {
+          if (st === 'renewed' || st === '8') return isRenewed;
+          if (st === '4' || st === '3') return statusNum === '4' || statusNum === '3';
+          return statusNum === st;
+        });
+      });
     }
 
     // 3. BU Filter

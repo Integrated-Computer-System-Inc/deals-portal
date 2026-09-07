@@ -430,9 +430,12 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-          <DateRangeFilterPopover value={dateRange} onChange={setDateRange} />
+          <div id="tour-date-filter">
+            <DateRangeFilterPopover value={dateRange} onChange={setDateRange} />
+          </div>
           {!isViewOnly && (
             <Link
+              id="tour-register-deal-btn"
               href="/deals/new"
               className="flex items-center justify-center gap-2 bg-white text-primary font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm hover:bg-white/90 transition text-center whitespace-nowrap"
             >
@@ -441,6 +444,7 @@ export default function DashboardPage() {
             </Link>
           )}
           <Link
+            id="tour-nav-deals-btn"
             href="/deals"
             className="flex items-center justify-center gap-1.5 bg-white/15 text-white font-semibold text-xs px-4 py-2.5 rounded-xl hover:bg-white/25 transition border border-white/20 text-center whitespace-nowrap"
           >
@@ -451,9 +455,10 @@ export default function DashboardPage() {
       </div>
 
       {/* 6 Core Clickable KPI Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-4">
+      <div id="tour-dashboard-metrics" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-4">
         {/* KPI 1: Total Registered Deals (Clickable) */}
         <AppCard
+          id="tour-tile-registered"
           onClick={() => setIsRegisteredModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group"
         >
@@ -484,6 +489,7 @@ export default function DashboardPage() {
 
         {/* KPI 2: Expired Deals this Month (Clickable) */}
         <AppCard
+          id="tour-tile-expired"
           onClick={() => setIsExpiredModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group"
         >
@@ -511,6 +517,7 @@ export default function DashboardPage() {
 
         {/* KPI 3: Total Renewed Deals (Clickable) */}
         <AppCard
+          id="tour-tile-renewed"
           onClick={() => setIsRenewedModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group"
         >
@@ -541,6 +548,7 @@ export default function DashboardPage() {
 
         {/* KPI 3: Active Brands Represented (Clickable) */}
         <AppCard
+          id="tour-tile-brands"
           onClick={() => setIsBrandModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-sky-500/50 hover:shadow-md transition-all group"
         >
@@ -568,6 +576,7 @@ export default function DashboardPage() {
 
         {/* KPI 4: Expiring Deals (Clickable) */}
         <AppCard
+          id="tour-tile-expiring"
           onClick={() => setIsExpiringModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group"
         >
@@ -601,6 +610,7 @@ export default function DashboardPage() {
 
         {/* KPI 5: Lost Deal Review Studio (Clickable) */}
         <AppCard
+          id="tour-tile-lost"
           onClick={() => setIsLostModalOpen(true)}
           className="p-4 sm:p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs min-w-0 overflow-hidden cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group"
         >
@@ -630,7 +640,7 @@ export default function DashboardPage() {
       {/* Distribution Section: Brand Breakdown and BU Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         {/* Deals per Brand */}
-        <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4 flex flex-col justify-between">
+        <AppCard id="tour-distribution-brand" className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
               <div className="flex items-center gap-2">
@@ -757,7 +767,7 @@ export default function DashboardPage() {
         </AppCard>
 
         {/* Deals per BU */}
-        <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4 flex flex-col justify-between">
+        <AppCard id="tour-distribution-bu" className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-4 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-border/50 pb-3">
               <div className="flex items-center gap-2">
@@ -911,7 +921,7 @@ export default function DashboardPage() {
       </div>
 
       {/* SECTION: RECENT DEALS ACTIVITY STREAM (TABLE DESIGN) */}
-      <AppCard className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
+      <AppCard id="tour-recent-deals" className="p-5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-3">
         <div className="flex items-center justify-between border-b border-border/50 pb-3">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-emerald-500" />

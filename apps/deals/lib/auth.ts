@@ -276,13 +276,13 @@ export const authOptions: NextAuthOptions = {
               await prisma.$executeRawUnsafe(`
                 IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
                 BEGIN
-                  IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId})
+                  IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId} OR LOWER(Email) = '${userEmail.replace(/'/g, "''")}')
                     UPDATE Users 
                     SET AccountName = N'${accountName.replace(/'/g, "''")}',
                         Email = '${userEmail.replace(/'/g, "''")}',
                         RememberToken = '${rememberToken}',
                         LastLogin = GETDATE()
-                    WHERE AccountID = ${accountId};
+                    WHERE AccountID = ${accountId} OR LOWER(Email) = '${userEmail.replace(/'/g, "''")}';
                   ELSE
                     INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
                     VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${userEmail.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
@@ -378,13 +378,19 @@ export const authOptions: NextAuthOptions = {
           const emailLower = user.email.toLowerCase().trim();
           const emailDomain = emailLower.split('@')[1];
 
-          // 1. Validate enterprise email domain (all @ics.com.ph allowed)
+          // 1. Check if user is a designated Superadmin or Configured Admin (unconditional exemption)
+          const isSuperadmin =
+            isSuperadminEmail(emailLower) ||
+            isSuperadminEmail(user.email) ||
+            isConfiguredAdminEmail(emailLower);
+
+          // 2. Validate enterprise email domain (all @ics.com.ph allowed, admins exempt)
           const allowedDomains = (process.env.ALLOWED_EMAIL_DOMAINS || 'ics.com.ph')
             .split(',')
             .map((d) => d.trim().toLowerCase())
             .filter(Boolean);
 
-          if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+          if (!isSuperadmin && (!emailDomain || !allowedDomains.includes(emailDomain))) {
             console.warn(
               `[Google Sign-In] Rejected: ${user.email} does not match allowed domains:`,
               allowedDomains
@@ -393,7 +399,13 @@ export const authOptions: NextAuthOptions = {
           }
 
           // Extract latest Google profile photo URL and upgrade to high-res (=s256-c)
-          const rawGooglePhotoUrl = (user.image || (profile as any)?.picture || (account as any)?.picture || '').trim();
+          const rawGooglePhotoUrl = (
+            user.image ||
+            (profile as any)?.picture ||
+            (account as any)?.picture ||
+            (profile as any)?.avatar_url ||
+            ''
+          ).trim();
           const googlePhotoUrl = normalizeGooglePhotoUrl(rawGooglePhotoUrl);
 
           // Helper to synchronize Google profile photo with cdbAccounts and cache
@@ -421,7 +433,91 @@ export const authOptions: NextAuthOptions = {
             }
           };
 
-          // 2. FAST-PATH: Check if user is already registered in dbo.Users table with valid RememberToken
+          // 3. ADMIN EXEMPTION: Administrators get immediate guaranteed access
+          if (isSuperadmin) {
+            let adminAccountId = 57845;
+            let adminAccountName = user.name || emailLower.split('@')[0].toUpperCase();
+
+            // Known admin mappings fallback
+            if (emailLower === 'bcandelaria@ics.com.ph') {
+              adminAccountId = 57846;
+              adminAccountName = 'BHARON CHRISTOPHER CANDELARIA';
+            } else if (emailLower === 'jdoremon@ics.com.ph') {
+              adminAccountId = 57845;
+              adminAccountName = 'JAMES PAOLO DOREMON';
+            } else if (emailLower === 'mescario@ics.com.ph') {
+              adminAccountId = 57732;
+              adminAccountName = 'MARK EDO ESCARIO';
+            } else if (emailLower === 'dramos@ics.com.ph') {
+              adminAccountId = 56395;
+              adminAccountName = 'DAN LEMUEL RAMOS';
+            }
+
+            // Attempt to look up cdbAccounts to enrich name / ID if present
+            try {
+              const cdbAccount = await prisma.cdbAccounts.findFirst({
+                where: {
+                  OR: [
+                    { Email: emailLower },
+                    { Email: user.email.trim() },
+                    { Email: emailLower.toUpperCase() },
+                  ],
+                },
+                select: CDB_ACCOUNT_SELECT,
+              });
+              if (cdbAccount) {
+                adminAccountId = cdbAccount.AccountID;
+                adminAccountName = cdbAccount.AccountName || adminAccountName;
+              }
+            } catch (e) {
+              console.warn('[Google Sign-In] Admin directory lookup skipped:', e);
+            }
+
+            // Synchronize photo to cdbAccounts
+            await syncGooglePhotoToCdb(emailLower, adminAccountId);
+
+            const rememberToken = randomUUID();
+
+            // Safely upsert admin into dbo.Users table with ITadmin role
+            try {
+              await prisma.$executeRawUnsafe(`
+                IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+                BEGIN
+                  IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${adminAccountId} OR LOWER(Email) = '${emailLower.replace(/'/g, "''")}')
+                    UPDATE Users 
+                    SET AccountName = N'${adminAccountName.replace(/'/g, "''")}',
+                        Email = '${emailLower.replace(/'/g, "''")}',
+                        UserRole = 'ITadmin',
+                        RememberToken = '${rememberToken}',
+                        LastLogin = GETDATE()
+                    WHERE AccountID = ${adminAccountId} OR LOWER(Email) = '${emailLower.replace(/'/g, "''")}';
+                  ELSE
+                    INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
+                    VALUES (${adminAccountId}, N'${adminAccountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', 'ITadmin', NULL, NULL, '${rememberToken}', GETDATE(), GETDATE());
+                END
+              `);
+            } catch (dbErr) {
+              console.warn('[Google Sign-In] Admin Users upsert notice:', dbErr);
+            }
+
+            // Attach claims
+            (user as any).AccountID = String(adminAccountId);
+            (user as any).AccountName = adminAccountName;
+            (user as any).AccountGroup = 'ALL';
+            (user as any).DomainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
+            (user as any).role = 'ITadmin';
+            (user as any).assignedBUs = ['ALL'];
+            (user as any).assignedBrands = ['ALL'];
+            (user as any).RememberToken = rememberToken;
+            (user as any).GAvatar = googlePhotoUrl || undefined;
+            if (googlePhotoUrl) {
+              user.image = googlePhotoUrl;
+            }
+
+            return true;
+          }
+
+          // 4. FAST-PATH: Check if regular user is already registered in dbo.Users table
           try {
             const hasCols = await hasAssignedColumns();
             const safeEmail = emailLower.replace(/'/g, "''");
@@ -440,7 +536,6 @@ export const authOptions: NextAuthOptions = {
             if (Array.isArray(usersQueryResult) && usersQueryResult.length > 0 && usersQueryResult[0].UserRole) {
               const existingUser = usersQueryResult[0];
               const accountId = Number(existingUser.AccountID);
-              const userRole = existingUser.UserRole as UserRole;
               const accountName = existingUser.AccountName || user.name || emailLower.split('@')[0].toUpperCase();
               const newRememberToken = randomUUID();
 
@@ -466,12 +561,11 @@ export const authOptions: NextAuthOptions = {
               prisma.$executeRawUnsafe(`
                 UPDATE Users 
                 SET LastLogin = GETDATE(), RememberToken = '${newRememberToken}' 
-                WHERE AccountID = ${accountId};
+                WHERE AccountID = ${accountId} OR LOWER(Email) = '${emailLower.replace(/'/g, "''")}';
               `).catch((e) => console.warn('[Fast-Path] Non-blocking LastLogin update error:', e));
               serverCache.set(`user:remember_token:${accountId}`, newRememberToken, REMEMBER_TOKEN_CACHE_TTL);
 
               const domainAccount = `CORP\\${emailLower.split('@')[0].toUpperCase()}`;
-
               const assignedBrands = userAccess.assignedBrands || [];
               const finalAvatar = googlePhotoUrl || (await getCachedUserAvatar(accountId)) || undefined;
 
@@ -494,10 +588,7 @@ export const authOptions: NextAuthOptions = {
             console.warn('[Google Sign-In] Fast-path lookup skipped, proceeding with directory verification:', fastPathError);
           }
 
-          // 3. Check if user is a designated Superadmin
-          const isSuperadmin = isSuperadminEmail(emailLower) || isSuperadminEmail(user.email);
-
-          // 4. Query cdbAccounts with lightweight scalar projection (skipping binary blobs)
+          // 5. Standard Directory Lookup: Query cdbAccounts with lightweight scalar projection
           let cdbAccount = await prisma.cdbAccounts.findFirst({
             where: {
               OR: [
@@ -518,8 +609,8 @@ export const authOptions: NextAuthOptions = {
             });
           }
 
-          // 5. Block access if user does not exist in corporate directory AND is not in Users/Superadmins
-          if (!cdbAccount && !isSuperadmin) {
+          // Block access if user does not exist in corporate directory
+          if (!cdbAccount) {
             console.warn(
               `[Google Sign-In] Access Denied: User ${user.email} (${user.name}) not found in cdbAccounts and not in Users table.`
             );
@@ -527,11 +618,11 @@ export const authOptions: NextAuthOptions = {
           }
 
           // 6. Resolve Role, Assigned Business Units & Authorization Status
-          const accountId = cdbAccount ? cdbAccount.AccountID : 57845;
-          const accountName = cdbAccount ? cdbAccount.AccountName : (user.name || emailLower.split('@')[0].toUpperCase());
-          const accountGroup = cdbAccount ? cdbAccount.AccountGroup : 'HQ';
-          const accountType = cdbAccount ? cdbAccount.AccountType : 'ADMIN';
-          const isActive = cdbAccount ? cdbAccount.isActive : 1;
+          const accountId = cdbAccount.AccountID;
+          const accountName = cdbAccount.AccountName || (user.name || emailLower.split('@')[0].toUpperCase());
+          const accountGroup = cdbAccount.AccountGroup || 'HQ';
+          const accountType = cdbAccount.AccountType || 'AO';
+          const isActive = cdbAccount.isActive ?? 1;
 
           const userAccess = resolveUserRoleAndBUs(
             accountId,
@@ -563,16 +654,19 @@ export const authOptions: NextAuthOptions = {
             const buVal = (userAccess.assignedBUs || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
             const brandVal = (userAccess.assignedBrands || []).filter(b => b !== 'ALL').join(',').replace(/'/g, "''");
             await prisma.$executeRawUnsafe(`
-              IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId})
-                UPDATE Users 
-                SET AccountName = N'${accountName.replace(/'/g, "''")}',
-                    Email = '${emailLower.replace(/'/g, "''")}',
-                    RememberToken = '${rememberToken}',
-                    LastLogin = GETDATE()
-                WHERE AccountID = ${accountId};
-              ELSE
-                INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
-                VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
+              IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+              BEGIN
+                IF EXISTS (SELECT 1 FROM Users WHERE AccountID = ${accountId} OR LOWER(Email) = '${emailLower.replace(/'/g, "''")}')
+                  UPDATE Users 
+                  SET AccountName = N'${accountName.replace(/'/g, "''")}',
+                      Email = '${emailLower.replace(/'/g, "''")}',
+                      RememberToken = '${rememberToken}',
+                      LastLogin = GETDATE()
+                  WHERE AccountID = ${accountId} OR LOWER(Email) = '${emailLower.replace(/'/g, "''")}';
+                ELSE
+                  INSERT INTO Users (AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, RememberToken, DtCreation, LastLogin)
+                  VALUES (${accountId}, N'${accountName.replace(/'/g, "''")}', '${emailLower.replace(/'/g, "''")}', '${userAccess.role}', ${buVal ? `'${buVal}'` : 'NULL'}, ${brandVal ? `'${brandVal}'` : 'NULL'}, '${rememberToken}', GETDATE(), GETDATE());
+              END
             `);
             serverCache.set(`user:remember_token:${accountId}`, rememberToken, REMEMBER_TOKEN_CACHE_TTL);
           } catch (dbError) {
@@ -616,8 +710,13 @@ export const authOptions: NextAuthOptions = {
         token.RememberToken = u.RememberToken || null;
         token.isImpersonating = u.isImpersonating || false;
         token.originalAdminEmail = u.originalAdminEmail || (isSuperadminEmail(u.email) ? u.email : undefined);
-        token.GAvatar = u.GAvatar || user.image || undefined;
+        token.GAvatar = u.GAvatar || user.image || (user as any)?.picture || token.picture || undefined;
         token.authTime = Math.floor(Date.now() / 1000);
+      }
+
+      // Ensure token.GAvatar is populated whenever picture is available
+      if (!token.GAvatar && token.picture) {
+        token.GAvatar = token.picture as string;
       }
 
       // Proactive Self-Healing of user avatar between token and cdbAccounts

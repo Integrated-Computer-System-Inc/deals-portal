@@ -6,7 +6,7 @@ import { prisma } from '@my-app/database';
 import { UserRole } from '@my-app/types';
 import { revalidatePath } from 'next/cache';
 import { resolveUserRoleAndBUs } from '@/lib/roles';
-import { runUserTableMigration, hasAssignedColumns } from '@/lib/db-migration';
+import { runUserTableMigration, hasAssignedColumns, hasTourColumn } from '@/lib/db-migration';
 import { logActivity } from '@/lib/activity-logger';
 import { serverCache } from '@/lib/serverCache';
 
@@ -27,6 +27,7 @@ export interface AdminUserRecord {
   LastLogin?: string | null;
   DtCreation: string;
   isSuperadmin: boolean;
+  hasCompletedTour?: boolean;
 }
 
 export interface CdbDirectoryUser {
@@ -64,10 +65,9 @@ export async function getUsersList(): Promise<{ success: boolean; data: AdminUse
     await assertAdminSession();
     await runUserTableMigration();
     const hasCols = await hasAssignedColumns();
+    const hasTourCol = await hasTourColumn();
 
-    const selectQuery = hasCols
-      ? `SELECT AccountID, AccountName, Email, UserRole, AssignedBU, AssignedBrand, LastLogin, DtCreation FROM [dbo].[Users] ORDER BY DtCreation DESC, AccountName ASC;`
-      : `SELECT AccountID, AccountName, Email, UserRole, LastLogin, DtCreation FROM [dbo].[Users] ORDER BY DtCreation DESC, AccountName ASC;`;
+    const selectQuery = `SELECT AccountID, AccountName, Email, UserRole, LastLogin, DtCreation${hasCols ? ', AssignedBU, AssignedBrand' : ''}${hasTourCol ? ', HasCompletedTour' : ''} FROM [dbo].[Users] ORDER BY DtCreation DESC, AccountName ASC;`;
 
     const dbUsers = await prisma.$queryRawUnsafe<any[]>(selectQuery);
 
@@ -157,6 +157,7 @@ export async function getUsersList(): Promise<{ success: boolean; data: AdminUse
         LastLogin: u.LastLogin ? new Date(u.LastLogin).toISOString() : null,
         DtCreation: u.DtCreation ? new Date(u.DtCreation).toISOString() : new Date().toISOString(),
         isSuperadmin: resolved.isITAdmin || [57845, 57846, 57732, 56395].includes(accountId),
+        hasCompletedTour: Boolean(hasTourCol && (u.HasCompletedTour === 1 || u.HasCompletedTour === true)),
       };
     });
 
@@ -526,5 +527,34 @@ export async function deleteUser(accountId: number): Promise<{ success: boolean;
   } catch (error: any) {
     console.error('[deleteUser] Error:', error);
     return { success: false, error: error.message || 'Failed to delete user' };
+  }
+}
+
+/**
+ * Resets the tour completion status for a user, allowing them to experience the tour again.
+ */
+export async function resetUserTour(accountId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    await assertAdminSession();
+
+    if (!accountId || isNaN(accountId)) {
+      return { success: false, error: 'Invalid Account ID' };
+    }
+
+    await prisma.$executeRawUnsafe(`
+      IF EXISTS (SELECT * FROM sysobjects WHERE name='Users' and xtype='U')
+      BEGIN
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Users' AND COLUMN_NAME = 'HasCompletedTour')
+          UPDATE [dbo].[Users]
+          SET HasCompletedTour = 0
+          WHERE AccountID = ${accountId};
+      END
+    `);
+
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error: any) {
+    console.error('[resetUserTour] Error:', error);
+    return { success: false, error: error.message || 'Failed to reset user tour' };
   }
 }

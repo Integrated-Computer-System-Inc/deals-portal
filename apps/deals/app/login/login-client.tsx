@@ -163,12 +163,18 @@ function GaryHeroMascot({
     if (isSad) {
       welcomeVideoRef.current?.pause();
       if (sadVideoRef.current) {
+        sadVideoRef.current.muted = true;
         sadVideoRef.current.currentTime = 0;
-        sadVideoRef.current.play().catch(() => {});
+        const p = sadVideoRef.current.play();
+        if (p !== undefined) p.catch(() => {});
       }
     } else {
       sadVideoRef.current?.pause();
-      welcomeVideoRef.current?.play().catch(() => {});
+      if (welcomeVideoRef.current) {
+        welcomeVideoRef.current.muted = true;
+        const p = welcomeVideoRef.current.play();
+        if (p !== undefined) p.catch(() => {});
+      }
     }
   }, [isCelebrating, isSad]);
 
@@ -176,10 +182,10 @@ function GaryHeroMascot({
     return (
       <div key="hero-celebrating" className="w-full h-full flex items-center justify-center select-none animate-in fade-in zoom-in-95 duration-300">
         <img
-          src="/api/icons/Success_Message.png"
+          src="/icons/Success_Message.png"
           alt="Login Success"
           className="w-auto max-h-full max-w-full object-contain drop-shadow-2xl"
-          onError={(e) => { (e.target as HTMLImageElement).src = '/icons/Success_Message.png'; }}
+          onError={(e) => { (e.target as HTMLImageElement).src = '/api/icons/Success_Message.png'; }}
         />
       </div>
     );
@@ -194,18 +200,19 @@ function GaryHeroMascot({
         className={`w-auto h-full object-contain object-bottom drop-shadow-2xl transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         style={{ minWidth: '82%' }}
       >
-        <source src="/api/icons/Welcome.webm" type="video/webm" />
         <source src="/icons/Welcome.webm" type="video/webm" />
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
         <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
       </video>
       <video
         ref={sadVideoRef}
-        loop muted playsInline preload="auto"
-        className={`absolute bottom-0 w-auto h-full object-contain object-bottom drop-shadow-2xl transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        autoPlay loop muted playsInline preload="auto"
+        className={`absolute bottom-0 w-auto h-full object-contain object-bottom drop-shadow-2xl transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none'}`}
         style={{ minWidth: '82%' }}
       >
-        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
         <source src="/icons/Failed_Login.webm" type="video/webm" />
+        <source src="/icons/Failed_Login.mp4" type="video/mp4" />
+        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
       </video>
     </div>
   );
@@ -234,12 +241,18 @@ function MobileGaryHeroMascot({
     if (isSad) {
       mobileWelcomeRef.current?.pause();
       if (mobileSadRef.current) {
+        mobileSadRef.current.muted = true;
         mobileSadRef.current.currentTime = 0;
-        mobileSadRef.current.play().catch(() => {});
+        const p = mobileSadRef.current.play();
+        if (p !== undefined) p.catch(() => {});
       }
     } else {
       mobileSadRef.current?.pause();
-      mobileWelcomeRef.current?.play().catch(() => {});
+      if (mobileWelcomeRef.current) {
+        mobileWelcomeRef.current.muted = true;
+        const p = mobileWelcomeRef.current.play();
+        if (p !== undefined) p.catch(() => {});
+      }
     }
   }, [isCelebrating, isSad]);
 
@@ -247,10 +260,10 @@ function MobileGaryHeroMascot({
     return (
       <div key="mobile-hero-celebrating" className="relative w-full h-full flex items-center justify-center select-none animate-in fade-in zoom-in-95 duration-300">
         <img
-          src="/api/icons/Success_Message.png"
+          src="/icons/Success_Message.png"
           alt="Login Success"
           className="w-auto h-full object-contain drop-shadow-lg"
-          onError={(e) => { (e.target as HTMLImageElement).src = '/icons/Success_Message.png'; }}
+          onError={(e) => { (e.target as HTMLImageElement).src = '/api/icons/Success_Message.png'; }}
         />
       </div>
     );
@@ -264,18 +277,19 @@ function MobileGaryHeroMascot({
         className={`w-auto h-full object-contain object-bottom drop-shadow-lg transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         style={{ minWidth: '70%' }}
       >
-        <source src="/api/icons/Welcome.webm" type="video/webm" />
         <source src="/icons/Welcome.webm" type="video/webm" />
+        <source src="/api/icons/Welcome.webm" type="video/webm" />
         <source src="/api/icons/Peeking_Welcome.webm" type="video/webm" />
       </video>
       <video
         ref={mobileSadRef}
-        loop muted playsInline preload="auto"
-        className={`absolute bottom-0 w-auto h-full object-contain object-bottom drop-shadow-lg transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        autoPlay loop muted playsInline preload="auto"
+        className={`absolute bottom-0 w-auto h-full object-contain object-bottom drop-shadow-lg transition-opacity duration-200 ease-in-out ${isSad ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none'}`}
         style={{ minWidth: '70%' }}
       >
-        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
         <source src="/icons/Failed_Login.webm" type="video/webm" />
+        <source src="/icons/Failed_Login.mp4" type="video/mp4" />
+        <source src="/api/icons/Failed_Login.webm" type="video/webm" />
       </video>
     </div>
   );

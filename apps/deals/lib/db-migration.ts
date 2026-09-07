@@ -23,11 +23,34 @@ export async function hasAssignedColumns(): Promise<boolean> {
   }
 }
 
+let tourColumnExistCache: boolean | null = null;
+
+/**
+ * Checks if HasCompletedTour column exists in dbo.Users.
+ */
+export async function hasTourColumn(): Promise<boolean> {
+  if (tourColumnExistCache !== null) return tourColumnExistCache;
+  try {
+    const res = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT COUNT(*) AS cnt
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Users'
+        AND COLUMN_NAME = 'HasCompletedTour';
+    `);
+    const count = Number(res?.[0]?.cnt || 0);
+    tourColumnExistCache = count >= 1;
+    return tourColumnExistCache;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Invalidate column existence cache (e.g. after migration is run).
  */
 export function invalidateColumnCache() {
   columnsExistCache = null;
+  tourColumnExistCache = null;
 }
 
 /**
@@ -59,6 +82,15 @@ export async function runUserTableMigration(): Promise<void> {
         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Users' AND COLUMN_NAME = 'AssignedBrand'
       )
       ALTER TABLE [dbo].[Users] ADD AssignedBrand NVARCHAR(500) NULL;
+    `);
+
+    // 3. Add HasCompletedTour column if it doesn't exist yet
+    await prisma.$executeRawUnsafe(`
+      IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Users' AND COLUMN_NAME = 'HasCompletedTour'
+      )
+      ALTER TABLE [dbo].[Users] ADD HasCompletedTour BIT NOT NULL DEFAULT 0;
     `);
 
     // 3. Back-fill existing rows that still have composite UserRole values

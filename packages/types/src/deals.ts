@@ -220,6 +220,7 @@ export const DEAL_STATUS_MAP: Record<number, { label: string; variant: 'success'
   5: { label: 'Expired', variant: 'muted' },
   6: { label: 'Won', variant: 'accent' },
   7: { label: 'Lost', variant: 'danger' },
+  8: { label: 'Renewed', variant: 'success' },
 };
 
 // Fallback for status 3 to Waiting (status 4)

@@ -5,7 +5,6 @@ import { Menu, Sparkles } from 'lucide-react';
 import { useSidebar, AppAvatar, AppButton } from './ui';
 import { useSession } from 'next-auth/react';
 import ThemeSwitcher from './ThemeSwitcher';
-import DevModeToggle from './DevModeToggle';
 import Link from 'next/link';
 
 export default function MobileHeader() {
@@ -42,7 +41,6 @@ export default function MobileHeader() {
 
       {/* Right: Theme Switcher & User Avatar */}
       <div className="flex items-center gap-2">
-        {userRole === 'ITadmin' && <DevModeToggle placement="bottom" />}
         <ThemeSwitcher />
         <AppAvatar
           name={accountName}

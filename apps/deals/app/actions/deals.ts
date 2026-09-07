@@ -240,10 +240,32 @@ export async function getScopedDeals(
     if (statusFilter) {
       if (Array.isArray(statusFilter) && statusFilter.length > 0 && !statusFilter.includes('ALL')) {
         const statuses = statusFilter.map(String).flatMap((st) => (st === '4' || st === '3' ? ['4', '3'] : [st]));
-        andConditions.push({ dealStatus: { in: statuses } });
+        if (statuses.includes('renewed') || statuses.includes('8')) {
+          const nonRenewed = statuses.filter((s) => s !== 'renewed' && s !== '8');
+          andConditions.push({
+            OR: [
+              ...(nonRenewed.length > 0 ? [{ dealStatus: { in: nonRenewed } }] : []),
+              { dealStatus: '8' },
+              { dealStatus: 'renewed' },
+              { Renewals: { some: {} } },
+            ],
+          });
+        } else {
+          andConditions.push({ dealStatus: { in: statuses } });
+        }
       } else if (typeof statusFilter === 'string' && statusFilter !== 'ALL' && statusFilter !== '') {
-        const statuses = statusFilter === '4' || statusFilter === '3' ? ['4', '3'] : [statusFilter];
-        andConditions.push({ dealStatus: { in: statuses } });
+        if (statusFilter === 'renewed' || statusFilter === '8') {
+          andConditions.push({
+            OR: [
+              { dealStatus: '8' },
+              { dealStatus: 'renewed' },
+              { Renewals: { some: {} } },
+            ],
+          });
+        } else {
+          const statuses = statusFilter === '4' || statusFilter === '3' ? ['4', '3'] : [statusFilter];
+          andConditions.push({ dealStatus: { in: statuses } });
+        }
       }
     }
 
@@ -518,7 +540,6 @@ export async function getScopedDeals(
             dtCreated: true,
           },
           orderBy: { dtCreated: 'desc' },
-          take: 1,
         },
       },
       orderBy: orderByClause,

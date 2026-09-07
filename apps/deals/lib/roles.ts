@@ -60,13 +60,17 @@ export const SUPERADMIN_EMAILS: readonly string[] = [
   'dramos@ics.com.ph',
 ];
 
-/**
- * Checks if an email belongs to a designated Superadmin
- */
 export function isSuperadminEmail(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
-  return SUPERADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === normalized);
+  const envAdmins = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return (
+    SUPERADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === normalized) ||
+    envAdmins.includes(normalized)
+  );
 }
 
 /**

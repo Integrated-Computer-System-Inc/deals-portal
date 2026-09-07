@@ -367,9 +367,15 @@ function DealsContent() {
     const map: Record<string, number> = {};
     const now = Date.now();
     let expiringCount = 0;
+    let renewedCount = 0;
     deals.forEach((d) => {
       const st = String(d.dealStatus);
       map[st] = (map[st] || 0) + 1;
+
+      const isRenewed = Boolean(d.renewals && d.renewals.length > 0) || Boolean(d.latestRenewal) || st === '8' || st === 'renewed';
+      if (isRenewed) {
+        renewedCount++;
+      }
 
       const expDate = d.expDt || d.expiration;
       if (expDate) {
@@ -380,6 +386,8 @@ function DealsContent() {
       }
     });
     map['expiring'] = expiringCount;
+    map['renewed'] = renewedCount;
+    map['8'] = map['8'] || renewedCount;
     return map;
   }, [deals]);
 
@@ -800,6 +808,7 @@ function DealsContent() {
 
           {canCreate && (
             <Link
+              id="tour-deals-register-btn"
               href="/deals/new"
               className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:opacity-90 transition shadow-sm"
             >
@@ -894,7 +903,7 @@ function DealsContent() {
       </div>
 
       {/* Search, Filter Popover and Sort Popover Bar */}
-      <AppCard className="p-3.5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-2.5">
+      <AppCard id="tour-deals-search-filters" className="p-3.5 bg-card-bg border border-border/50 rounded-xl shadow-xs space-y-2.5">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           {/* Search Input */}
           <div className="flex-1 min-w-0">
@@ -1107,7 +1116,7 @@ function DealsContent() {
       </AppCard>
 
       {/* Upgraded Data Table with Smooth Table-Matched Skeleton */}
-      <AppCard className="border border-border/50 rounded-xl overflow-hidden shadow-xs bg-card-bg">
+      <AppCard id="tour-deals-table-container" className="border border-border/50 rounded-xl overflow-hidden shadow-xs bg-card-bg">
         {loading && deals.length === 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[1000px]">
